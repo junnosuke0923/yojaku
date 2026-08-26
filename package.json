@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "verify:layout": "esbuild test/verify-layout.ts --bundle --platform=node --format=esm --outfile=test/verify-layout.mjs --log-level=warning && node test/verify-layout.mjs",
     "verify": "esbuild test/verify.ts --bundle --platform=node --format=esm --outfile=test/verify.mjs --log-level=warning && node test/verify.mjs",
-    "sample": "esbuild test/make-sample.ts --bundle --platform=node --format=esm --outfile=test/make-sample.mjs --log-level=warning && node test/make-sample.mjs"
+    "sample": "esbuild test/make-sample.ts --bundle --platform=node --format=esm --outfile=test/make-sample.mjs --log-level=warning && node test/make-sample.mjs",
+    "deploy": "npm run verify:layout && npm run build && node scripts/deploy.mjs"
   },
   "dependencies": {
     "react": "^19.2.8",

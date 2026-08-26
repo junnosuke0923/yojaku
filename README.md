@@ -40,12 +40,25 @@ npm run sample         # 動作確認用の写真 ../テスト用の写真.png �
 
 ## 配る
 
-`main` に push すると GitHub Actions が動き、
-`npm run verify:layout` と `npm run build` が通ったときだけ GitHub Pages に置きなおす
-（設定は [.github/workflows/deploy.yml](.github/workflows/deploy.yml)）。
-学生には、その固定URLをひとつ伝えれば足りる。
+学生に伝えるURLは、これひとつ。
 
-手元だけで確かめたいときは：
+**https://junnosuke0923.github.io/yojaku/**
+
+置きなおすときは：
+
+```
+npm run deploy     # 検算 → ビルド → GitHub へ送る、までまとめて行う
+```
+
+検算（`verify:layout`）が落ちたらそこで止まるので、計算が壊れたまま配ることはない。
+送り先は `gh-pages` ブランチで、GitHub Pages はそこを見ている（[scripts/deploy.mjs](scripts/deploy.mjs)）。
+
+GitHub Actions（GitHub 側で自動ビルドするしくみ）は使っていない。
+それには `workflow` という追加の権限が要るが、
+使う端末の `gh` のログイン状態がそこまで整っていなかったため、
+手元でビルドして送るこの形にした。結果は同じで、手順はこちらのほうが短い。
+
+送る前に手元で確かめたいときは：
 
 ```
 npm run build      # dist/ フォルダができる
