@@ -67,6 +67,25 @@ const BELT_MM: Point[] = [
 const BELT_WIDTH_MM = 212 - 180   // 32
 const BELT_HEIGHT_MM = 720 - 40   // 680
 
+/**
+ * 一度に何枚も撮るとき用の、2枚並べた型紙（依頼者の質問・2026-08-26）。
+ *
+ * 定規は手元に1本しかないので、写真の中にも1本しか写らない。
+ * 定規は写真の面そのものの実寸を決めているので、
+ * 1本あれば写真に写っているものは全部そのまま測れる——それを確かめる。
+ * 大きさを変えてあるのは、面積の大きい順に並ぶことを当てにするため。
+ */
+const TWIN_A_MM: Point[] = [
+  { x: 30, y: 70 }, { x: 290, y: 70 }, { x: 290, y: 620 }, { x: 30, y: 620 },
+]
+const TWIN_B_MM: Point[] = [
+  { x: 480, y: 70 }, { x: 710, y: 70 }, { x: 710, y: 620 }, { x: 480, y: 620 },
+]
+const TWIN_EXPECT = [
+  { widthMm: 260, heightMm: 550 },
+  { widthMm: 230, heightMm: 550 },
+]
+
 const TRUE_WIDTH_MM = 550 - 100  // 450
 const TRUE_HEIGHT_MM = 640 - 20  // 620
 
@@ -162,6 +181,8 @@ function buildScene(opts: {
   tintedRuler?: boolean
   /** 型紙の形。省略すると前身頃 */
   pattern?: Point[]
+  /** 何枚も一度に写すとき。指定すると pattern より優先する */
+  patterns?: Point[][]
   /** 定規の左上を実寸のどこに置くか。省略すると型紙の左脇（従来どおり） */
   rulerOriginMm?: Point
 }): Scene {
@@ -187,7 +208,9 @@ function buildScene(opts: {
   ]
   const rulerQuad = rulerMm.map(project) as Quad
 
-  fillPolygon(img, (opts.pattern ?? PATTERN_MM).map(project), PAPER)
+  for (const poly of opts.patterns ?? [opts.pattern ?? PATTERN_MM]) {
+    fillPolygon(img, poly.map(project), PAPER)
+  }
   if (opts.opaqueRuler) fillPolygon(img, rulerQuad, PLASTIC)
   // 実物どおりの描き方。紙の上では紙が赤く、緑の上では緑が赤く濁って見える
   else if (opts.tintedRuler) fillPolygon(img, rulerQuad, TINT, TINT_ALPHA)
@@ -229,6 +252,62 @@ type RunOpts = {
   expectOverhang?: boolean
   /** 寸法の許容ずれ（%）。省略すると 2% */
   tolerancePercent?: number
+}
+
+/**
+ * 何枚も一度に撮ったときの検算。
+ *
+ * 定規が1本しかなくても、写真の面の実寸はそれで決まるので、
+ * 写っているパーツはすべて同じ換算で測れるはず。
+ * 定規を緑の上に置いた場合と、どれか1枚に載せた場合の両方を見る。
+ */
+function runMulti(
+  title: string,
+  opts: {
+    tiltDeg: number
+    patterns: Point[][]
+    rulerOriginMm: Point
+    expect: { widthMm: number; heightMm: number }[]
+    tolerancePercent?: number
+  },
+) {
+  console.log(`
+■ ${title}`)
+  const scene = buildScene({
+    rulerId: 'r50',
+    tiltDeg: opts.tiltDeg,
+    opaqueRuler: false,
+    tintedRuler: true,
+    patterns: opts.patterns,
+    rulerOriginMm: opts.rulerOriginMm,
+  })
+  const image = scene.image as unknown as ImageData
+  const hue = estimateHueCenter(image.data)
+
+  const out = analyze({
+    imageData: image,
+    rulerQuad: scene.rulerQuad,
+    ruler: RULERS.r50,
+    green: { ...DEFAULT_GREEN, hueCenter: hue },
+  })
+  if ('error' in out) {
+    failures++
+    console.log(`  NG  解析に失敗: ${out.error}`)
+    return
+  }
+
+  report(
+    '検出したパーツ数',
+    out.parts.length === opts.expect.length,
+    `${out.parts.length} 個（正解 ${opts.expect.length} 個・定規は除外されるべき）`,
+  )
+  if (out.parts.length !== opts.expect.length) return
+
+  const tol = opts.tolerancePercent ?? 3
+  out.parts.forEach((part, i) => {
+    check(`パーツ${i + 1} 最大幅 (mm)`, part.widthMm, opts.expect[i].widthMm, tol)
+    check(`パーツ${i + 1} 最大丈 (mm)`, part.heightMm, opts.expect[i].heightMm, tol)
+  })
 }
 
 function run(title: string, opts: RunOpts) {
@@ -376,6 +455,24 @@ run('細長いパーツ・横へはみ出し・10度傾き', {
   pattern: BELT_MM, rulerOriginMm: { x: 190, y: 130 },
   expectWidthMm: BELT_WIDTH_MM, expectHeightMm: BELT_HEIGHT_MM,
   expectOverhang: true, tolerancePercent: 12,
+})
+
+/*
+  何枚も一度に撮る（依頼者の質問・2026-08-26）。
+  定規は1本しかないので、写真のどこか一箇所にしか置けない。
+  それでも写真の面の実寸は決まるので、写っているパーツは全部測れるはず。
+*/
+runMulti('2枚を一度に・定規は緑の上', {
+  tiltDeg: 0, patterns: [TWIN_A_MM, TWIN_B_MM],
+  rulerOriginMm: { x: 360, y: 70 }, expect: TWIN_EXPECT,
+})
+runMulti('2枚を一度に・定規は緑の上・12度傾き', {
+  tiltDeg: 12, patterns: [TWIN_A_MM, TWIN_B_MM],
+  rulerOriginMm: { x: 360, y: 70 }, expect: TWIN_EXPECT,
+})
+runMulti('2枚を一度に・定規は左のパーツの上', {
+  tiltDeg: 0, patterns: [TWIN_A_MM, TWIN_B_MM],
+  rulerOriginMm: { x: 110, y: 100 }, expect: TWIN_EXPECT,
 })
 
 console.log('\n■ 定規の自動判別（傾き0〜35度 × 距離60〜160cm を総当たり）')

@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CornerPicker } from './components/CornerPicker'
-import { Heading, Icon, type IconName } from './components/Icon'
+import { Heading, Icon, Note, type IconName } from './components/Icon'
 import { LayoutView } from './components/LayoutView'
 import { GreenTuner } from './components/GreenTuner'
 import { PartsView } from './components/PartsView'
@@ -172,6 +172,27 @@ export function App() {
               <span className="font-bold text-ink-700">地の目線に沿わせて方眼定規</span>
               を載せて、真上から撮ってください。
             </p>
+
+            {/*
+              「定規は1本でいい」「地の目はそろえる」の2つは、
+              何枚も一度に撮るときにいちばん間違えやすいところ（依頼者の質問・2026-08-26）。
+              定規は写真の面そのものの実寸を決めているので、写真に1本あれば全部測れる。
+              一方で地の目の向きも定規から取っているため、そこだけは全部そろえてもらう。
+            */}
+            <Note icon="ruler">
+              <span className="font-bold text-ink-700">定規は写真に1本で足ります。</span>
+              何枚か並べて一度に撮るときも、どれか1枚に載せるか、
+              マットの上の空いたところに置くだけでかまいません。
+              全部のパーツが同じ実寸に直ります。
+            </Note>
+            <Note icon="grain">
+              そのかわり、
+              <span className="font-bold text-ink-700">
+                並べたパーツの地の目は、全部そろえて定規と平行に
+              </span>
+              してください。地の目の向きはこの定規1本から決めています。
+              向きの違うものは、分けて撮ってください。
+            </Note>
 
             <input
               ref={cameraRef}
