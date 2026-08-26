@@ -20,12 +20,27 @@ import { DEFAULT_GREEN, estimateHueCenter, type GreenParams } from './lib/hsv'
 import { loadImageFile, type LoadedImage } from './lib/image'
 import { analyze, previewGreenMask, type AnalyzeResult } from './lib/pipeline'
 import { defaultRulerQuad, guessRuler, RULERS, type RulerId } from './lib/ruler'
-import { load as loadParts, save as saveParts, toStored, type PartsState } from './lib/store'
+import { EMPTY, load as loadParts, save as saveParts, toStored, type PartsState } from './lib/store'
 import type { Quad } from './lib/geom'
 
 type Step = 'photo' | 'ruler' | 'result' | 'parts' | 'layout'
 
 const RULER_KEY = 'yojaku.ruler'
+
+/**
+ * 開発用の入口。URL のうしろに ?dev を付けて開いたときだけ出る。
+ *
+ * 縫い代や配置の画面を触るたびに、写真を選んで定規を合わせ直すのは手間なので、
+ * 「もう撮り終えた状態」から始められるようにしてある。
+ * 中身は依頼者のスカートの図（前・後ろ・ベルト）を、
+ * ふだんと同じ処理にかけて取り出した実寸の輪郭（devSeed.ts）。
+ *
+ * 学生が開くふつうの URL には出てこない。
+ * データ自体も、押したときにはじめて読み込む別ファイルにしてあるので、
+ * ふだんの配信ファイルには混ざらない。
+ */
+const DEV = typeof location !== 'undefined'
+  && (new URLSearchParams(location.search).has('dev') || location.hash === '#dev')
 
 const loadSavedRuler = (): RulerId =>
   (localStorage.getItem(RULER_KEY) as RulerId | null) ?? 'r50'
@@ -126,7 +141,9 @@ export function App() {
       }
       setBusy(false)
     }, 30)
-  }, [image, quad, rulerId, green])
+    // perspective を入れ忘れると、「斜めから撮った」に切り替えた直後に
+    // 四隅を動かさずそのまま進んだとき、切り替える前の計算のままになる
+  }, [image, quad, rulerId, green, perspective])
 
   const restart = () => {
     setStep('photo')
@@ -146,6 +163,34 @@ export function App() {
     )
     updateParts({ ...parts, parts: [...parts.parts, ...added] })
     setStep('parts')
+  }
+
+  /** 開発用：撮り終えた状態にする。ふだんの取り込みと同じ道を通す */
+  const seedDev = async () => {
+    setBusy(true)
+    try {
+      const { DEV_SEEDS } = await import('./lib/devSeed')
+      const added = DEV_SEEDS.map((s, i) => ({
+        ...toStored(
+          s.outline.map(([x, y]) => ({ x, y })), s.widthMm, s.heightMm, i, false,
+        ),
+        name: s.name,
+        needed: s.needed,
+      }))
+      updateParts({ ...EMPTY, parts: added })
+      setStep('parts')
+    } catch {
+      setError('開発用のデータを読み込めませんでした。')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** 開発用：貯めたものを全部捨てて、最初の状態に戻す */
+  const clearAll = () => {
+    updateParts(EMPTY)
+    setResult(null)
+    setStep('photo')
   }
 
   return (
@@ -244,6 +289,39 @@ export function App() {
                 <Icon name="part" className="h-4 w-4 shrink-0" />
                 取り込んだ {parts.parts.length} 個のパーツを見る →
               </button>
+            )}
+
+            {DEV && (
+              <div className="mt-2 flex flex-col gap-3 rounded-xl border-2 border-dashed border-hold-400 bg-hold-50 px-4 py-4">
+                <p className="flex items-center gap-1.5 text-xs font-bold tracking-wide text-hold-700">
+                  <Icon name="hold" className="h-4 w-4 shrink-0" />
+                  開発用（?dev を付けて開いたときだけ出ます）
+                </p>
+                <p className="text-sm leading-relaxed text-ink-500">
+                  スカートの図を撮り終えた状態から始めます。
+                  <span className="font-bold text-ink-700">
+                    前スカート・後ろスカート・ベルトの3点
+                  </span>
+                  が入り、縫い代の画面へ進みます。
+                </p>
+                <button
+                  type="button"
+                  onClick={seedDev}
+                  disabled={busy}
+                  className="flex items-center justify-center gap-2 rounded-xl bg-hold-600 px-5 py-3.5 text-base font-bold text-white active:bg-hold-700 disabled:opacity-50"
+                >
+                  <Icon name="part" className="h-5 w-5 shrink-0" />
+                  撮影ずみのパーツを入れる
+                </button>
+                <button
+                  type="button"
+                  onClick={clearAll}
+                  className="flex items-center justify-center gap-2 rounded-xl border-2 border-hold-400 px-5 py-3 text-sm font-bold text-hold-700"
+                >
+                  <Icon name="trash" className="h-4 w-4 shrink-0" />
+                  ぜんぶ消して、まっさらにする
+                </button>
+              </div>
             )}
           </section>
         )}
