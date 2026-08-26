@@ -1,0 +1,1139 @@
+/**
+ * 生地の上に並べる画面（第4フェーズ）。
+ *
+ * **並べるのは学生自身**（依頼者の指示）。
+ * どう置けば節約できるかを考えるところが、この課題の中身だから。
+ * アプリは自動で並べず、はみ出し・重なり・向き違反を赤で知らせるだけにする。
+ *
+ * 見えている生地は「二つ折りにしたあとの、上に来ている面」。
+ * 折り返したところだけ生地が二重で、残りは一重——それが絵で分かるようにしてある
+ * （断面図と、めくれた紙のような影）。ここが伝わらないと画面全体が分からなくなる、
+ * と依頼者から指摘があった。
+ *
+ * 置いたパーツは、縫い代の画面と同じく**出来上がり線と縫い代の帯**を描き分ける。
+ * 縫い代どうしがどう重なるかを見ながら置きたいため（依頼者の指示）。
+ */
+
+import { useMemo, useRef, useState, type PointerEvent, type ReactNode } from 'react'
+import {
+  canHalfFold, computeYardage, FOLD_LABELS, foldSidesOf, isHalfFold, isHorizontalFold,
+  newPlacement, orientedPair, PURCHASE_MARGIN_MM, SELVAGE_MM, SNAP_MM,
+  type Fabric, type FoldMode, type PlacedPart, type Placement, type Section, type Side,
+} from '../lib/fabric'
+import { placedPartOf, type PartsState } from '../lib/store'
+import { FoldDiagram } from './FoldDiagram'
+import { Heading, Icon, Note } from './Icon'
+import { PatternMarks } from './PatternMarks'
+import type { Polygon } from '../lib/geom'
+
+type Props = {
+  state: PartsState
+  onChange: (state: PartsState) => void
+  onBack: () => void
+}
+
+const FOLD_CHOICES: FoldMode[] = ['none', 'vLeft', 'vBoth', 'hTop', 'hBottom', 'hBoth']
+
+/** 生地が空でも、置き場所が見えるように確保しておく長さ(mm) */
+const MIN_VIEW_MM = 400
+
+const SIDE_LABELS: Record<Side, string> = {
+  left: '左', right: '右', top: '上', bottom: '下',
+}
+
+/** 生地の色。一重のところと、折り返して二重になっているところ */
+const CLOTH = '#fdfcf8'
+const CLOTH_FOLDED = '#efeee2'
+const CREASE = '#35664e'
+
+export function LayoutView({ state, onChange, onBack }: Props) {
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [activeSection, setActiveSection] = useState(state.sections[0]?.id ?? 's1')
+
+  const fabric: Fabric = useMemo(
+    () => ({ widthMm: state.fabricWidthMm, hasNap: state.hasNap, sections: state.sections }),
+    [state.fabricWidthMm, state.hasNap, state.sections],
+  )
+
+  const partMap = useMemo(() => {
+    const m = new Map<string, PlacedPart>()
+    for (const p of state.parts) {
+      const placed = placedPartOf(p)
+      if (placed) m.set(p.id, placed)
+    }
+    return m
+  }, [state.parts])
+
+  const report = useMemo(
+    () => computeYardage(fabric, state.placements, partMap),
+    [fabric, state.placements, partMap],
+  )
+
+  const nameOf = (partId: string) => state.parts.find((p) => p.id === partId)?.name ?? ''
+  const selected = state.placements.find((p) => p.id === selectedId) ?? null
+
+  /** この型紙1つで、生地から何枚とれるか。二重の上なら2枚 */
+  const countOf = (placementId: string) =>
+    report.counts.find((c) => c.placementId === placementId)?.count ?? 1
+
+  const patch = (id: string, over: Partial<Placement>) =>
+    onChange({
+      ...state,
+      placements: state.placements.map((p) => (p.id === id ? { ...p, ...over } : p)),
+    })
+
+  const place = (partId: string) => {
+    const id = `pl${state.placements.length}_${partId}`
+    onChange({
+      ...state,
+      placements: [...state.placements, newPlacement(id, partId, activeSection)],
+    })
+    setSelectedId(id)
+  }
+
+  const remove = (id: string) => {
+    onChange({ ...state, placements: state.placements.filter((p) => p.id !== id) })
+    setSelectedId(null)
+  }
+
+  const addSection = () => {
+    const id = `s${state.sections.length + 1}_${state.sections.length}`
+    onChange({ ...state, sections: [...state.sections, { id, fold: 'none', halfFold: false }] })
+    setActiveSection(id)
+  }
+
+  const dropSection = (id: string) => {
+    onChange({
+      ...state,
+      sections: state.sections.filter((s) => s.id !== id),
+      placements: state.placements.filter((p) => p.sectionId !== id),
+    })
+    setActiveSection(state.sections.find((s) => s.id !== id)?.id ?? '')
+  }
+
+  /** そのパーツが、いま何枚ぶん取れているか */
+  const takenOf = (partId: string) =>
+    state.placements
+      .filter((p) => p.partId === partId)
+      .reduce((sum, p) => sum + countOf(p.id), 0)
+
+  const shortage = state.parts.filter((p) => takenOf(p.id) < p.needed)
+
+  return (
+    <section className="flex flex-col gap-5 pb-40">
+      <button
+        type="button"
+        onClick={onBack}
+        className="flex items-center gap-1.5 self-start text-sm font-bold text-mat-700"
+      >
+        <Icon name="back" className="h-4 w-4 shrink-0" />
+        パーツの一覧へ
+      </button>
+
+      <Totals report={report} widthMm={state.fabricWidthMm} />
+
+      {report.problems.length > 0 && (
+        <ul className="flex flex-col gap-1.5 rounded-xl border border-seam/40 bg-seam/5 px-4 py-3">
+          {report.problems.map((pb, i) => (
+            <li key={i} className="flex gap-2 text-xs leading-relaxed text-seam">
+              <Icon name="warn" className="mt-[0.15em] h-[1.15em] w-[1.15em] shrink-0" />
+              <span className="min-w-0 flex-1">
+                {pb.placementId && (
+                  <span className="font-bold">
+                    {nameOf(state.placements.find((p) => p.id === pb.placementId)?.partId ?? '')}：
+                  </span>
+                )}
+                {pb.message}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {state.sections.map((section, i) => (
+        <SectionCanvas
+          key={section.id}
+          index={i}
+          section={section}
+          report={report.sections[i]}
+          state={state}
+          partMap={partMap}
+          active={activeSection === section.id}
+          selectedId={selectedId}
+          canDrop={state.sections.length > 1}
+          countOf={countOf}
+          onActivate={() => setActiveSection(section.id)}
+          onSelect={setSelectedId}
+          onMove={patch}
+          onFold={(fold) =>
+            onChange({
+              ...state,
+              sections: state.sections.map((s) => (s.id === section.id ? { ...s, fold } : s)),
+            })
+          }
+          onHalf={(halfFold) =>
+            onChange({
+              ...state,
+              sections: state.sections.map((s) => (s.id === section.id ? { ...s, halfFold } : s)),
+            })
+          }
+          onDrop={() => dropSection(section.id)}
+        />
+      ))}
+
+      {/*
+        区間は、パーツが入りきらなくなって初めて要る。
+        ふだんは1つのままで、学生に「区間」という言葉すら見せない（判断7）
+      */}
+      <button
+        type="button"
+        onClick={addSection}
+        className="flex items-center gap-1.5 self-start rounded-lg border border-ink-100 bg-white px-4 py-2 text-sm font-bold text-ink-700"
+      >
+        <Icon name="plus" className="h-4 w-4 shrink-0" />
+        <Icon name="fold" className="h-4 w-4 shrink-0 text-mat-600" />
+        ここから折り方を変える
+      </button>
+
+      <Tray state={state} takenOf={takenOf} shortage={shortage} onPlace={place} />
+
+      {selected && (
+        <Controls
+          placement={selected}
+          name={nameOf(selected.partId)}
+          count={countOf(selected.id)}
+          hasNap={state.hasNap}
+          foldSides={foldSidesOf(
+            state.sections.find((s) => s.id === selected.sectionId)?.fold ?? 'none',
+          )}
+          onPatch={(over) => patch(selected.id, over)}
+          onRemove={() => remove(selected.id)}
+          onClose={() => setSelectedId(null)}
+        />
+      )}
+    </section>
+  )
+}
+
+/* ------------------------------------------------------------------ 合計 */
+
+function Totals({
+  report, widthMm,
+}: {
+  report: ReturnType<typeof computeYardage>
+  widthMm: number
+}) {
+  return (
+    <div className="flex gap-3 rounded-xl border border-ink-100 bg-white px-4 py-4">
+      {/* 買う長さは、生地の「丈」を測っている数字。絵でもそう見せる */}
+      <Icon name="yardage" className="mt-1 h-9 w-9 shrink-0 text-mat-500" />
+      <div className="min-w-0 flex-1">
+      <p className="text-xs text-ink-500">買ってくる長さ</p>
+      <p className="tnum text-4xl font-bold leading-tight text-mat-600">
+        {(report.purchaseMm / 10).toFixed(0)}
+        <span className="pl-1 text-lg font-bold text-ink-500">cm</span>
+      </p>
+      <p className="tnum pt-1 text-xs leading-relaxed text-ink-500">
+        {report.totalMm > 0 ? (
+          <>
+            並べたぶんが {(report.totalMm / 10).toFixed(0)} cm。
+            地直しの縮みと裁ち端のぶんを {PURCHASE_MARGIN_MM / 10} cm 足して、
+            10cm 単位に切り上げています。
+          </>
+        ) : (
+          <>下の「置く」から、生地の上にパーツを並べてください。</>
+        )}
+      </p>
+      <p className="tnum flex items-center gap-1.5 pt-2 text-xs text-ink-300">
+        <Icon name="clothWidth" className="h-3.5 w-3.5 shrink-0" />
+        {/*
+          ここで「置けるのは 106cm」と言ってしまうと、半分に折ったときの
+          パネル（53cm）と食い違って見える。耳を除いた幅までにとどめ、
+          実際に置ける幅は、折り方が決まっている区間のほうに出す
+        */}
+        生地幅 {widthMm / 10} cm ／ みみを除くと {(widthMm - SELVAGE_MM * 2) / 10} cm
+      </p>
+      </div>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------- 生地の面 */
+
+function SectionCanvas({
+  index, section, report, state, partMap, active, selectedId, canDrop, countOf,
+  onActivate, onSelect, onMove, onFold, onHalf, onDrop,
+}: {
+  index: number
+  section: Section
+  report: ReturnType<typeof computeYardage>['sections'][number] | undefined
+  state: PartsState
+  partMap: Map<string, PlacedPart>
+  active: boolean
+  selectedId: string | null
+  canDrop: boolean
+  countOf: (placementId: string) => number
+  onActivate: () => void
+  onSelect: (id: string) => void
+  onMove: (id: string, over: Partial<Placement>) => void
+  onFold: (fold: FoldMode) => void
+  onHalf: (halfFold: boolean) => void
+  onDrop: () => void
+}) {
+  const svgRef = useRef<SVGSVGElement>(null)
+  const drag = useRef<{ id: string; x0: number; y0: number; px: number; py: number } | null>(null)
+
+  if (!report) return null
+
+  const W = Math.max(report.surfaceWidthMm, 1)
+  /** 実際に使っている長さ。ここから下は、まだ使っていない生地 */
+  const used = report.surfaceLengthMm
+  const L = Math.max(used, MIN_VIEW_MM)
+  const foldSides = foldSidesOf(section.fold)
+  const depth = report.foldDepth
+  const half = isHalfFold(section)
+  /** 折り返した端に落とす影の幅。生地幅に対する割合で決める */
+  const shade = W * 0.025
+  /** 下になっている一枚が、耳の側からのぞく量 */
+  const RIM = W * 0.045
+  /** 折り山が枠の外へふくらむ量。ここが「山」そのものになる */
+  const SP = W * 0.034
+  /** 枠の外に取る余白。ふくらんだ折り山と、端の名前を書くぶん */
+  const PAD = W * 0.115
+  /** 折り山の内側にできる翳りの幅 */
+  const CR = W * 0.09
+  const badPlacements = new Set(
+    report.problems.flatMap((p) => (p.placementId ? [p.placementId] : [])),
+  )
+  const gid = `fold-${section.id}`
+  const vbW = W + PAD * 2
+  const vbH = L + PAD * 2
+
+  /** 画面の1px が何mmか。指の動きを実寸に直すのに使う */
+  const mmPerPx = () => {
+    const box = svgRef.current?.getBoundingClientRect()
+    return box && box.width > 0 ? vbW / box.width : 1
+  }
+
+  const startDrag = (e: PointerEvent, p: Placement) => {
+    onActivate()
+    onSelect(p.id)
+    ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
+    drag.current = { id: p.id, x0: p.xMm, y0: p.yMm, px: e.clientX, py: e.clientY }
+  }
+
+  const moveDrag = (e: PointerEvent) => {
+    const d = drag.current
+    if (!d) return
+    const k = mmPerPx()
+    const snap = (v: number) => Math.round(v / SNAP_MM) * SNAP_MM
+    onMove(d.id, {
+      xMm: Math.max(0, snap(d.x0 + (e.clientX - d.px) * k)),
+      yMm: Math.max(0, snap(d.y0 + (e.clientY - d.py) * k)),
+    })
+  }
+
+  const endDrag = () => { drag.current = null }
+
+  /**
+   * 折り返して二重になっている帯。
+   * `full` は、折り返した一枚が見えている面を丸ごと覆っている状態
+   * （＝生地幅を半分に折ったとき）。このときだけ、耳の側に下の一枚がのぞく。
+   */
+  const flaps: Array<{ side: Side; x: number; y: number; w: number; h: number; full: boolean }> = []
+  if (depth.left > 0) {
+    flaps.push({ side: 'left', x: 0, y: 0, w: depth.left, h: L, full: depth.left >= W - 0.5 })
+  }
+  if (depth.right > 0) {
+    flaps.push({
+      side: 'right', x: W - depth.right, y: 0, w: depth.right, h: L,
+      full: depth.right >= W - 0.5,
+    })
+  }
+  if (depth.top > 0) {
+    flaps.push({ side: 'top', x: 0, y: 0, w: W, h: depth.top, full: depth.top >= L - 0.5 })
+  }
+  if (depth.bottom > 0) {
+    flaps.push({
+      side: 'bottom', x: 0, y: L - depth.bottom, w: W, h: depth.bottom,
+      full: depth.bottom >= L - 0.5,
+    })
+  }
+
+  /**
+   * 下になっている一枚。折り返しが面を丸ごと覆っているときだけ、
+   * 折り山の反対側（耳の側）に少しだけのぞかせる。
+   * 実物でも、二つ折りにした耳がぴったり揃うことはまずない。
+   * ここがのぞいていることが、「紙が2枚ある」といういちばん強い手がかりになる。
+   */
+  const under = { x0: 0, y0: 0, x1: W, y1: L }
+  for (const f of flaps) {
+    if (!f.full) continue
+    if (f.side === 'left') under.x1 += RIM
+    else if (f.side === 'right') under.x0 -= RIM
+    else if (f.side === 'top') under.y1 += RIM
+    else under.y0 -= RIM
+  }
+  const hasUnder = flaps.some((f) => f.full)
+
+  /** 折り山ではない縦の端＝耳。二重なら耳も2枚ぶんある */
+  const selvages: Side[] = (['left', 'right'] as Side[]).filter((s) => !foldSides.includes(s))
+
+  /** 折り山の側だけ、生地を枠の外へふくらませる。ここが「山」になる */
+  const ext: Record<Side, number> = {
+    left: foldSides.includes('left') ? SP : 0,
+    right: foldSides.includes('right') ? SP : 0,
+    top: foldSides.includes('top') ? SP : 0,
+    bottom: foldSides.includes('bottom') ? SP : 0,
+  }
+
+  const pts = (poly: Polygon) => poly.map((q) => `${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(' ')
+
+  /**
+   * 波打つ裁ち端。はさみで切った端は、定規で引いたようにはまっすぐにならない。
+   * うっすら波打たせて、まっすぐな折り山・点々のみみと描き分ける。
+   * （開始点へは移動しない。輪郭の途中に差し込んで使う）
+   */
+  const waveSeg = (x0: number, x1: number, y: number) => {
+    const amp = W * 0.005
+    const step = W * 0.05
+    let d = ''
+    let up = true
+    for (let x = x0; x < x1 - 0.01; x += step) {
+      const to = Math.min(x + step, x1)
+      const mx = ((x + to) / 2).toFixed(1)
+      d += ` Q${mx} ${(y + (up ? -amp : amp)).toFixed(1)} ${to.toFixed(1)} ${y.toFixed(1)}`
+      up = !up
+    }
+    return d
+  }
+
+  /**
+   * 生地を一枚描く。折り山の側だけ、角にまるみを付ける。
+   *
+   * 布を二つに折ると、折った縁はどうしてもまるくふくらみ、
+   * 裁った縁や耳は角が立つ。上から見たときの、この角の違いが
+   * 「どちらが折り山か」を言葉なしで伝えてくれる。
+   */
+  const sheet = (x0: number, y0: number, x1: number, y1: number, cutTop = false) => {
+    const r = SP * 1.7
+    const tl = ext.left > 0 || ext.top > 0 ? r : 0
+    const tr = ext.right > 0 || ext.top > 0 ? r : 0
+    const br = ext.right > 0 || ext.bottom > 0 ? r : 0
+    const bl = ext.left > 0 || ext.bottom > 0 ? r : 0
+    const arc = (rr: number, x: number, y: number) =>
+      rr ? `A${rr} ${rr} 0 0 1 ${x.toFixed(1)} ${y.toFixed(1)}` : ''
+    return [
+      `M${(x0 + tl).toFixed(1)} ${y0.toFixed(1)}`,
+      cutTop ? waveSeg(x0 + tl, x1 - tr, y0) : `H${(x1 - tr).toFixed(1)}`,
+      arc(tr, x1, y0 + tr),
+      `V${(y1 - br).toFixed(1)}`, arc(br, x1 - br, y1),
+      `H${(x0 + bl).toFixed(1)}`, arc(bl, x0, y1 - bl),
+      `V${(y0 + tl).toFixed(1)}`, arc(tl, x0 + tl, y0),
+      'Z',
+    ].join(' ')
+  }
+
+  /** 上の端が、はさみで切った裁ち端かどうか（横わで上を折るときだけ違う） */
+  const cutTop = !foldSides.includes('top')
+
+  const topPath = sheet(-ext.left, -ext.top, W + ext.right, L + ext.bottom, cutTop)
+  const underPath = sheet(
+    under.x0 - ext.left, under.y0 - ext.top,
+    under.x1 + ext.right, under.y1 + ext.bottom, cutTop,
+  )
+
+  /**
+   * みみ。実物のみみには、織るときの機械のピン穴が点々と並んでいる。
+   * くし歯だと定規の目盛りに見えてしまうので（依頼者の指摘）、
+   * 学生が毎日見ているピン穴のほうで描く。
+   */
+  const selvageBand = (xEdge: number, inward: 1 | -1) => {
+    const bw = W * 0.02
+    const dots: number[] = []
+    const step = W * 0.042
+    for (let y = step * 0.6; y < L - step * 0.3; y += step) dots.push(y)
+    return (
+      <g>
+        <rect x={inward === 1 ? xEdge : xEdge - bw} y={0} width={bw} height={L}
+          fill="#8d8a78" opacity={0.1} />
+        {dots.map((y) => (
+          <circle key={y} cx={xEdge + inward * bw * 0.5} cy={y} r={W * 0.0035}
+            fill="#8d8a78" opacity={0.55} />
+        ))}
+      </g>
+    )
+  }
+
+  /* ---- ピクトグラム。断面図と同じ「横から見た布」の言葉で統一する ---- */
+
+  /** 折り山：ヘアピン形。断面図の折り返しをそのまま小さくしたもの */
+  const iconFold = (cx: number, cy: number, sz: number, side: Side, color: string) => {
+    const r = sz * 0.3
+    const d = `M${cx + sz * 0.5} ${cy - r} H${cx - sz * 0.5 + r}`
+      + ` A${r} ${r} 0 0 0 ${cx - sz * 0.5 + r} ${cy + r} H${cx + sz * 0.5}`
+    const rot = { left: 0, right: 180, top: 90, bottom: 270 }[side]
+    return (
+      <path d={d} fill="none" stroke={color} strokeWidth={sz * 0.18} strokeLinecap="round"
+        transform={rot ? `rotate(${rot} ${cx} ${cy})` : undefined} />
+    )
+  }
+
+  /** 重なり：横から見た布 n 枚。1本なら一重、2本なら二重 */
+  const iconLayers = (
+    cx: number, cy: number, sz: number, n: 1 | 2, color: string, casing = false,
+  ) => {
+    const ys = n === 2 ? [cy - sz * 0.17, cy + sz * 0.17] : [cy]
+    return (
+      <g strokeLinecap="round">
+        {casing && ys.map((y) => (
+          <line key={`c${y}`} x1={cx - sz * 0.5} y1={y} x2={cx + sz * 0.5} y2={y}
+            stroke="#ffffff" strokeWidth={sz * 0.42} />
+        ))}
+        {ys.map((y) => (
+          <line key={y} x1={cx - sz * 0.5} y1={y} x2={cx + sz * 0.5} y2={y}
+            stroke={color} strokeWidth={sz * 0.18} />
+        ))}
+      </g>
+    )
+  }
+
+  /** はさみ：裁ち端の印 */
+  const iconScissors = (cx: number, cy: number, sz: number, color: string) => (
+    <g stroke={color} strokeWidth={sz * 0.13} fill="none" strokeLinecap="round">
+      <line x1={cx - sz * 0.2} y1={cy - sz * 0.18} x2={cx + sz * 0.55} y2={cy + sz * 0.24} />
+      <line x1={cx - sz * 0.2} y1={cy + sz * 0.18} x2={cx + sz * 0.55} y2={cy - sz * 0.24} />
+      <circle cx={cx - sz * 0.36} cy={cy - sz * 0.3} r={sz * 0.17} />
+      <circle cx={cx - sz * 0.36} cy={cy + sz * 0.3} r={sz * 0.17} />
+    </g>
+  )
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <span className="flex items-center gap-1.5 text-sm font-bold text-ink-700">
+          <Icon name="layout" className="h-4 w-4 shrink-0 text-mat-600" />
+          {state.sections.length > 1 ? `${index + 1} つめ` : '生地'}
+        </span>
+        <select
+          value={section.fold}
+          onChange={(e) => onFold(e.target.value as FoldMode)}
+          className="rounded-lg border border-ink-100 bg-white px-2 py-1.5 text-sm"
+        >
+          {FOLD_CHOICES.map((f) => (
+            <option key={f} value={f}>{FOLD_LABELS[f]}</option>
+          ))}
+        </select>
+        {/* 折ったあとに実際に置ける幅。折り方で変わるので、区間ごとに出す */}
+        <span className="tnum text-xs text-ink-300">
+          幅 {(W / 10).toFixed(0)} cm ／ 長さ {(report.yardageMm / 10).toFixed(0)} cm
+        </span>
+        {canDrop && (
+          <button
+            type="button"
+            onClick={onDrop}
+            className="ml-auto flex items-center gap-1 px-2 text-xs text-ink-300"
+          >
+            <Icon name="trash" className="h-3.5 w-3.5 shrink-0" />
+            消す
+          </button>
+        )}
+      </div>
+
+      {/*
+        生地幅をきっちり半分に折るのが、学校で最初に習う基本のたたみ方で
+        いちばん多い（依頼者の指示）。任意の幅で折り上げるやり方も残しておく
+      */}
+      {canHalfFold(section.fold) && (
+        <div className="flex gap-1.5">
+          <Chip on={half} onClick={() => onHalf(true)}>
+            <FoldGlyph kind="half" />半分に折る（基本）
+          </Chip>
+          <Chip on={!half} onClick={() => onHalf(false)}>
+            <FoldGlyph kind="partial" />型紙に合わせて折る
+          </Chip>
+        </div>
+      )}
+
+      {/* 平面図に線を引くだけでは、折っていることが伝わらない。横から見た形を添える */}
+      <FoldDiagram
+        fold={section.fold}
+        nearMm={isHorizontalFold(section.fold) ? depth.top : depth.left}
+        farMm={isHorizontalFold(section.fold) ? depth.bottom : depth.right}
+        spanMm={isHorizontalFold(section.fold) ? L : W}
+      />
+
+      <svg
+        ref={svgRef}
+        viewBox={`${-PAD} ${-PAD} ${vbW} ${vbH}`}
+        className={`w-full select-none rounded-xl border-2 bg-chalk ${
+          active ? 'border-mat-500' : 'border-ink-100'
+        }`}
+        style={{ aspectRatio: `${vbW} / ${vbH}`, touchAction: 'none' }}
+        onPointerDown={onActivate}
+        onPointerMove={moveDrag}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        role="img"
+        aria-label={`${index + 1}つめの生地`}
+      >
+        <defs>
+          {/*
+            織り目。ただ塗りつぶした面は「紙」に見えてしまう。
+            うっすら格子を敷くだけで布らしくなる（拡大しても目が細かいまま）
+          */}
+          <pattern id={`${gid}-weave`} width={W * 0.0062} height={W * 0.0062}
+            patternUnits="userSpaceOnUse">
+            <path d={`M0 0 H${W * 0.0062}`} stroke="#9d9b86"
+              strokeWidth={W * 0.0011} opacity="0.15" />
+            <path d={`M0 0 V${W * 0.0062}`} stroke="#9d9b86"
+              strokeWidth={W * 0.0011} opacity="0.09" />
+          </pattern>
+
+          {/* 折り山の明暗は、生地からはみ出さないように切り抜く */}
+          <clipPath id={`${gid}-clip`}>
+            <path d={topPath} />
+          </clipPath>
+
+          {/* 折り返した生地の端から内側へ落ちる影 */}
+          <linearGradient id={`${gid}-h`} x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stopColor="#3a3f36" stopOpacity="0.16" />
+            <stop offset="1" stopColor="#3a3f36" stopOpacity="0" />
+          </linearGradient>
+          <linearGradient id={`${gid}-v`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#3a3f36" stopOpacity="0.16" />
+            <stop offset="1" stopColor="#3a3f36" stopOpacity="0" />
+          </linearGradient>
+
+          {/*
+            折り山のふくらみ。丸めた生地を横から見たときの明暗を、そのまま帯に付ける。
+            いちばん外が翳り、山のてっぺんが白く光り、内側へ向かってまた翳る。
+            平らな塗りでも、この順の明暗があるだけで「丸く折れた縁」に見える
+          */}
+          {(['left', 'right', 'top', 'bottom'] as Side[]).map((s) => {
+            const dir = {
+              left: ['0', '0', '1', '0'], right: ['1', '0', '0', '0'],
+              top: ['0', '0', '0', '1'], bottom: ['0', '1', '0', '0'],
+            }[s]
+            return (
+              <linearGradient key={s} id={`${gid}-sp-${s}`}
+                x1={dir[0]} y1={dir[1]} x2={dir[2]} y2={dir[3]}>
+                <stop offset="0" stopColor="#aaa792" />
+                <stop offset="0.16" stopColor="#edebdd" />
+                <stop offset="0.32" stopColor="#ffffff" />
+                <stop offset="0.52" stopColor={CLOTH} />
+                <stop offset="0.76" stopColor="#8d8a78" stopOpacity="0.2" />
+                <stop offset="1" stopColor="#8d8a78" stopOpacity="0" />
+              </linearGradient>
+            )
+          })}
+
+          {/* 生地が台に落とす影。紙が机の上に置いてあるように見せる */}
+          <filter id={`${gid}-drop`} x="-25%" y="-25%" width="160%" height="160%">
+            <feDropShadow dx={W * 0.008} dy={W * 0.012} stdDeviation={W * 0.009}
+              floodColor="#3a3f36" floodOpacity="0.3" />
+          </filter>
+          <filter id={`${gid}-drop2`} x="-25%" y="-25%" width="160%" height="160%">
+            <feDropShadow dx={W * 0.006} dy={W * 0.008} stdDeviation={W * 0.007}
+              floodColor="#3a3f36" floodOpacity="0.22" />
+          </filter>
+        </defs>
+
+        {/* 下になっている一枚。耳の側に少しだけのぞく */}
+        {hasUnder && (
+          <>
+            <path d={underPath} fill={CLOTH_FOLDED} filter={`url(#${gid}-drop2)`} />
+            <path d={underPath} fill={`url(#${gid}-weave)`} />
+          </>
+        )}
+
+        {/* 上に来ている一枚。ここに型紙を並べる */}
+        <path d={topPath} fill={CLOTH}
+          filter={hasUnder ? `url(#${gid}-drop)` : `url(#${gid}-drop2)`} />
+        <path d={topPath} fill={`url(#${gid}-weave)`} />
+
+        {/*
+          折り山そのもの。丸太を横から見たときの明暗を帯にして重ねる。
+          「生地がここで向こう側へ折り返している」ことを、この帯とまるい角で見せる。
+          型紙より先に描く（型紙は生地の上に乗るので、隠れてよい）
+        */}
+        <g clipPath={`url(#${gid}-clip)`}>
+          {foldSides.map((s) => {
+            const horiz = s === 'left' || s === 'right'
+            const x = s === 'left' ? -SP : W + SP - CR
+            const y = s === 'top' ? -SP : L + SP - CR
+            return (
+              <rect
+                key={`sp-${s}`}
+                x={horiz ? x : -SP}
+                y={horiz ? -SP : y}
+                width={horiz ? CR : W + SP * 2}
+                height={horiz ? L + SP * 2 : CR}
+                fill={`url(#${gid}-sp-${s})`}
+              />
+            )
+          })}
+        </g>
+
+        {/*
+          端の描き分け。折り山・耳・裁ち端は実物ではまったく別のものなので、
+          裁ち合わせ図の昔からの描き方に合わせて、線の見た目も変えておく。
+          折り山＝なめらかな山、耳＝くし歯、裁ち端＝波線
+        */}
+        {selvages.map((s) => (
+          <g key={`sv-band-${s}`}>
+            {/* 上の一枚のみみ */}
+            {selvageBand(s === 'left' ? 0 : W, s === 'left' ? 1 : -1)}
+            {/* 下からのぞいている一枚のみみ。点々が2列あること＝布が2枚あること */}
+            {hasUnder && selvageBand(s === 'left' ? -RIM : W + RIM, s === 'left' ? 1 : -1)}
+          </g>
+        ))}
+        {/* 裁ち端の名前。はさみの印を添える */}
+        {cutTop && (
+          <g>
+            {iconScissors((hasUnder ? W + RIM : W) - W * 0.026, -SP - W * 0.036, W * 0.042, '#8a9188')}
+            <text x={(hasUnder ? W + RIM : W) - W * 0.072} y={-SP - W * 0.036}
+              fontSize={W * 0.03} fill="#8a9188" textAnchor="end"
+              dominantBaseline="middle">裁ち端</text>
+          </g>
+        )}
+
+        {/* 折り返して上に乗っているぶん。面の一部だけを覆うときは、端に影を落とす */}
+        {flaps.filter((f) => !f.full).map((f) => {
+          const horiz = f.side === 'left' || f.side === 'right'
+          // 影は、折り返した生地の「端」から、下の一枚のほうへ伸びる
+          const sx = f.side === 'left' ? f.w : f.side === 'right' ? W - f.w - shade : 0
+          const sy = f.side === 'top' ? f.h : f.side === 'bottom' ? L - f.h - shade : 0
+          const flip = f.side === 'right' || f.side === 'bottom'
+          return (
+            <g key={f.side}>
+              <rect x={f.x} y={f.y} width={f.w} height={f.h} fill={CLOTH_FOLDED}
+                fillOpacity={0.85} />
+              <rect
+                x={horiz ? sx : 0}
+                y={horiz ? 0 : sy}
+                width={horiz ? shade : W}
+                height={horiz ? L : shade}
+                fill={`url(#${gid}-${horiz ? 'h' : 'v'})`}
+                transform={
+                  flip
+                    ? horiz
+                      ? `rotate(180 ${sx + shade / 2} ${L / 2})`
+                      : `rotate(180 ${W / 2} ${sy + shade / 2})`
+                    : undefined
+                }
+              />
+              {/*
+                折り返した生地の端。ここから先は一重に戻る。
+                縦の折りならこの端は「もとのみみ」なのでピン穴で、
+                横の折りなら「もとの裁ち端」なので波線で描く
+              */}
+              {horiz ? (
+                <g>
+                  <line x1={f.side === 'left' ? f.w : W - f.w} y1={0}
+                    x2={f.side === 'left' ? f.w : W - f.w} y2={L}
+                    stroke="#b8b6a4" strokeWidth={W * 0.004} />
+                  {selvageBand(f.side === 'left' ? f.w : W - f.w, f.side === 'left' ? -1 : 1)}
+                </g>
+              ) : (
+                <path
+                  d={`M0 ${(f.side === 'top' ? f.h : L - f.h).toFixed(1)}`
+                    + waveSeg(0, W, f.side === 'top' ? f.h : L - f.h)}
+                  stroke="#b8b6a4" strokeWidth={W * 0.005} fill="none"
+                />
+              )}
+            </g>
+          )
+        })}
+
+        {report.boxes.map((box) => {
+          const p = state.placements.find((q) => q.id === box.placementId)
+          const part = p ? partMap.get(p.partId) : null
+          if (!p || !part) return null
+          // 縫い代の画面と同じ描き分け。縫い代の重なり具合を見ながら置けるように
+          const { cut, finished } = orientedPair(part, p)
+          const bad = badPlacements.has(p.id)
+          const on = selectedId === p.id
+          const twice = countOf(p.id) === 2
+          return (
+            <g
+              key={p.id}
+              transform={`translate(${box.x} ${box.y})`}
+              style={{ cursor: 'grab' }}
+              onPointerDown={(e) => startDrag(e, p)}
+              onPointerMove={moveDrag}
+              onPointerUp={endDrag}
+            >
+              {/*
+                選んでいる印は、縫い代の外側にもう一回り描く。
+                縫い代の線そのものを緑にすると、青い帯＝縫い代 という約束が崩れる
+              */}
+              {(on || bad) && (
+                <polygon
+                  points={pts(cut)}
+                  fill="none"
+                  stroke={bad ? '#b4433a' : '#35664e'}
+                  strokeWidth={W * 0.022}
+                  strokeOpacity={0.45}
+                  strokeLinejoin="round"
+                />
+              )}
+              {/* 足した縫い代のぶん。透かして、隣と重なっていないか見えるようにする */}
+              <polygon
+                points={pts(cut)}
+                fill="#3f6fa8"
+                fillOpacity={0.28}
+                stroke="#3f6fa8"
+                strokeWidth={W * 0.005}
+                strokeLinejoin="round"
+              />
+              {/* もとの型紙（出来上がり線） */}
+              <polygon
+                points={pts(finished)}
+                fill="#FAF7F0"
+                fillOpacity={0.94}
+                stroke="#2b332d"
+                strokeWidth={W * 0.005}
+                strokeLinejoin="round"
+              />
+              <PatternMarks
+                poly={finished}
+                hasNap={state.hasNap}
+                name={state.parts.find((x) => x.id === p.partId)?.name}
+                direction={p.rot90 ? 'h' : 'v'}
+                fontScale={0.1}
+              />
+              {/* 二重のところに置いた型紙は、1つで2枚とれる */}
+              {twice && (
+                <g>
+                  <circle cx={box.w * 0.5} cy={box.h - W * 0.055} r={W * 0.042} fill={CREASE} />
+                  <text x={box.w * 0.5} y={box.h - W * 0.055} fontSize={W * 0.044}
+                    fontWeight={700} fill="#ffffff" textAnchor="middle" dominantBaseline="middle">
+                    ×2
+                  </text>
+                </g>
+              )}
+            </g>
+          )
+        })}
+
+        {/* 二重の印しもパーツの上に出す。先に描くと型紙の下に隠れてしまう */}
+        {flaps.map((f) => {
+          const horiz = f.side === 'left' || f.side === 'right'
+          const label = f.full ? 'ぜんぶ二重' : '二重'
+          const tx = horiz ? (f.side === 'left' ? f.w / 2 : W - f.w / 2) : W * 0.5
+          const ty = horiz ? L * 0.045 : f.side === 'top' ? f.h / 2 : L - f.h / 2
+          return (
+            <g key={`t-${f.side}`}>
+              {iconLayers(tx - label.length * W * 0.021 - W * 0.038, ty, W * 0.046, 2, CREASE, true)}
+              <text
+                x={tx} y={ty}
+                fontSize={W * 0.04} fontWeight={700} fill={CREASE}
+                textAnchor="middle" dominantBaseline="middle"
+                stroke="#ffffff" strokeWidth={W * 0.013} paintOrder="stroke"
+              >
+                {label}
+              </text>
+            </g>
+          )
+        })}
+
+        {/* 一重のところにも印しを。二重との対比で、意味がはっきりする */}
+        {flaps.length > 0 && !flaps.some((f) => f.full) && (() => {
+          const vert = flaps.some((f) => f.side === 'left' || f.side === 'right')
+          const tx = vert ? (depth.left + (W - depth.right)) / 2 : W * 0.5
+          const ty = vert ? L * 0.045 : (depth.top + (L - depth.bottom)) / 2
+          const room = vert ? W - depth.left - depth.right : L - depth.top - depth.bottom
+          if (room < (vert ? W : L) * 0.3) return null
+          return (
+            <g>
+              {iconLayers(tx - W * 0.078, ty, W * 0.046, 1, '#7d867e', true)}
+              <text x={tx} y={ty} fontSize={W * 0.036} fontWeight={600} fill="#7d867e"
+                textAnchor="middle" dominantBaseline="middle"
+                stroke="#ffffff" strokeWidth={W * 0.012} paintOrder="stroke">一重</text>
+            </g>
+          )
+        })()}
+
+        {/*
+          みみの名前。回転させた横書きは読みづらいので縦書きにし、
+          上に「布が何枚重なっているか」のピクトグラムを添える。
+          横棒2本＝二重（断面図と同じ見方）。「（2枚）」と文字で書くより伝わる
+        */}
+        {selvages.map((s) => {
+          const x = s === 'left'
+            ? -(hasUnder ? RIM : 0) - PAD * 0.4
+            : (hasUnder ? W + RIM : W) + PAD * 0.4
+          const size = W * 0.036
+          return (
+            <g key={`sv-${s}`}>
+              {iconLayers(x, L * 0.5 - size * 1.9, W * 0.052, hasUnder ? 2 : 1, '#8a9188')}
+              <text x={x} y={L * 0.5 + size * 0.3} fontSize={size} fill="#8a9188"
+                textAnchor="middle">
+                <tspan x={x}>み</tspan>
+                <tspan x={x} dy={size * 1.05}>み</tspan>
+              </text>
+            </g>
+          )
+        })}
+
+        {/*
+          折り山の頂きをなぞる線と、その名前。パーツより後ろに描く。
+          わ の辺を当てたパーツが折り山の真上に来るので、先に描くと隠れてしまう。
+          名前は枠の外に置く。生地の上は型紙のためにあけておきたい
+        */}
+        {foldSides.map((side) => {
+          const horiz = side === 'left' || side === 'right'
+          // 山の頂き。角のまるみのぶんだけ手前で止める
+          const r = SP * 1.6
+          const apex = {
+            left: [-SP, r, -SP, L - r], right: [W + SP, r, W + SP, L - r],
+            top: [r, -SP, W - r, -SP], bottom: [r, L + SP, W - r, L + SP],
+          }[side]
+          const lx = {
+            left: -SP - PAD * 0.42, right: W + SP + PAD * 0.42,
+            top: W * 0.5, bottom: W * 0.5,
+          }[side]
+          const ly = {
+            left: L * 0.5, right: L * 0.5,
+            top: -SP - PAD * 0.36, bottom: L + SP + PAD * 0.36,
+          }[side]
+          return (
+            <g key={side}>
+              <line x1={apex[0]} y1={apex[1]} x2={apex[2]} y2={apex[3]}
+                stroke={CREASE} strokeWidth={W * 0.007} strokeLinecap="round" />
+              {horiz ? (
+                <g>
+                  {iconFold(lx, ly - W * 0.105, W * 0.056, side, CREASE)}
+                  <text x={lx} y={ly - W * 0.032} fontSize={W * 0.052} fontWeight={700}
+                    fill={CREASE} textAnchor="middle" dominantBaseline="middle">わ</text>
+                  <text x={lx} y={ly + W * 0.038} fontSize={W * 0.029} fill={CREASE}
+                    textAnchor="middle">
+                    {[...'折り山'].map((c, i) => (
+                      <tspan key={i} x={lx} dy={i === 0 ? 0 : W * 0.033}>{c}</tspan>
+                    ))}
+                  </text>
+                </g>
+              ) : (
+                <g>
+                  {iconFold(lx - W * 0.105, ly, W * 0.056, side, CREASE)}
+                  <text x={lx + W * 0.02} y={ly} fontSize={W * 0.042} fontWeight={700}
+                    fill={CREASE} textAnchor="middle" dominantBaseline="middle">
+                    わ（折り山）
+                  </text>
+                </g>
+              )}
+            </g>
+          )
+        })}
+
+        {/* いま使っているところの終わり。ここまでが買う長さに効く */}
+        {used > 0 && used < L && (
+          <g>
+            <rect x={0} y={used} width={W} height={L - used} fill="#f4f5f1" fillOpacity={0.85} />
+            <line x1={0} y1={used} x2={W} y2={used}
+              stroke="#9aa69e" strokeWidth={W * 0.005}
+              strokeDasharray={`${W * 0.03} ${W * 0.02}`} />
+            <text x={W * 0.5} y={used + L * 0.035} fontSize={W * 0.038}
+              fill="#5c665f" textAnchor="middle">
+              ここまで {(used / 10).toFixed(0)} cm
+            </text>
+          </g>
+        )}
+      </svg>
+
+      <Note icon="fold">
+        {half ? (
+          <>
+            生地幅 {(report.foldDepth.left * 2 + SELVAGE_MM * 2) / 10} cm を
+            <span className="font-bold text-mat-600">きっちり半分</span>に折っています。
+            見えている面は<span className="font-bold text-mat-600">ぜんぶ二重</span>で、
+            型紙を1つ置けばそのまま2枚とも裁てます。
+            折り山の反対の端には<span className="font-bold">みみが2枚</span>重なっていて、
+            下の一枚が少しのぞいています。
+          </>
+        ) : flaps.length > 0 ? (
+          <>
+            濃いところが<span className="font-bold text-mat-600">二重</span>
+            （折り返したぶん）、白いところが一重です。
+          </>
+        ) : (
+          <>折らずに一重で使っています。</>
+        )}
+        {' '}型紙の<span className="font-bold text-cut">青いふち</span>が縫い代、
+        その内側の線が出来上がり線です。
+      </Note>
+    </div>
+  )
+}
+
+/* ----------------------------------------------------------- パーツ置き場 */
+
+function Tray({
+  state, takenOf, shortage, onPlace,
+}: {
+  state: PartsState
+  takenOf: (partId: string) => number
+  shortage: { id: string }[]
+  onPlace: (partId: string) => void
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <Heading icon="part">置くパーツ</Heading>
+      <ul className="flex flex-col gap-2">
+        {state.parts.map((p) => {
+          const taken = takenOf(p.id)
+          const done = taken >= p.needed
+          return (
+            <li
+              key={p.id}
+              className="flex items-center gap-3 rounded-xl border border-ink-100 bg-white px-3 py-2"
+            >
+              <span className="min-w-0 flex-1 truncate text-sm font-bold text-ink-900">
+                {p.name}
+              </span>
+              <span className={`tnum text-xs ${done ? 'text-mat-600' : 'text-seam'}`}>
+                {taken} / {p.needed} 枚
+              </span>
+              <button
+                type="button"
+                onClick={() => onPlace(p.id)}
+                className="rounded-lg bg-mat-500 px-3 py-1.5 text-sm font-bold text-white active:bg-mat-600"
+              >
+                置く
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+      {shortage.length > 0 && (
+        <Note>
+          数えているのは<span className="font-bold text-ink-700">できあがりの枚数</span>です。
+          二重のところに置いた型紙は
+          <span className="font-bold text-mat-600">1つで2枚</span>
+          （型紙に <span className="font-bold text-mat-600">×2</span> と出ます）。
+          折り山に当てたパーツは、開いて左右対称の1枚です。
+        </Note>
+      )}
+    </div>
+  )
+}
+
+/* ------------------------------------------------------- 選んだパーツの操作 */
+
+function Controls({
+  placement, name, count, hasNap, foldSides, onPatch, onRemove, onClose,
+}: {
+  placement: Placement
+  name: string
+  count: number
+  hasNap: boolean
+  foldSides: Side[]
+  onPatch: (over: Partial<Placement>) => void
+  onRemove: () => void
+  onClose: () => void
+}) {
+  return (
+    <div className="safe-b fixed inset-x-0 bottom-0 z-10 border-t border-ink-100 bg-white px-4 pt-3 shadow-[0_-6px_20px_rgba(0,0,0,0.06)]">
+      <div className="mx-auto flex max-w-md flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-bold text-ink-900">{name}</span>
+          <span className="tnum rounded-md bg-mat-50 px-2 py-0.5 text-xs font-bold text-mat-600">
+            この1つで {count} 枚
+          </span>
+          <button
+            type="button"
+            onClick={onRemove}
+            className="ml-auto flex items-center gap-1 px-2 text-xs text-seam"
+          >
+            <Icon name="trash" className="h-3.5 w-3.5 shrink-0" />
+            生地から外す
+          </button>
+          <button type="button" onClick={onClose} className="px-2 text-xs text-ink-300">
+            閉じる
+          </button>
+        </div>
+
+        {/* 操作は全部、結果の形を絵にしてある。言葉より先に、どうなるかが見える */}
+        <div className="flex flex-wrap gap-1.5">
+          {foldSides.map((s) => (
+            <Chip
+              key={s}
+              on={placement.snapTo === s}
+              onClick={() => onPatch({ snapTo: placement.snapTo === s ? null : s })}
+            >
+              <Icon name="fold" />
+              わに当てる（{SIDE_LABELS[s]}）
+            </Chip>
+          ))}
+          <Chip
+            on={placement.rot180}
+            disabled={hasNap}
+            onClick={() => onPatch({ rot180: !placement.rot180 })}
+          >
+            <Icon name="nest" />
+            差し込む（180°）
+          </Chip>
+          <Chip on={placement.mirrored} onClick={() => onPatch({ mirrored: !placement.mirrored })}>
+            <Icon name="mirror" />
+            裏返す
+          </Chip>
+          <Chip on={placement.rot90} onClick={() => onPatch({ rot90: !placement.rot90 })}>
+            <Icon name="grainSide" />
+            横向き（地の目を変える）
+          </Chip>
+        </div>
+
+        {hasNap && (
+          <Note icon="nap">向きのある生地なので、差し込み（180°）は使えません。</Note>
+        )}
+        {placement.rot90 && (
+          <Note icon="warn" tone="warn">
+            地の目を変えています。伸び方も落ち方も変わるので、ふつうはしません。
+          </Note>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * 折り方のピクトグラム。断面図をそのまま小さくした形で、
+ * 半分折り＝上下の腕が同じ長さ、型紙合わせ＝上の腕が短い
+ */
+function FoldGlyph({ kind }: { kind: 'half' | 'partial' }) {
+  return (
+    <svg viewBox="0 0 22 14" className="h-[0.95em] w-auto shrink-0" aria-hidden="true">
+      <path
+        d={kind === 'half' ? 'M20 3.5 H7 a3.5 3.5 0 0 0 0 7 H20' : 'M12 3.5 H7 a3.5 3.5 0 0 0 0 7 H20'}
+        fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+function Chip({
+  on, disabled, onClick, children,
+}: {
+  on: boolean
+  disabled?: boolean
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-bold ${
+        disabled
+          ? 'border border-ink-100 text-ink-300'
+          : on
+            ? 'bg-mat-500 text-white'
+            : 'border border-ink-100 text-ink-700'
+      }`}
+    >
+      {children}
+    </button>
+  )
+}

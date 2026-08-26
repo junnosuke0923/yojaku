@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+@theme {
+  --color-mat-50:  #eef3ef;
+  --color-mat-100: #dbe6de;
+  --color-mat-300: #9dbcab;
+  --color-mat-500: #35664e;
+  --color-mat-600: #2b5340;
+  --color-mat-700: #234232;
+
+  --color-ink-900: #151916;
+  --color-ink-700: #2b332d;
+  --color-ink-500: #5c665f;
+  --color-ink-300: #9aa69e;
+  --color-ink-100: #dfe4df;
+
+  --color-chalk:   #f6f7f4;
+  --color-seam:    #b4433a;
+  /* 裁ち切り線と縫い代の帯の青。SVG の中でも同じ値を使っている */
+  --color-cut:     #3f6fa8;
+}
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--color-chalk);
+  color: var(--color-ink-900);
+  font-family: "Hiragino Sans", "Yu Gothic UI", "Noto Sans JP", system-ui, sans-serif;
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior-y: none;
+}
+
+/* スマホで数字が桁ごとにずれないように */
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* iOS Safari の下端バーを避ける */
+.safe-b { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
+
+input[type="range"] { accent-color: var(--color-mat-500); }
