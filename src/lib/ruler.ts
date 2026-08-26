@@ -7,7 +7,10 @@
  * という二段構えにしている。自動判別を鵜呑みにしない理由は 仕様メモ.md の判断1 を参照。
  */
 
-import { computeHomography, type Homography } from './homography'
+import {
+  computeHomography, fitSimilarity, invertSimilarity, similarityScale, similarityToH,
+  type Homography,
+} from './homography'
 import { dist, normalizeWinding, orderQuad, type Point, type Quad } from './geom'
 
 export type RulerId = 'r50' | 'r30'
@@ -40,6 +43,16 @@ export const RATIO_THRESHOLD = 11
 
 /** 対辺の長さがこれ以上ちがったら「斜めから撮っている」とみなし、自動判別を諦める。 */
 const PARALLEL_TOLERANCE = 0.1
+
+/**
+ * 実物の縦横比（50cm定規は 10.0、30cm定規は 12.0）から、これ以上離れていたら提案しない。
+ *
+ * ふだんの画面では長方形のまま定規に合わせてもらうので、
+ * 四隅は必ずきれいな長方形になり「台形かどうか」では斜め撮りを見抜けない。
+ * そのかわり、斜めから撮ると長辺が縮んで写るので、縦横比そのものが実物から離れる。
+ * どちらの定規とも言いがたい比になったら、黙って学生の選択に任せる。
+ */
+const RATIO_TOLERANCE = 1.2
 
 export type RulerGuess = {
   /** 写真から測った 長辺÷短辺 */
@@ -83,6 +96,18 @@ export function guessRuler(quad: Quad): RulerGuess {
   }
 
   const suggested: RulerId = observedRatio < RATIO_THRESHOLD ? 'r50' : 'r30'
+  const trueRatio = RULERS[suggested].longMm / RULERS[suggested].shortMm
+  if (Math.abs(observedRatio - trueRatio) > RATIO_TOLERANCE) {
+    return {
+      observedRatio,
+      suggested: null,
+      confident: false,
+      reason:
+        `縦横比が ${observedRatio.toFixed(1)} で、どちらの定規とも言いがたい形です。` +
+        '斜めから撮れているのかもしれません。定規の種類を選んでください。',
+    }
+  }
+
   return {
     observedRatio,
     suggested,
@@ -119,8 +144,38 @@ export type ScaleResult = {
  *
  * 実寸の座標系は「定規の長辺＝縦（＝地の目）」になるように置く。
  * こうしておくと、あとの要尺計算で改めて回転させる必要がない。
+ *
+ * ■ ふだんは相似変換を使う（2026-08-26 に変更）
+ *
+ * もとは射影変換（4点をぴったり通す8自由度の変換）だけを使っていた。
+ * 4隅が正確なら誤差ゼロで、斜めから撮っても直せる——理屈のうえでは申し分ない。
+ * ところが実際には、指で合わせた4隅は数画素ずれる。そしてこの変換は、
+ * そのずれを「そういう遠近だったのだ」と受け取ってしまい、
+ * 定規から遠いものほど大きく歪ませる。
+ *
+ * 合成画像で測ったところ、4隅が ±6画素ずれただけで、
+ * 定規から離れた型紙の寸法が平均11%・最悪30%ずれた（`npm run verify` の最後の節）。
+ * 実際に依頼者から「定規を片方のスカートに合わせたら、
+ * もう片方の形がいびつになる」という報告があり、原因はこれだった。
+ *
+ * そこで既定を相似変換（回転＋一様な拡大＋平行移動の4自由度）に変えた。
+ * 4点8個の値に対して自由度が4しかないので、ずれは打ち消し合う。
+ * 同じ ±6画素で誤差 1% 前後に収まる。
+ * 縮尺がほぼ長辺（50cm）だけで決まるのも効いている。短辺は5cmしかなく、
+ * 数画素のずれがそのまま1割の縮尺違いになるため、そこを当てにしない形が強い。
+ *
+ * 引きかえに遠近は表せない。真上から撮る前提での割り切りで、
+ * 傾き20度で 2%、35度で 5% ほどの片寄りが残る。
+ * それでも、4隅がずれたときの射影変換より悪くなることは無かった。
+ *
+ * `perspective` を真にすると、もとの射影変換に戻す。
+ * 4隅を自分で台形に合わせた学生のための逃げ道。
  */
-export function buildScale(quad: Quad, ruler: RulerSpec): ScaleResult | null {
+export function buildScale(
+  quad: Quad,
+  ruler: RulerSpec,
+  perspective = false,
+): ScaleResult | null {
   const src = prepareQuad(quad)
   const { shortMm: w, longMm: l } = ruler
 
@@ -132,15 +187,29 @@ export function buildScale(quad: Quad, ruler: RulerSpec): ScaleResult | null {
     { x: 0, y: l },
   ]
 
-  const imageToMm = computeHomography(src, dst)
-  const mmToImage = computeHomography(dst, src)
-  if (!imageToMm || !mmToImage) return null
+  if (perspective) {
+    const imageToMm = computeHomography(src, dst)
+    const mmToImage = computeHomography(dst, src)
+    if (!imageToMm || !mmToImage) return null
+    const longPx = (dist(src[1], src[2]) + dist(src[3], src[0])) / 2
+    const mmPerPixel = longPx > 0 ? l / longPx : 0
+    if (!Number.isFinite(mmPerPixel) || mmPerPixel <= 0) return null
+    return { imageToMm, mmToImage, mmPerPixel, rulerMmQuad: dst }
+  }
 
-  const longPx = (dist(src[1], src[2]) + dist(src[3], src[0])) / 2
-  const mmPerPixel = longPx > 0 ? l / longPx : 0
+  const fit = fitSimilarity(src, dst)
+  const back = fit && invertSimilarity(fit)
+  if (!fit || !back) return null
+
+  const mmPerPixel = similarityScale(fit)
   if (!Number.isFinite(mmPerPixel) || mmPerPixel <= 0) return null
 
-  return { imageToMm, mmToImage, mmPerPixel, rulerMmQuad: dst }
+  return {
+    imageToMm: similarityToH(fit),
+    mmToImage: similarityToH(back),
+    mmPerPixel,
+    rulerMmQuad: dst,
+  }
 }
 
 /** 定規の四隅の初期位置。画面のまん中に、それらしい細長さで置いておく。 */

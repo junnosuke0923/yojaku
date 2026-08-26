@@ -45,6 +45,11 @@ export type AnalyzeOptions = {
   rulerQuad: Quad
   ruler: RulerSpec
   green: GreenParams
+  /**
+   * 4隅を台形に合わせたか（斜めから撮ったときの逃げ道）。
+   * ふだんは偽で、指のずれに強い相似変換を使う。詳しくは buildScale を参照
+   */
+  perspective?: boolean
 }
 
 export type AnalyzeResult = {
@@ -64,7 +69,7 @@ export type AnalyzeError = { error: string }
 export function analyze(opts: AnalyzeOptions): AnalyzeResult | AnalyzeError {
   const { imageData, rulerQuad, ruler, green } = opts
 
-  const scale = buildScale(rulerQuad, ruler)
+  const scale = buildScale(rulerQuad, ruler, opts.perspective)
   if (!scale) {
     return { error: '定規の4隅が一直線に近すぎます。四隅を四角形になるように置き直してください。' }
   }

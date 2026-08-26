@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CornerPicker } from './components/CornerPicker'
+import { CornerPicker, rectifyQuad } from './components/CornerPicker'
 import { Heading, Icon, Note, type IconName } from './components/Icon'
 import { LayoutView } from './components/LayoutView'
 import { GreenTuner } from './components/GreenTuner'
@@ -38,6 +38,11 @@ export function App() {
   const [quadAdjusted, setQuadAdjusted] = useState(false)
   const [rulerId, setRulerId] = useState<RulerId>(loadSavedRuler)
   const [rulerChosenByHand, setRulerChosenByHand] = useState(false)
+  /**
+   * 4隅を自由に置くか（斜めから撮ってしまったときの逃げ道）。
+   * ふだんは偽で、長方形のまま定規へ持っていってもらう。理由は CornerPicker の先頭を参照
+   */
+  const [perspective, setPerspective] = useState(false)
   const [green, setGreen] = useState<GreenParams>(DEFAULT_GREEN)
   const [tunerOpen, setTunerOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -67,6 +72,7 @@ export function App() {
       setQuad(defaultRulerQuad(loaded.width, loaded.height))
       setQuadAdjusted(false)
       setRulerChosenByHand(false)
+      setPerspective(false)
       setResult(null)
       setStep('ruler')
     } catch {
@@ -109,7 +115,9 @@ export function App() {
     setError(null)
     // 画面に「計算中」を出してから、重い処理に入る
     setTimeout(() => {
-      const out = analyze({ imageData: image.imageData, rulerQuad: quad, ruler: RULERS[rulerId], green })
+      const out = analyze({
+        imageData: image.imageData, rulerQuad: quad, ruler: RULERS[rulerId], green, perspective,
+      })
       if ('error' in out) {
         setError(out.error)
       } else {
@@ -242,19 +250,53 @@ export function App() {
 
         {step === 'ruler' && image && quad && (
           <section className="flex flex-col gap-5">
-            <p className="text-sm leading-relaxed text-ink-500">
-              <span className="font-bold text-ink-700">4つの丸を、定規の角に合わせてください。</span>
-              <br />
-              指でつまんで動かせます。ここが合っていれば、斜めから撮っていても実寸に直せます。
-            </p>
+            {perspective ? (
+              <p className="text-sm leading-relaxed text-ink-500">
+                <span className="font-bold text-ink-700">4つの丸を、定規の角に合わせてください。</span>
+                <br />
+                台形にゆがんだ形にも合わせられます。そのかわり、角は正確に合わせてください。
+              </p>
+            ) : (
+              <p className="text-sm leading-relaxed text-ink-500">
+                <span className="font-bold text-ink-700">緑の枠を、定規にぴったり重ねてください。</span>
+                <br />
+                中を押して動かす、角をつまんで伸ばす、上の丸をつまんで回す。
+              </p>
+            )}
 
             <CornerPicker
               bitmap={image.bitmap}
               imageWidth={image.width}
               imageHeight={image.height}
               quad={quad}
+              mode={perspective ? 'free' : 'rect'}
               onChange={adjustQuad}
             />
+
+            {/*
+              斜め撮りの逃げ道。ふだんは開かない。
+              4隅を自由にすると指のずれがそのまま歪みになるので、既定にはしない
+              （lib/ruler.ts の buildScale を参照）
+            */}
+            <button
+              type="button"
+              onClick={() => {
+                // 台形から戻るときは、いちばん近い長方形に直してから渡す
+                if (perspective && quad) adjustQuad(rectifyQuad(quad))
+                setPerspective((v) => !v)
+              }}
+              className="flex items-center gap-1.5 self-start text-xs font-bold text-mat-700"
+            >
+              <Icon name={perspective ? 'back' : 'hint'} className="h-4 w-4 shrink-0" />
+              {perspective ? '長方形のまま合わせる（おすすめ）' : '斜めから撮ってしまった（ゆがみに合わせる）'}
+            </button>
+            {perspective && (
+              <Note icon="warn" tone="warn">
+                4つの角を1つずつ合わせます。
+                <span className="font-bold">数画素のずれが、離れた型紙を大きく歪ませます。</span>
+                拡大して丁寧に合わせるか、真上から撮り直すほうが確実です。
+              </Note>
+            )}
 
             <RulerToggle value={rulerId} guess={guess} onChange={chooseRuler} />
 

@@ -252,6 +252,12 @@ type RunOpts = {
   expectOverhang?: boolean
   /** 寸法の許容ずれ（%）。省略すると 2% */
   tolerancePercent?: number
+  /**
+   * 4隅を台形に合わせた場合（射影変換）。
+   * 合成画像の4隅は誤差ゼロなので、傾いた場面はこちらで測る。
+   * 既定の相似変換は遠近を表せないぶん、傾きに応じて片寄る（buildScale の説明を参照）
+   */
+  perspective?: boolean
 }
 
 /**
@@ -269,6 +275,7 @@ function runMulti(
     rulerOriginMm: Point
     expect: { widthMm: number; heightMm: number }[]
     tolerancePercent?: number
+    perspective?: boolean
   },
 ) {
   console.log(`
@@ -289,6 +296,7 @@ function runMulti(
     rulerQuad: scene.rulerQuad,
     ruler: RULERS.r50,
     green: { ...DEFAULT_GREEN, hueCenter: hue },
+    perspective: opts.perspective,
   })
   if ('error' in out) {
     failures++
@@ -323,6 +331,7 @@ function run(title: string, opts: RunOpts) {
     rulerQuad: scene.rulerQuad,
     ruler: RULERS[opts.rulerId],
     green: { ...DEFAULT_GREEN, hueCenter: hue },
+    perspective: opts.perspective,
   })
 
   if ('error' in out) {
@@ -406,10 +415,10 @@ function sweepGuess() {
 console.log('合成画像による検算 — 実寸 450 × 620 mm の型紙を、歪ませてから元に戻せるか')
 
 run('真上から・50cm定規・透明', { rulerId: 'r50', tiltDeg: 0, opaqueRuler: false })
-run('10度傾き・50cm定規・透明', { rulerId: 'r50', tiltDeg: 10, opaqueRuler: false })
-run('20度傾き・50cm定規・透明', { rulerId: 'r50', tiltDeg: 20, opaqueRuler: false })
+run('10度傾き・50cm定規・透明', { rulerId: 'r50', tiltDeg: 10, opaqueRuler: false, perspective: true })
+run('20度傾き・50cm定規・透明', { rulerId: 'r50', tiltDeg: 20, opaqueRuler: false, perspective: true })
 run('真上から・30cm定規・透明', { rulerId: 'r30', tiltDeg: 0, opaqueRuler: false })
-run('10度傾き・50cm定規・不透明', { rulerId: 'r50', tiltDeg: 10, opaqueRuler: true })
+run('10度傾き・50cm定規・不透明', { rulerId: 'r50', tiltDeg: 10, opaqueRuler: true, perspective: true })
 
 console.log('\n── 実物どおりの定規（赤みがかった半透明）を、型紙の上に載せた場合 ──')
 
@@ -419,7 +428,7 @@ run('大パーツ・定規は収まる', {
   expectOverhang: false,
 })
 run('大パーツ・10度傾き', {
-  rulerId: 'r50', tiltDeg: 10, opaqueRuler: false, tintedRuler: true,
+  rulerId: 'r50', tiltDeg: 10, opaqueRuler: false, tintedRuler: true, perspective: true,
   rulerOriginMm: { x: 250, y: 60 },
   expectOverhang: false,
 })
@@ -430,7 +439,7 @@ run('小パーツ・定規がはみ出す', {
   expectOverhang: true,
 })
 run('小パーツ・はみ出し・15度傾き', {
-  rulerId: 'r50', tiltDeg: 15, opaqueRuler: false, tintedRuler: true,
+  rulerId: 'r50', tiltDeg: 15, opaqueRuler: false, tintedRuler: true, perspective: true,
   pattern: SMALL_MM, rulerOriginMm: { x: 195, y: 10 },
   expectWidthMm: SMALL_WIDTH_MM, expectHeightMm: SMALL_HEIGHT_MM,
   expectOverhang: true,
@@ -451,7 +460,7 @@ run('細長いパーツ・定規が横へはみ出す', {
   expectOverhang: true, tolerancePercent: 12,
 })
 run('細長いパーツ・横へはみ出し・10度傾き', {
-  rulerId: 'r50', tiltDeg: 10, opaqueRuler: false, tintedRuler: true,
+  rulerId: 'r50', tiltDeg: 10, opaqueRuler: false, tintedRuler: true, perspective: true,
   pattern: BELT_MM, rulerOriginMm: { x: 190, y: 130 },
   expectWidthMm: BELT_WIDTH_MM, expectHeightMm: BELT_HEIGHT_MM,
   expectOverhang: true, tolerancePercent: 12,
@@ -467,13 +476,84 @@ runMulti('2枚を一度に・定規は緑の上', {
   rulerOriginMm: { x: 360, y: 70 }, expect: TWIN_EXPECT,
 })
 runMulti('2枚を一度に・定規は緑の上・12度傾き', {
-  tiltDeg: 12, patterns: [TWIN_A_MM, TWIN_B_MM],
+  tiltDeg: 12, perspective: true, patterns: [TWIN_A_MM, TWIN_B_MM],
   rulerOriginMm: { x: 360, y: 70 }, expect: TWIN_EXPECT,
 })
 runMulti('2枚を一度に・定規は左のパーツの上', {
   tiltDeg: 0, patterns: [TWIN_A_MM, TWIN_B_MM],
   rulerOriginMm: { x: 110, y: 100 }, expect: TWIN_EXPECT,
 })
+
+/*
+  4隅が指のぶんずれたとき、どれだけ持ちこたえるか。
+
+  これが「射影変換をやめて相似変換を既定にした」根拠（2026-08-26）。
+  4隅がぴったりなら射影変換のほうが正確だが、実際には指で合わせるので数画素ずれる。
+  射影変換はそのずれを遠近だと受け取り、定規から遠いものほど大きく歪ませる。
+  依頼者から「定規を片方のスカートに合わせたら、もう片方の形がいびつになる」
+  という報告があり、原因はこれだった。
+*/
+console.log('\n■ 4隅が指のぶんずれたときの強さ（既定の相似変換 と 射影変換）')
+{
+  let seed = 4242
+  const rnd = () => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff
+    return seed / 0x7fffffff - 0.5
+  }
+
+  /** ずれを与えて何度も測り、幅と丈の誤差の大きいほうの平均と最悪を返す */
+  const trial = (tiltDeg: number, jitterPx: number, perspective: boolean) => {
+    const scene = buildScene({ rulerId: 'r50', tiltDeg, opaqueRuler: false })
+    const image = scene.image as unknown as ImageData
+    const green = { ...DEFAULT_GREEN, hueCenter: estimateHueCenter(image.data) }
+    let sum = 0
+    let worst = 0
+    const runs = 8
+    for (let k = 0; k < runs; k++) {
+      const rulerQuad = scene.rulerQuad.map((p) => ({
+        x: p.x + rnd() * jitterPx * 2,
+        y: p.y + rnd() * jitterPx * 2,
+      })) as Quad
+      const out = analyze({ imageData: image, rulerQuad, ruler: RULERS.r50, green, perspective })
+      if ('error' in out || out.parts.length === 0) {
+        sum += 100
+        worst = 100
+        continue
+      }
+      const part = out.parts[0]
+      const e =
+        Math.max(
+          Math.abs(part.widthMm - TRUE_WIDTH_MM) / TRUE_WIDTH_MM,
+          Math.abs(part.heightMm - TRUE_HEIGHT_MM) / TRUE_HEIGHT_MM,
+        ) * 100
+      sum += e
+      worst = Math.max(worst, e)
+    }
+    return { avg: sum / runs, worst }
+  }
+
+  for (const tiltDeg of [0, 10]) {
+    for (const jitterPx of [4, 8]) {
+      const sim = trial(tiltDeg, jitterPx, false)
+      const per = trial(tiltDeg, jitterPx, true)
+      console.log(
+        `        傾き${String(tiltDeg).padStart(2)}度・4隅が±${jitterPx}画素ずれ  ` +
+          `相似 平均${sim.avg.toFixed(1)}% 最悪${sim.worst.toFixed(1)}%   ` +
+          `射影 平均${per.avg.toFixed(1)}% 最悪${per.worst.toFixed(1)}%`,
+      )
+      report(
+        `傾き${tiltDeg}度・±${jitterPx}画素`,
+        sim.worst < 6,
+        `相似変換の最悪 ${sim.worst.toFixed(1)}%（6%未満であること）`,
+      )
+      report(
+        '  射影変換より強いか',
+        sim.worst < per.worst,
+        `相似 ${sim.worst.toFixed(1)}% ＜ 射影 ${per.worst.toFixed(1)}%`,
+      )
+    }
+  }
+}
 
 console.log('\n■ 定規の自動判別（傾き0〜35度 × 距離60〜160cm を総当たり）')
 sweepGuess()
