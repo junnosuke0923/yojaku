@@ -14,6 +14,16 @@
   --color-ink-300: #9aa69e;
   --color-ink-100: #dfe4df;
 
+  /*
+    後で裁つぶんの余白。生地の色にも型紙の色にも寄せず、
+    「まだ手を付けていない場所」に見えるくすんだ黄土にしてある。
+    SVG の斜線でも同じ系統の色を使っている
+  */
+  --color-hold-50:  #f7f4e9;
+  --color-hold-400: #c8bb8e;
+  --color-hold-600: #8a7f5c;
+  --color-hold-700: #6d6448;
+
   --color-chalk:   #f6f7f4;
   --color-seam:    #b4433a;
   /* 裁ち切り線と縫い代の帯の青。SVG の中でも同じ値を使っている */

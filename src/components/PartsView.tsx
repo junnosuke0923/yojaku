@@ -9,7 +9,9 @@
 import { useMemo, useState } from 'react'
 import { bounds } from '../lib/geom'
 import { buildSeam, type SeamResult } from '../lib/seam'
-import { NAME_CHOICES, outlineOf, planOf, type PartsState, type StoredPart } from '../lib/store'
+import {
+  isReserve, NAME_CHOICES, outlineOf, planOf, type PartsState, type StoredPart,
+} from '../lib/store'
 import { FabricSetup } from './FabricSetup'
 import { Heading, Icon, Note } from './Icon'
 import { PatternMarks } from './PatternMarks'
@@ -24,6 +26,13 @@ type Props = {
 
 export function PartsView({ state, onChange, onAddMore, onLayout }: Props) {
   const [editing, setEditing] = useState<string | null>(null)
+
+  /*
+    後で裁つぶんの余白は、ここには出さない。
+    写真から取り込んだものではないし、縫い代も枚数も無い。
+    作るのも消すのも「生地に並べる」画面の中だけで完結させる（依頼者の指示）
+  */
+  const patterns = state.parts.filter((p) => !isReserve(p))
 
   const patch = (id: string, over: Partial<StoredPart>) =>
     onChange({ ...state, parts: state.parts.map((p) => (p.id === id ? { ...p, ...over } : p)) })
@@ -102,10 +111,10 @@ export function PartsView({ state, onChange, onAddMore, onLayout }: Props) {
           </button>
         }
       >
-        取り込んだパーツ<span className="tnum pl-2 text-ink-300">{state.parts.length}</span>
+        取り込んだパーツ<span className="tnum pl-2 text-ink-300">{patterns.length}</span>
       </Heading>
 
-      {state.parts.length === 0 ? (
+      {patterns.length === 0 ? (
         <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-ink-100 px-4 py-8 text-center text-sm text-ink-300">
           <Icon name="part" className="h-8 w-8" />
           <p>
@@ -117,7 +126,7 @@ export function PartsView({ state, onChange, onAddMore, onLayout }: Props) {
       ) : (
         <>
           <ul className="flex flex-col gap-3">
-            {state.parts.map((p) => (
+            {patterns.map((p) => (
               <PartRow
                 key={p.id}
                 part={p}

@@ -25,7 +25,7 @@ import type { ReactNode, SVGProps } from 'react'
 export type IconName =
   | 'camera' | 'photo' | 'ruler' | 'measure'
   | 'part' | 'seam' | 'scissors' | 'fold'
-  | 'cloth' | 'selvage' | 'clothWidth' | 'yardage' | 'layout'
+  | 'cloth' | 'selvage' | 'clothWidth' | 'yardage' | 'layout' | 'hold'
   | 'grain' | 'grainSide' | 'nap' | 'napNone' | 'flip' | 'mirror' | 'nest'
   | 'question' | 'hint' | 'warn' | 'check'
   | 'plus' | 'trash' | 'back'
@@ -158,6 +158,18 @@ const SHAPES: Record<IconName, ReactNode> = {
       <path d="M3.6 5.4v13.2" />
       <path d={head(3.6, 5.4, 0, 1)} />
       <path d={head(3.6, 18.6, 0, -1)} />
+    </>
+  ),
+
+  /**
+   * 後で裁つぶんの余白。生地の上に出る印と同じ、破線の枠に斜線。
+   * ここだけは「物の形」ではなく「図の上の印」だが、
+   * 空けておく場所そのものに形が無い以上、印を借りるほうが分かる
+   */
+  hold: (
+    <>
+      <rect x="2.8" y="5.4" width="18.4" height="13.2" rx="1.2" strokeDasharray="3.1 2.5" />
+      <path d="M7.4 16.4l3.4-6.6M12.4 16.4l3.4-6.6" />
     </>
   ),
 

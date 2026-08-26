@@ -24,6 +24,18 @@ export const NAME_CHOICES = [
 
 export type StoredPart = {
   id: string
+  /**
+   * 型紙そのものか、後で裁つぶんの余白か（依頼者の指示・2026-08-26）。
+   *
+   * ベルトや見返しは、仮縫いのあとに寸法が変わることがあるので、
+   * この段階では本布を裁たずに置いておくことが多い。
+   * そのぶんの場所だけは残しておく必要があるので、
+   * 「この大きさの長方形を空けておく」という指定だけを置けるようにしてある。
+   *
+   * 型紙ではないので、写真も出来上がり線も無い。ただの長方形。
+   * 計算のうえでは型紙と同じに扱う（場所を取り、要尺に効く）。
+   */
+  kind?: 'pattern' | 'reserve'
   /** 取り込んだ順の仮名（パーツ1、パーツ2…）。名前が無くても計算は進む */
   name: string
   /** 出来上がり線(mm)。写真から取れるのはこれ（学生の型紙は出来上がり線で切ってある） */
@@ -81,6 +93,7 @@ export function load(): PartsState {
       parts: Array.isArray(parsed.parts)
         ? parsed.parts.map((p) => ({
             ...p, flipped: p.flipped ?? false, seamIncluded: p.seamIncluded ?? false,
+            kind: p.kind ?? 'pattern',
           }))
         : [],
       fabricWidthMm: parsed.fabricWidthMm ?? EMPTY.fabricWidthMm,
@@ -110,9 +123,47 @@ export function toStored(
   const plan = initialPlan(outlineMm, seamIncluded ? SEAM_INCLUDED_MM : DEFAULT_SEAM_MM)
   return {
     id: `p${Date.now().toString(36)}${index}`,
+    kind: 'pattern',
     name: `パーツ${index + 1}`,
     outlineMm,
     seamIncluded,
+    allowancesMm: plan.allowancesMm,
+    needed: 1,
+    flipped: false,
+    widthMm,
+    heightMm,
+    addedAt: Date.now(),
+  }
+}
+
+/** 後で裁つぶんの余白か */
+export const isReserve = (part: StoredPart) => part.kind === 'reserve'
+
+/** 余白の名前の候補。仮縫いのあとに裁つことが多いもの */
+export const RESERVE_CHOICES = ['ベルト', '見返し', 'カフス', '衿', 'その他']
+
+/**
+ * 後で裁つぶんの余白を作る。
+ *
+ * 型紙ではないので、写真も出来上がり線も持たない。指定された大きさの長方形そのもの。
+ * 縫い代は「もう含まれている」扱いにしてある。
+ * 学生が入れるのは裁ち切りの寸法（例：ベルトなら「ベルト幅×2＋縫い代」の幅）で、
+ * そこからさらに足すと二重に足すことになるため。
+ */
+export function toReserve(name: string, widthMm: number, heightMm: number): StoredPart {
+  const outlineMm: Polygon = [
+    { x: 0, y: 0 },
+    { x: widthMm, y: 0 },
+    { x: widthMm, y: heightMm },
+    { x: 0, y: heightMm },
+  ]
+  const plan = initialPlan(outlineMm, SEAM_INCLUDED_MM)
+  return {
+    id: `r${Date.now().toString(36)}`,
+    kind: 'reserve',
+    name,
+    outlineMm,
+    seamIncluded: true,
     allowancesMm: plan.allowancesMm,
     needed: 1,
     flipped: false,
