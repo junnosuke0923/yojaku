@@ -56,6 +56,17 @@ const SMALL_MM: Point[] = [
 const SMALL_WIDTH_MM = 322 - 118   // 204
 const SMALL_HEIGHT_MM = 322 - 198  // 124
 
+/**
+ * ベルトほどの細長いパーツ。68 × 3.2 cm。
+ * 定規の幅は5cmあるので、地の目に沿わせて載せると必ず横へはみ出す。
+ * 見返し・バイアス布でも同じことが起きる。
+ */
+const BELT_MM: Point[] = [
+  { x: 180, y: 40 }, { x: 212, y: 40 }, { x: 212, y: 720 }, { x: 180, y: 720 },
+]
+const BELT_WIDTH_MM = 212 - 180   // 32
+const BELT_HEIGHT_MM = 720 - 40   // 680
+
 const TRUE_WIDTH_MM = 550 - 100  // 450
 const TRUE_HEIGHT_MM = 640 - 20  // 620
 
@@ -216,6 +227,8 @@ type RunOpts = {
   expectHeightMm?: number
   /** 定規が型紙からはみ出しているはず（取り除いた画素があるはず） */
   expectOverhang?: boolean
+  /** 寸法の許容ずれ（%）。省略すると 2% */
+  tolerancePercent?: number
 }
 
 function run(title: string, opts: RunOpts) {
@@ -253,8 +266,9 @@ function run(title: string, opts: RunOpts) {
   if (out.parts.length === 0) return
 
   const part = out.parts[0]
-  check('最大幅 (mm)', part.widthMm, opts.expectWidthMm ?? TRUE_WIDTH_MM, 2)
-  check('最大丈 (mm)', part.heightMm, opts.expectHeightMm ?? TRUE_HEIGHT_MM, 2)
+  const tol = opts.tolerancePercent ?? 2
+  check('最大幅 (mm)', part.widthMm, opts.expectWidthMm ?? TRUE_WIDTH_MM, tol)
+  check('最大丈 (mm)', part.heightMm, opts.expectHeightMm ?? TRUE_HEIGHT_MM, tol)
 }
 
 /**
@@ -341,6 +355,27 @@ run('小パーツ・はみ出し・15度傾き', {
   pattern: SMALL_MM, rulerOriginMm: { x: 195, y: 10 },
   expectWidthMm: SMALL_WIDTH_MM, expectHeightMm: SMALL_HEIGHT_MM,
   expectOverhang: true,
+})
+
+/*
+ * ベルト。定規（幅5cm）のほうがパーツ（幅3.2cm）より太いので、
+ * 地の目に沿わせて載せると横へはみ出す。
+ * 定規より長いパーツなので、両端の外側で幅が見えている。そこから縁をつなぐ。
+ *
+ * 許容を 12% にしているのは、タップのずれを見込んで縁から 3mm 残す作りのため。
+ * 3mm は 32mm に対して 9% になる。多めに出るぶんには生地が足りなくならない。
+ */
+run('細長いパーツ・定規が横へはみ出す', {
+  rulerId: 'r50', tiltDeg: 0, opaqueRuler: false, tintedRuler: true,
+  pattern: BELT_MM, rulerOriginMm: { x: 190, y: 130 },
+  expectWidthMm: BELT_WIDTH_MM, expectHeightMm: BELT_HEIGHT_MM,
+  expectOverhang: true, tolerancePercent: 12,
+})
+run('細長いパーツ・横へはみ出し・10度傾き', {
+  rulerId: 'r50', tiltDeg: 10, opaqueRuler: false, tintedRuler: true,
+  pattern: BELT_MM, rulerOriginMm: { x: 190, y: 130 },
+  expectWidthMm: BELT_WIDTH_MM, expectHeightMm: BELT_HEIGHT_MM,
+  expectOverhang: true, tolerancePercent: 12,
 })
 
 console.log('\n■ 定規の自動判別（傾き0〜35度 × 距離60〜160cm を総当たり）')
