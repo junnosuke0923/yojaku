@@ -109,14 +109,18 @@ export function PartsView({ state, onChange, onAddMore, onLayout, openSeamFor }:
           </div>
         </div>
 
-        {/* 説明はひと言だけ。続きは「？」の中（依頼者の指示・2026-08-27） */}
+        {/*
+          説明はひと言だけ。続きは「？」の中（依頼者の指示・2026-08-27）。
+          絵は「？」の印そのものにしてある。この画面には縫い代の絵が
+          いくつも出るので、同じ絵を並べない（依頼者の指摘・2026-08-27）
+        */}
         {part.seamIncluded ? (
           <Hint icon="fold" summary={<>辺を押して、<b className="text-seam">わ</b>の辺だけ選びます</>}>
             この型紙にはもう縫い代が付いているので、足す量は聞きません。
             折り山に当てる辺だけ教えてください。
           </Hint>
         ) : (
-          <Hint icon="seam" summary={<>辺を押して、<b className="text-ink-700">縫い代</b>を決めます</>}>
+          <Hint summary={<>辺を押して、<b className="text-ink-700">縫い代</b>を決めます</>}>
             型紙は出来上がり線で切ってあるので、ここで縫い代を足します。
             足したぶんだけが青で出ます。縫い代 0 は「ここは折り山（わ）」の意味です。
           </Hint>

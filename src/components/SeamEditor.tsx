@@ -198,10 +198,8 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded }: Props
       <div className="rounded-xl border border-ink-100 bg-white px-4 py-3">
         {!seamIncluded && (
           <div data-tour="seam-bulk" className="flex items-center gap-3 border-b border-ink-100 pb-3">
-            <span className="flex items-center gap-1.5 text-sm font-bold text-ink-700">
-              <Icon name="seam" className="h-4 w-4 shrink-0 text-mat-600" />
-              まとめて
-            </span>
+            {/* 絵は付けない。この画面には縫い代の絵がすでに出ている（依頼者の指摘・2026-08-27） */}
+            <span className="shrink-0 text-sm font-bold text-ink-700">まとめて</span>
             <select
               value={bulkCm}
               onChange={(e) => setBulkCm(Number(e.target.value))}

@@ -23,12 +23,18 @@ type Props = {
 }
 
 const W = 1000
-const H = 300
+/*
+  絵の高さ。もとは 300 あり、いちばん上に
+  「いま画面で見ているのは、この上の面」という矢印と説明を入れていた。
+  枠の見出しが「横から見ると」と言っているので、それは落として詰めた
+  （依頼者の指示・2026-08-27）
+*/
+const H = 215
 /** 生地の厚み。見た目のためのもので、実寸ではない */
 const THICK = 16
 /** 下の一枚と、その上に折り返して乗っている一枚の高さ */
-const LOWER = 205
-const UPPER = 205 - 74
+const LOWER = 145
+const UPPER = 145 - 74
 /** 折り山の丸み */
 const R = (LOWER - UPPER) / 2
 /** 折り山の丸みがはみ出す分の余白 */
@@ -100,15 +106,6 @@ export function FoldDiagram({ fold, nearMm, farMm, spanMm }: Props) {
       {/* 左右に余白を取る。折り山の丸みが枠の外にふくらむため */}
       <svg viewBox={`${-PAD} 0 ${W + PAD * 2} ${H}`} className="w-full" role="img"
         aria-label={`${FOLD_LABELS[fold]}にした生地の断面`}>
-        {/* 上から見下ろしている、という説明 */}
-        <g stroke={FAINT} strokeWidth={4} fill="none" strokeLinecap="round">
-          <path d={`M${W * 0.5} 10 v46`} />
-          <path d={`M${W * 0.5 - 13} 44 L${W * 0.5} 60 L${W * 0.5 + 13} 44`} />
-        </g>
-        <text x={W * 0.5 + 22} y={44} fontSize={26} fill={FAINT}>
-          いま画面で見ているのは、この上の面
-        </text>
-
         {/* 下になっている一枚。端から端まである */}
         <path d={`M0 ${LOWER} H${W}`} stroke={CLOTH} strokeWidth={THICK}
           strokeLinecap="butt" fill="none" />
@@ -190,25 +187,17 @@ export function FoldDiagram({ fold, nearMm, farMm, spanMm }: Props) {
       </svg>
 
       {/*
-        絵の下に長い文を置くと、絵より先に文を読ませてしまう（依頼者・2026-08-27）。
-        絵で言えていることは書かない。ひと言だけ添える
+        絵の下にあった一文は落とした（依頼者の指示・2026-08-27）。
+        「二重」「一重」「わ」「みみ」は絵の中に書いてあるので、
+        同じことを文でもう一度言っていた。
+        まだ折っていないときだけは、絵の中の「まだ折っていません」の続きとして、
+        何をすれば折れるのかを短く添える
       */}
-      <p className="flex items-center gap-2 pt-1 text-xs text-ink-500">
-        <Icon name={folded ? 'fold' : 'hint'} className="h-[1.15em] w-[1.15em] shrink-0 opacity-70" />
-        <span className="min-w-0 flex-1">
-          {metInMiddle ? (
-            <>両側から中央まで折ってあります。<b className="text-mat-600">折り山は左右に1本ずつ</b></>
-          ) : allDoubled ? (
-            <>きっちり半分。<b className="text-mat-600">どこに置いても1つで2枚</b></>
-          ) : folded ? (
-            <>折り返したところは<b className="text-mat-600">二重</b>。ここなら1つで2枚</>
-          ) : pending ? (
-            <>「わに当てる」を使った型紙を置くと、その幅だけ折り返します</>
-          ) : (
-            <>折らずに一重で使います</>
-          )}
-        </span>
-      </p>
+      {pending && (
+        <p className="pt-1 text-xs text-ink-500">
+          「わに当てる」を使った型紙を置くと、その幅だけ折り返します
+        </p>
+      )}
     </div>
   )
 }

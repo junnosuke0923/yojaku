@@ -475,6 +475,17 @@ function SectionCanvas({
   }
   const hasUnder = flaps.some((f) => f.full)
 
+  /*
+    折り目と直角の向きにも、少しだけずらしておく（依頼者の指示・2026-08-27）。
+    折り山の反対側にのぞかせるだけでは、二重になっている感じが伝わりにくい。
+    紙を2枚わずかにずらして重ねたときのように、角がのぞいていれば、
+    そこに布が2枚あることが言葉なしで分かる
+  */
+  if (hasUnder) {
+    if (isHorizontalFold(section.fold)) under.x1 += RIM * 0.75
+    else under.y1 += RIM * 0.75
+  }
+
   /** 折り山ではない縦の端＝耳。二重なら耳も2枚ぶんある */
   const selvages: Side[] = (['left', 'right'] as Side[]).filter((s) => !foldSides.includes(s))
 
@@ -633,51 +644,54 @@ function SectionCanvas({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <span className="flex items-center gap-1.5 text-sm font-bold text-ink-700">
+      {/*
+        折り方と、どこまで折るか。もとは折り方だけがこの段で、
+        どこまで折るかは下に大きなボタン2つを並べていた。
+        ほとんどの人は「半分に折る」しか使わないので、
+        幅を取るボタンをやめて、折り方の右のプルダウンにまとめてある
+        （依頼者の指示・2026-08-27）
+      */}
+      <div className="flex items-center gap-1.5">
+        <span className="flex shrink-0 items-center gap-1.5 text-sm font-bold text-ink-700">
           <Icon name="layout" className="h-4 w-4 shrink-0 text-mat-600" />
-          {state.sections.length > 1 ? `${index + 1} つめ` : '生地'}
+          {state.sections.length > 1 ? `${index + 1} つめ` : ''}
         </span>
         <select
           value={section.fold}
           onChange={(e) => onFold(e.target.value as FoldMode)}
-          className="rounded-lg border border-ink-100 bg-white px-2 py-1.5 text-sm"
+          className="min-w-0 rounded-lg border border-ink-100 bg-white px-1.5 py-1.5 text-sm"
         >
           {FOLD_CHOICES.map((f) => (
             <option key={f} value={f}>{FOLD_LABELS[f]}</option>
           ))}
         </select>
+        {canHalfFold(section.fold) && (
+          <select
+            value={half ? 'half' : 'partial'}
+            onChange={(e) => onHalf(e.target.value === 'half')}
+            className="min-w-0 rounded-lg border border-ink-100 bg-white px-1.5 py-1.5 text-sm"
+          >
+            <option value="half">{section.fold === 'vBoth' ? '中央まで' : '半分に折る'}</option>
+            <option value="partial">型紙に合わせて</option>
+          </select>
+        )}
         {/* 折ったあとに実際に置ける幅。折り方で変わるので、区間ごとに出す */}
-        <span className="tnum text-xs text-ink-300">
-          幅 {(W / 10).toFixed(0)} cm ／ 長さ {(report.yardageMm / 10).toFixed(0)} cm
+        <span className="tnum ml-auto shrink-0 text-[11px] leading-tight text-ink-300">
+          幅 {(W / 10).toFixed(0)} cm
+          <br />
+          長さ {(report.yardageMm / 10).toFixed(0)} cm
         </span>
         {canDrop && (
           <button
             type="button"
             onClick={onDrop}
-            className="ml-auto flex items-center gap-1 px-2 text-xs text-ink-300"
+            className="flex shrink-0 items-center gap-1 pl-1 text-xs text-ink-300"
           >
             <Icon name="trash" className="h-3.5 w-3.5 shrink-0" />
             消す
           </button>
         )}
       </div>
-
-      {/*
-        生地幅をきっちり半分に折るのが、学校で最初に習う基本のたたみ方で
-        いちばん多い（依頼者の指示）。任意の幅で折り上げるやり方も残しておく
-      */}
-      {canHalfFold(section.fold) && (
-        <div className="flex gap-1.5">
-          <Chip on={half} onClick={() => onHalf(true)}>
-            <FoldGlyph kind="half" />
-            {section.fold === 'vBoth' ? '中央まで折る（基本）' : '半分に折る（基本）'}
-          </Chip>
-          <Chip on={!half} onClick={() => onHalf(false)}>
-            <FoldGlyph kind="partial" />型紙に合わせて折る
-          </Chip>
-        </div>
-      )}
 
       {/* 平面図に線を引くだけでは、折っていることが伝わらない。横から見た形を添える */}
       <FoldDiagram
@@ -832,15 +846,20 @@ function SectionCanvas({
           <g key={`sv-band-${s}`}>
             {/* 上の一枚のみみ */}
             {selvageBand(s === 'left' ? 0 : W, s === 'left' ? 1 : -1)}
-            {/* 下からのぞいている一枚のみみ。点々が2列あること＝布が2枚あること */}
-            {hasUnder && selvageBand(s === 'left' ? -RIM : W + RIM, s === 'left' ? 1 : -1)}
+            {/*
+              下からのぞいている一枚のみみ。点々が2列あること＝布が2枚あること。
+              のぞいている側にだけ描く。横わのときは下の一枚が横へは出ないので、
+              ここで描くと生地の外に点々だけが浮いてしまう
+            */}
+            {hasUnder && (s === 'left' ? under.x0 < -0.5 : under.x1 > W + 0.5) &&
+              selvageBand(s === 'left' ? under.x0 : under.x1, s === 'left' ? 1 : -1)}
           </g>
         ))}
         {/* 裁ち端の名前。はさみの印を添える */}
         {cutTop && (
           <g>
-            {iconScissors((hasUnder ? W + RIM : W) - W * 0.026, -SP - W * 0.036, W * 0.042, '#8a9188')}
-            <text x={(hasUnder ? W + RIM : W) - W * 0.072} y={-SP - W * 0.036}
+            {iconScissors(Math.max(W, under.x1) - W * 0.026, -SP - W * 0.036, W * 0.042, '#8a9188')}
+            <text x={Math.max(W, under.x1) - W * 0.072} y={-SP - W * 0.036}
               fontSize={W * 0.03} fill="#8a9188" textAnchor="end"
               dominantBaseline="middle">裁ち端</text>
           </g>
@@ -1506,21 +1525,6 @@ function Controls({
         )}
       </div>
     </div>
-  )
-}
-
-/**
- * 折り方のピクトグラム。断面図をそのまま小さくした形で、
- * 半分折り＝上下の腕が同じ長さ、型紙合わせ＝上の腕が短い
- */
-function FoldGlyph({ kind }: { kind: 'half' | 'partial' }) {
-  return (
-    <svg viewBox="0 0 22 14" className="h-[0.95em] w-auto shrink-0" aria-hidden="true">
-      <path
-        d={kind === 'half' ? 'M20 3.5 H7 a3.5 3.5 0 0 0 0 7 H20' : 'M12 3.5 H7 a3.5 3.5 0 0 0 0 7 H20'}
-        fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"
-      />
-    </svg>
   )
 }
 
