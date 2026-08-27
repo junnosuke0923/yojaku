@@ -505,16 +505,6 @@ function SectionCanvas({
     bottom: foldSides.includes('bottom') ? SP : 0,
   }
 
-  /**
-   * 回り込みが見える角（＝折り山の、裁ち端の側の角）。
-   * ここだけ、まるみを折り山のふくらみの幅（CR）と同じにする。
-   * 同じにしておくと、まっすぐな帯と角の帯が、切れ目なくつながる
-   */
-  const curlSide = flaps.find((f) => f.full)?.side
-  const curlCorner: 'tl' | 'tr' | 'br' | 'bl' | null =
-    curlSide === 'left' ? 'bl' : curlSide === 'top' ? 'tr'
-      : curlSide === 'right' || curlSide === 'bottom' ? 'br' : null
-
   const pts = (poly: Polygon) => poly.map((q) => `${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(' ')
 
   /**
@@ -552,11 +542,10 @@ function SectionCanvas({
     cutTop = false, cutBottom = false,
   ) => {
     const r = SP * 1.7
-    const big = (k: 'tl' | 'tr' | 'br' | 'bl', v: number) => (curlCorner === k ? CR : v)
-    const tl = big('tl', ext.left > 0 || ext.top > 0 ? r : 0)
-    const tr = big('tr', ext.right > 0 || ext.top > 0 ? r : 0)
-    const br = big('br', ext.right > 0 || ext.bottom > 0 ? r : 0)
-    const bl = big('bl', ext.left > 0 || ext.bottom > 0 ? r : 0)
+    const tl = ext.left > 0 || ext.top > 0 ? r : 0
+    const tr = ext.right > 0 || ext.top > 0 ? r : 0
+    const br = ext.right > 0 || ext.bottom > 0 ? r : 0
+    const bl = ext.left > 0 || ext.bottom > 0 ? r : 0
     const arc = (rr: number, x: number, y: number) =>
       rr ? `A${rr} ${rr} 0 0 1 ${x.toFixed(1)} ${y.toFixed(1)}` : ''
     return [
@@ -594,17 +583,16 @@ function SectionCanvas({
    * 最後に画面の向きへ移している。折り山が左でも上でも下でも、同じ式で書けるため
    */
   const foldShape = (() => {
-    if (!curlSide) return null
-    const foldSide = curlSide
+    const foldSide = flaps.find((f) => f.full)?.side
+    if (!foldSide) return null
     const vertical = foldSide === 'left' || foldSide === 'right'
-    /** u は折り山に沿う向き。その向こうの端が、回り込む側 */
+    /** u は折り山に沿う向き。その向こうの端が、ずらす側 */
     const uMax = vertical ? L : W
     /** v は折り山から離れる向き。その先にみみが2枚重なっている */
     const vMax = vertical ? W : L
-    /** 回り込みの半径。折り山のふくらみの帯と同じ幅にそろえてある */
-    const R = CR
-    /** 2枚が離れきるまでの長さ。角のまるみから続けて離れていく */
-    const RAMP = R * 0.9
+    const r = SP * 1.7
+    /** 回り込みきるまでの長さ。短いほど、角の曲がりがきつく見える */
+    const RAMP = r * 1.25
     const amp = W * 0.005
 
     const xy = (u: number, v: number) => ({
@@ -615,9 +603,9 @@ function SectionCanvas({
       const p = xy(u, v)
       return `${p.x.toFixed(1)} ${p.y.toFixed(1)}`
     }
-    /** 折り山からどれだけ離れたか。0 なら折り山と地続き、1 で離れきる */
+    /** 折り山からどれだけ離れたか。0 なら折り山と地続き、1 でずらしきる */
     const away = (v: number) => {
-      const t = Math.min(1, Math.max(0, (v + SP - R) / RAMP))
+      const t = Math.min(1, Math.max(0, (v + SP - r) / RAMP))
       return t * t * (3 - 2 * t)
     }
     /** 向こうの端の位置。折り山へ近づくほど、上の一枚の端まで戻る */
@@ -627,9 +615,18 @@ function SectionCanvas({
       return uMax + away(v) * (UNDER_SHIFT + wave)
     }
 
-    const v0 = -SP + R
+    const v0 = -SP + r
     const v1 = vMax + RIM
     const steps = 40
+    /** 回り込みをなぞる線。v0 から、ずらしきるところまで */
+    const turn = (from: number, to: number) => {
+      let d = ''
+      for (let i = 1; i <= 16; i++) {
+        const v = from + (to - from) * (i / 16)
+        d += ` L${at(far(v), v)}`
+      }
+      return d
+    }
 
     let under = `M${at(0, v0)} L${at(0, v1)} L${at(far(v1), v1)}`
     for (let i = steps - 1; i >= 0; i--) {
@@ -637,51 +634,20 @@ function SectionCanvas({
       under += ` L${at(far(v), v)}`
     }
     // 折り山。角のまるみは上の一枚とそろえる
-    under += ` Q${at(uMax, -SP)} ${at(uMax - R, -SP)}`
-    under += ` L${at(SP * 1.7, -SP)}`
+    under += ` Q${at(uMax, -SP)} ${at(uMax - r, -SP)}`
+    under += ` L${at(r, -SP)}`
     under += ` Q${at(0, -SP)} ${at(0, v0)} Z`
 
-    /** 折り山の線が、角で向こうへ曲がっていくところ */
-    const vEnd = Math.min(v1, v0 + RAMP * 1.2)
-    let crease = `M${at(uMax - R, -SP)} Q${at(uMax, -SP)} ${at(far(v0), v0)}`
-    for (let i = 1; i <= 16; i++) {
-      const v = v0 + (vEnd - v0) * (i / 16)
-      crease += ` L${at(far(v), v)}`
-    }
-
-    /** 帯を置くための、角のまるみの中心と、そこから続く帯の四隅 */
-    const heart = xy(uMax - R, v0)
-    const qEnd = xy(uMax, -SP)
-    const bandFar = xy(uMax, v0 + R * 1.9)
-    const fade0 = xy(uMax, v0)
-    const fade1 = xy(uMax, v0 + R * 1.9)
+    const crease = `M${at(uMax - r, -SP)} Q${at(uMax, -SP)} ${at(far(v0), v0)}`
+      + turn(v0, Math.min(v1, v0 + RAMP * 1.15))
     const g0 = xy(uMax, -SP)
-    const g1 = xy(uMax, vEnd)
+    const g1 = xy(uMax, v0 + RAMP * 1.15)
 
-    return {
-      under,
-      crease,
-      R,
-      heart,
-      /*
-        角の帯を塗る範囲。まるみの中心から見て、角のある四半分だけ。
-        まるいので、まん中から外へ向かって色を並べているが、
-        そのまま円を塗ると、生地のまん中に的のような輪ができてしまう
-      */
-      quad: {
-        x: Math.min(heart.x, qEnd.x), y: Math.min(heart.y, qEnd.y),
-        w: Math.abs(qEnd.x - heart.x), h: Math.abs(qEnd.y - heart.y),
-      },
-      band: {
-        x: Math.min(heart.x, bandFar.x), y: Math.min(heart.y, bandFar.y),
-        w: Math.abs(bandFar.x - heart.x) || R, h: Math.abs(bandFar.y - heart.y) || R,
-        side: vertical ? ('bottom' as Side) : ('right' as Side),
-      },
-      fade: { x1: fade0.x, y1: fade0.y, x2: fade1.x, y2: fade1.y },
-      creaseFade: { x1: g0.x, y1: g0.y, x2: g1.x, y2: g1.y },
-    }
+    return { under, crease, fade: { x1: g0.x, y1: g0.y, x2: g1.x, y2: g1.y } }
   })()
   const underPath = foldShape?.under ?? ''
+  /** 回り込みが見えるのは、折り返しが面を丸ごと覆っている側だけ */
+  const curlSide = flaps.find((f) => f.full)?.side
 
   /**
    * みみ。実物のみみには、織るときの機械のピン穴が点々と並んでいる。
@@ -923,50 +889,13 @@ function SectionCanvas({
               そのまま裁ち端まで引いてしまうと、裁ち端も折り山だと言うことになる
             */}
             {foldShape && (
-              <>
-                <linearGradient id={`${gid}-curl`} gradientUnits="userSpaceOnUse"
-                  x1={foldShape.creaseFade.x1} y1={foldShape.creaseFade.y1}
-                  x2={foldShape.creaseFade.x2} y2={foldShape.creaseFade.y2}>
-                  <stop offset="0" stopColor={CREASE} />
-                  <stop offset="0.5" stopColor={CREASE} />
-                  <stop offset="1" stopColor={CREASE} stopOpacity="0" />
-                </linearGradient>
-
-                {/*
-                  角のところの、山のふくらみ。
-                  まっすぐな帯と同じ明暗を、外側から内側へ向かって円形に並べる。
-                  まるみの半径を帯の幅（CR）と同じにしてあるので、
-                  まっすぐな帯とここで切れ目なくつながる
-                */}
-                <radialGradient id={`${gid}-sp-corner`} gradientUnits="userSpaceOnUse"
-                  cx={foldShape.heart.x} cy={foldShape.heart.y} r={foldShape.R}>
-                  <stop offset="0" stopColor="#8d8a78" stopOpacity="0" />
-                  <stop offset="0.24" stopColor="#8d8a78" stopOpacity="0.2" />
-                  <stop offset="0.48" stopColor={CLOTH} />
-                  <stop offset="0.68" stopColor="#ffffff" />
-                  <stop offset="0.84" stopColor="#edebdd" />
-                  <stop offset="1" stopColor="#aaa792" />
-                </radialGradient>
-                <clipPath id={`${gid}-curlclip`}>
-                  <rect x={foldShape.quad.x} y={foldShape.quad.y}
-                    width={foldShape.quad.w} height={foldShape.quad.h} />
-                </clipPath>
-
-                {/* 角を曲がったあとの帯。少し進んだところで消す */}
-                <linearGradient id={`${gid}-bandfadeg`} gradientUnits="userSpaceOnUse"
-                  x1={foldShape.fade.x1} y1={foldShape.fade.y1}
-                  x2={foldShape.fade.x2} y2={foldShape.fade.y2}>
-                  <stop offset="0" stopColor="#ffffff" />
-                  <stop offset="1" stopColor="#000000" />
-                </linearGradient>
-                <mask id={`${gid}-bandfade`} maskUnits="userSpaceOnUse"
-                  x={foldShape.band.x} y={foldShape.band.y}
-                  width={foldShape.band.w} height={foldShape.band.h}>
-                  <rect x={foldShape.band.x} y={foldShape.band.y}
-                    width={foldShape.band.w} height={foldShape.band.h}
-                    fill={`url(#${gid}-bandfadeg)`} />
-                </mask>
-              </>
+              <linearGradient id={`${gid}-curl`} gradientUnits="userSpaceOnUse"
+                x1={foldShape.fade.x1} y1={foldShape.fade.y1}
+                x2={foldShape.fade.x2} y2={foldShape.fade.y2}>
+                <stop offset="0" stopColor={CREASE} />
+                <stop offset="0.4" stopColor={CREASE} />
+                <stop offset="1" stopColor={CREASE} stopOpacity="0" />
+              </linearGradient>
             )}
 
             {/* 生地が台に落とす影。紙が机の上に置いてあるように見せる */}
@@ -1003,44 +932,17 @@ function SectionCanvas({
               const horiz = s === 'left' || s === 'right'
               const x = s === 'left' ? -SP : W + SP - CR
               const y = s === 'top' ? -SP : L + SP - CR
-              // 回り込む角の手前で止める。その先は、角の帯が続きを描く
-              const trim = foldShape && s === curlSide ? foldShape.R : 0
               return (
                 <rect
                   key={`sp-${s}`}
                   x={horiz ? x : -SP}
                   y={horiz ? -SP : y}
-                  width={horiz ? CR : W + SP * 2 - trim}
-                  height={horiz ? L + SP * 2 - trim : CR}
+                  width={horiz ? CR : W + SP * 2}
+                  height={horiz ? L + SP * 2 : CR}
                   fill={`url(#${gid}-sp-${s})`}
                 />
               )
             })}
-
-            {/*
-              裁ち端の側では、山がそのまま向こうへ回り込む（依頼者の指示・2026-08-27）。
-              まっすぐな帯が角で止まっていると、丸い縁がそこで切り落とされたように見えて、
-              「折り返っている」ことが伝わらない。角では帯を回し、
-              曲がった先で消していく
-            */}
-            {foldShape && (
-              <>
-                <g clipPath={`url(#${gid}-curlclip)`}>
-                  <rect
-                    x={foldShape.quad.x} y={foldShape.quad.y}
-                    width={foldShape.quad.w} height={foldShape.quad.h}
-                    fill={`url(#${gid}-sp-corner)`}
-                  />
-                </g>
-                <g mask={`url(#${gid}-bandfade)`}>
-                  <rect
-                    x={foldShape.band.x} y={foldShape.band.y}
-                    width={foldShape.band.w} height={foldShape.band.h}
-                    fill={`url(#${gid}-sp-${foldShape.band.side})`}
-                  />
-                </g>
-              </>
-            )}
           </g>
 
           {/*
