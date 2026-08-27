@@ -15,8 +15,9 @@ import { initialPlan, applyToAll, buildSeam, foldGroups } from '../src/lib/seam'
 import { splitEdges } from '../src/lib/edges'
 import { bounds, type Point } from '../src/lib/geom'
 import {
-  computeYardage, newPlacement, orientedPair, toPurchaseLength,
-  type Fabric, type Placement, type PlacedPart,
+  computeYardage, foldOfSides, foldSidesOf, newPlacement, orientedPair,
+  toggleFoldSide, toPurchaseLength,
+  type Fabric, type FoldMode, type Placement, type PlacedPart, type Side,
 } from '../src/lib/fabric'
 import { placedPartOf, planOf, toStored } from '../src/lib/store'
 
@@ -421,6 +422,52 @@ console.log('\n■ 買ってくる長さ — 上乗せして10cm単位に切り�
   near('156cm → 180cm', toPurchaseLength(1560), 1800, 0)
   near('180cm → 200cm', toPurchaseLength(1800), 2000, 0)
   near('181cm → 210cm', toPurchaseLength(1810), 2100, 0)
+}
+
+console.log('\n■ 辺を押して「わ」を決める（依頼者の指示・2026-08-28）')
+{
+  const t = (from: FoldMode, side: Side, want: FoldMode) =>
+    ok(`${from} + ${side}`, toggleFoldSide(from, side) === want,
+      `${toggleFoldSide(from, side)}（期待 ${want}）`)
+
+  // 片わは上下左右どこでも作れる。右も左と対等
+  t('none', 'left', 'vLeft')
+  t('none', 'right', 'vRight')
+  t('none', 'top', 'hTop')
+  t('none', 'bottom', 'hBottom')
+
+  // 同じ向きどうしは重ねられる
+  t('vLeft', 'right', 'vBoth')
+  t('vRight', 'left', 'vBoth')
+  t('hTop', 'bottom', 'hBoth')
+
+  // もう一度押すと外れる
+  t('vLeft', 'left', 'none')
+  t('vBoth', 'left', 'vRight')
+  t('vBoth', 'right', 'vLeft')
+
+  // 縦と横は同時に持てない。最後に押した辺が勝つ
+  t('vLeft', 'top', 'hTop')
+  t('vBoth', 'bottom', 'hBottom')
+  t('hBoth', 'right', 'vRight')
+
+  // 辺の組と折り方は、行き来しても同じものに戻る
+  const modes: FoldMode[] = ['none', 'vLeft', 'vRight', 'vBoth', 'hTop', 'hBottom', 'hBoth']
+  ok('折り方 ⇄ 辺の組は往復できる',
+    modes.every((m) => foldOfSides(foldSidesOf(m)) === m), modes.join(' '))
+}
+
+console.log('\n■ 右の「わ」で、きっちり半分に折る')
+{
+  const fabricOf = (fold: FoldMode): Fabric => ({
+    widthMm: 1100, hasNap: false, sections: [{ id: 's1', fold, halfFold: true }],
+  })
+  const l = computeYardage(fabricOf('vLeft'), [], new Map())
+  const r = computeYardage(fabricOf('vRight'), [], new Map())
+  near('左で折ったときの面の幅', l.sections[0].surfaceWidthMm, 530, 0)
+  near('右で折ったときの面の幅', r.sections[0].surfaceWidthMm, 530, 0)
+  near('右で折ると折り込みは右に出る', r.sections[0].foldDepth.right, 530, 0)
+  near('右で折ると左には出ない', r.sections[0].foldDepth.left, 0, 0)
 }
 
 console.log(failures === 0 ? '\nすべて通りました。' : `\n${failures} 件、期待どおりになりませんでした。`)

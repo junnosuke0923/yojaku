@@ -18,11 +18,13 @@ import { useMemo, useRef, useState, type PointerEvent, type ReactNode } from 're
 import { isReserve, RESERVE_CHOICES, toReserve } from '../lib/store'
 import {
   canHalfFold, computeYardage, FOLD_LABELS, FOLD_MARK_REF_MM, foldSidesOf, isHalfFold,
-  isHorizontalFold, newPlacement, orientedPair, PURCHASE_MARGIN_MM, SELVAGE_MM, SNAP_MM,
+  isHorizontalFold, isVerticalSide, newPlacement, orientedPair, PURCHASE_MARGIN_MM,
+  SELVAGE_MM, SNAP_MM, toggleFoldSide,
   type Fabric, type FoldMark, type FoldMode, type PlacedPart, type Placement,
   type Section, type Side,
 } from '../lib/fabric'
 import { defaultName, MAX_SAVES, putSave, type Save } from '../lib/saves'
+import { FoldPicker } from './FoldPicker'
 import { placedPartOf, type PartsState, type StoredPart } from '../lib/store'
 import { FoldDiagram } from './FoldDiagram'
 import { Heading, Hint, Icon, Note } from './Icon'
@@ -45,7 +47,6 @@ type Props = {
   onSaved: (saves: Save[]) => void
 }
 
-const FOLD_CHOICES: FoldMode[] = ['none', 'vLeft', 'vBoth', 'hTop', 'hBottom', 'hBoth']
 
 /** 生地が空でも、置き場所が見えるように確保しておく長さ(mm) */
 const MIN_VIEW_MM = 400
@@ -207,12 +208,34 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
           onActivate={() => setActiveSection(section.id)}
           onSelect={setSelectedId}
           onMove={patch}
-          onFold={(fold) =>
+          onFold={(fold) => {
+            /*
+              折り山を移したら、そこに当てていた型紙も付け替える
+              （依頼者の指示・2026-08-28）。実物でも、折る側を変えたら
+              型紙はその折り山に当て直す。
+
+              左から右へ移す手つきは「右を押して両側にし、左を押して外す」。
+              その2手目で左の折り山が消えるので、そこに当てていた型紙を
+              残っている右の折り山へ移す。付け替えないと
+              「その側に折り山がありません」が出て、置き直しからやり直しになる。
+
+              同じ向きの折り山がもう1本も残っていないとき（縦から横へ変えたときなど）は、
+              当てる先が無いので当てるのをやめる。図の上では、
+              押した辺と両立しない指定がその場で外れる、という同じ動きに見える
+            */
+            const to = foldSidesOf(fold)
             onChange({
               ...state,
               sections: state.sections.map((s) => (s.id === section.id ? { ...s, fold } : s)),
+              placements: state.placements.map((pl) => {
+                if (pl.sectionId !== section.id) return pl
+                const was = pl.snapTo
+                if (!was || to.includes(was)) return pl
+                const same = to.filter((t) => isVerticalSide(t) === isVerticalSide(was))
+                return { ...pl, snapTo: same.length === 1 ? same[0] : null }
+              }),
             })
-          }
+          }}
           onHalf={(halfFold) =>
             onChange({
               ...state,
@@ -954,52 +977,53 @@ function SectionCanvas({
   return (
     <div className="flex flex-col gap-2">
       {/*
-        折り方と、どこまで折るか。もとは折り方だけがこの段で、
-        どこまで折るかは下に大きなボタン2つを並べていた。
-        ほとんどの人は「半分に折る」しか使わないので、
-        幅を取るボタンをやめて、折り方の右のプルダウンにまとめてある
-        （依頼者の指示・2026-08-27）
+        折り方は、名前を並べたプルダウンではなく
+        **生地を上から見た小さな図の辺を押して**決める（依頼者の指示・2026-08-28）。
+        「縦わ・片側」という名前は、頭の中でいったん図に直さないと選べない。
+        辺を押すなら、その手間が要らない。
+        ただし名前そのものにも意味がある（学校で使う言葉なので）ので、
+        図のとなりに結果を文字で出して、押して決めて名前で覚える順にしてある。
       */}
-      <div className="flex items-center gap-1.5">
-        <span className="flex shrink-0 items-center gap-1.5 text-sm font-bold text-ink-700">
-          <Icon name="layout" className="h-4 w-4 shrink-0 text-mat-600" />
-          {state.sections.length > 1 ? `${index + 1} つめ` : ''}
-        </span>
-        <select
-          value={section.fold}
-          onChange={(e) => onFold(e.target.value as FoldMode)}
-          className="min-w-0 rounded-lg border border-ink-100 bg-white px-1.5 py-1.5 text-sm"
-        >
-          {FOLD_CHOICES.map((f) => (
-            <option key={f} value={f}>{FOLD_LABELS[f]}</option>
-          ))}
-        </select>
-        {canHalfFold(section.fold) && (
-          <select
-            value={half ? 'half' : 'partial'}
-            onChange={(e) => onHalf(e.target.value === 'half')}
-            className="min-w-0 rounded-lg border border-ink-100 bg-white px-1.5 py-1.5 text-sm"
-          >
-            <option value="half">{section.fold === 'vBoth' ? '中央まで' : '半分に折る'}</option>
-            <option value="partial">型紙に合わせて</option>
-          </select>
-        )}
-        {/* 折ったあとに実際に置ける幅。折り方で変わるので、区間ごとに出す */}
-        <span className="tnum ml-auto shrink-0 text-[11px] leading-tight text-ink-300">
-          幅 {(W / 10).toFixed(0)} cm
-          <br />
-          長さ {(report.yardageMm / 10).toFixed(0)} cm
-        </span>
-        {canDrop && (
-          <button
-            type="button"
-            onClick={onDrop}
-            className="flex shrink-0 items-center gap-1 pl-1 text-xs text-ink-300"
-          >
-            <Icon name="trash" className="h-3.5 w-3.5 shrink-0" />
-            消す
-          </button>
-        )}
+      <div className="flex items-start gap-2 rounded-xl border border-ink-100 bg-white px-2 py-1.5">
+        <FoldPicker fold={section.fold} onToggle={(side) => {
+          onActivate()
+          onFold(toggleFoldSide(section.fold, side))
+        }} />
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5 pt-1">
+          <span className="flex items-center gap-1.5 text-sm font-bold text-ink-700">
+            <Icon name="layout" className="h-4 w-4 shrink-0 text-mat-600" />
+            {state.sections.length > 1 ? `${index + 1} つめ・` : ''}
+            {FOLD_LABELS[section.fold]}
+          </span>
+          <span className="text-xs leading-relaxed text-ink-300">
+            辺を押すと「わ」になります
+          </span>
+          {canHalfFold(section.fold) && (
+            <select
+              value={half ? 'half' : 'partial'}
+              onChange={(e) => onHalf(e.target.value === 'half')}
+              className="min-w-0 rounded-lg border border-ink-100 bg-white px-1.5 py-1.5 text-sm"
+            >
+              <option value="half">{section.fold === 'vBoth' ? '中央まで折る' : '半分に折る'}</option>
+              <option value="partial">型紙に合わせて折る</option>
+            </select>
+          )}
+          {/* 折ったあとに実際に置ける幅。折り方で変わるので、区間ごとに出す */}
+          <span className="tnum flex items-center gap-2 text-[11px] leading-tight text-ink-300">
+            <span>幅 {(W / 10).toFixed(0)} cm</span>
+            <span>長さ {(report.yardageMm / 10).toFixed(0)} cm</span>
+            {canDrop && (
+              <button
+                type="button"
+                onClick={onDrop}
+                className="ml-auto flex shrink-0 items-center gap-1 text-xs text-ink-300"
+              >
+                <Icon name="trash" className="h-3.5 w-3.5 shrink-0" />
+                消す
+              </button>
+            )}
+          </span>
+        </div>
       </div>
 
       {/* 平面図に線を引くだけでは、折っていることが伝わらない。横から見た形を添える */}

@@ -41,19 +41,31 @@ export type Side = 'left' | 'right' | 'top' | 'bottom'
 /**
  * 折り方。判断7の4通りに「折らない」と「横わ・上端」を足したもの。
  * 上端からの横わは、サーキュラーの図（参考資料-02）で実際に使われている。
+ *
+ * 片側だけの「わ」は、**上下左右どの辺でも作れる**（依頼者の指示・2026-08-28）。
+ * 前中心が「わ」で後ろ中心はそうでない、という場面は時折あり、
+ * そのとき現実では基本、**右側を山折りにして、そこに前中心の「わ」を当てる**。
+ * 左を折って型紙を裏返しても布としては同じものが取れるが、右を折るほうが素直で、
+ * 実際にそうしている。このアプリは裁断のシミュレーションで、
+ * 学生はここでの手順をそのまま裁断台に持っていくので、
+ * 「布として同じものが取れるから左だけでよい」とはしない。
  */
-export type FoldMode = 'none' | 'vLeft' | 'vBoth' | 'hTop' | 'hBottom' | 'hBoth'
+export type FoldMode =
+  | 'none' | 'vLeft' | 'vRight' | 'vBoth' | 'hTop' | 'hBottom' | 'hBoth'
 
 export const FOLD_LABELS: Record<FoldMode, string> = {
   none: '折らない',
-  vLeft: '縦わ・片側',
+  // 左右どちらでも折れるようになったので、「片側」ではなくどちら側かを言う
+  vLeft: '縦わ・左',
+  vRight: '縦わ・右',
   vBoth: '縦わ・両側',
   hTop: '横わ・上端',
   hBottom: '横わ・下端',
   hBoth: '横わ・両側',
 }
 
-export const isVerticalFold = (f: FoldMode) => f === 'vLeft' || f === 'vBoth'
+export const isVerticalFold = (f: FoldMode) =>
+  f === 'vLeft' || f === 'vRight' || f === 'vBoth'
 export const isHorizontalFold = (f: FoldMode) =>
   f === 'hTop' || f === 'hBottom' || f === 'hBoth'
 
@@ -61,12 +73,49 @@ export const isHorizontalFold = (f: FoldMode) =>
 export function foldSidesOf(fold: FoldMode): Side[] {
   switch (fold) {
     case 'vLeft': return ['left']
+    case 'vRight': return ['right']
     case 'vBoth': return ['left', 'right']
     case 'hTop': return ['top']
     case 'hBottom': return ['bottom']
     case 'hBoth': return ['top', 'bottom']
     default: return []
   }
+}
+
+export const isVerticalSide = (s: Side) => s === 'left' || s === 'right'
+
+/** `foldSidesOf` の逆。折り山にした辺の組から折り方を決める */
+export function foldOfSides(sides: Iterable<Side>): FoldMode {
+  const s = new Set(sides)
+  if (s.has('left') && s.has('right')) return 'vBoth'
+  if (s.has('left')) return 'vLeft'
+  if (s.has('right')) return 'vRight'
+  if (s.has('top') && s.has('bottom')) return 'hBoth'
+  if (s.has('top')) return 'hTop'
+  if (s.has('bottom')) return 'hBottom'
+  return 'none'
+}
+
+/**
+ * 辺をひとつ押したときの、新しい折り方（依頼者の指示・2026-08-28）。
+ *
+ * すでに「わ」なら、押すと「わ」でなくなる。
+ * まだなら「わ」になるが、縦の折りと横の折りは同時に存在できないので、
+ * **最後に押した辺を通して、両立しないほうを外す**。
+ * できませんと拒むより、外れる様子が見えるほうが分かりやすい。
+ * 同じ向きどうし（左と右、上と下）は両立するので、そのまま重ねられる。
+ */
+export function toggleFoldSide(fold: FoldMode, side: Side): FoldMode {
+  const now = new Set(foldSidesOf(fold))
+  if (now.has(side)) {
+    now.delete(side)
+  } else {
+    for (const s of [...now]) {
+      if (isVerticalSide(s) !== isVerticalSide(side)) now.delete(s)
+    }
+    now.add(side)
+  }
+  return foldOfSides(now)
 }
 
 export type Fabric = {
@@ -103,7 +152,8 @@ export type Section = {
 }
 
 /** きっちり折るやり方がある折り方かどうか */
-export const canHalfFold = (f: FoldMode) => f === 'vLeft' || f === 'vBoth'
+export const canHalfFold = (f: FoldMode) =>
+  f === 'vLeft' || f === 'vRight' || f === 'vBoth'
 
 /** この区間は、生地幅を半分に折って使うのか */
 export const isHalfFold = (section: Section) =>
@@ -324,6 +374,8 @@ export function computeYardage(
       if (section.fold === 'vBoth') {
         depth.left = usable / 4
         depth.right = usable / 4
+      } else if (section.fold === 'vRight') {
+        depth.right = usable / 2
       } else {
         depth.left = usable / 2
       }
