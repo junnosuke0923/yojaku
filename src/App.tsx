@@ -20,6 +20,7 @@ import { DEFAULT_GREEN, estimateHueCenter, type GreenParams } from './lib/hsv'
 import { loadImageFile, type LoadedImage } from './lib/image'
 import { analyze, previewGreenMask, type AnalyzeResult } from './lib/pipeline'
 import { defaultRulerQuad, guessRuler, RULERS, type RulerId } from './lib/ruler'
+import { DEV_SEEDS } from './lib/devSeed'
 import { EMPTY, load as loadParts, save as saveParts, toStored, type PartsState } from './lib/store'
 import type { Quad } from './lib/geom'
 
@@ -99,6 +100,8 @@ export function App() {
    * （依頼者・2026-08-27）。消すと戻せないので、必ず一度たずねる
    */
   const [askReset, setAskReset] = useState(false)
+  /** 開発用：パーツの一覧を開いたとき、この型紙の縫い代の画面を最初から出す */
+  const [openSeamFor, setOpenSeamFor] = useState<string | null>(null)
   /**
    * 置きなおした新しい版が出ているのに、古いページを開いたままか。
    *
@@ -197,6 +200,28 @@ export function App() {
     `cache: 'no-store'` を付けないと、この確認そのものが古い答えを返してしまう。
     圏外や、まだ version.txt を置いていない古い配信では、黙って何もしない。
   */
+  /**
+   * ただの読み込み直しでは、古いページがそのまま出てくることがある。
+   *
+   * GitHub Pages は index.html を10分ぶん持たせる指定で返すので、
+   * 端末や途中の配信網が、まだ古いほうを持っている。
+   * URL のうしろに違う印を付けると、同じ住所と見なされず、必ず取りに行く。
+   * 付けた印は、開いたあとに履歴から消しておく（下の useEffect）
+   */
+  const hardReload = () => {
+    const u = new URL(location.href)
+    u.searchParams.set('v', Date.now().toString(36))
+    location.replace(u.toString())
+  }
+
+  // 読み込み直しに使った印を、見えないところで消しておく
+  useEffect(() => {
+    if (!new URLSearchParams(location.search).has('v')) return
+    const u = new URL(location.href)
+    u.searchParams.delete('v')
+    window.history.replaceState(null, '', u.toString())
+  }, [])
+
   useEffect(() => {
     let alive = true
     const check = async () => {
@@ -286,31 +311,23 @@ export function App() {
     setStep('parts')
   }
 
-  /** 開発用：撮り終えた状態にする。ふだんの取り込みと同じ道を通す */
-  const seedDev = async () => {
-    setBusy(true)
-    try {
-      const { DEV_SEEDS } = await import('./lib/devSeed')
-      const added = DEV_SEEDS.map((s, i) => ({
-        ...toStored(
-          s.outline.map(([x, y]) => ({ x, y })), s.widthMm, s.heightMm, i, false,
-        ),
-        name: s.name,
-        needed: s.needed,
-      }))
-      updateParts({ ...EMPTY, parts: added })
-      setStep('parts')
-    } catch {
-      // 読み込みに失敗するのは、たいてい「古いページを開いたまま」のとき。
-      // 置きなおすたびにファイル名が変わるので、古い名前はもうサーバーに無い
-      setError(
-        '開発用のデータを読み込めませんでした。'
-        + '古いページを開いたままかもしれません。読み込み直してから、もう一度押してください。',
-      )
-      setStale(true)
-    } finally {
-      setBusy(false)
-    }
+  /**
+   * 開発用：撮り終えた状態にする。ふだんの取り込みと同じ道を通す。
+   *
+   * どこから始めるかを選べる。縫い代を付けるところだけ見たいのに、
+   * 毎回パーツの一覧から型紙を押して開くのは手間なため（依頼者の指示・2026-08-27）。
+   */
+  const seedDev = (to: 'parts' | 'seam' | 'layout') => {
+    const added = DEV_SEEDS.map((s, i) => ({
+      ...toStored(
+        s.outline.map(([x, y]) => ({ x, y })), s.widthMm, s.heightMm, i, false,
+      ),
+      name: s.name,
+      needed: s.needed,
+    }))
+    updateParts({ ...EMPTY, parts: added })
+    setOpenSeamFor(to === 'seam' ? added[0].id : null)
+    setStep(to === 'layout' ? 'layout' : 'parts')
   }
 
   /**
@@ -418,7 +435,7 @@ export function App() {
             </p>
             <button
               type="button"
-              onClick={() => location.reload()}
+              onClick={hardReload}
               className="flex items-center justify-center gap-2 rounded-xl bg-mat-500 px-4 py-3 text-sm font-bold text-white active:bg-mat-600"
             >
               <Icon name="back" className="h-4 w-4 shrink-0" />
@@ -563,16 +580,34 @@ export function App() {
                 </p>
                 <p className="text-sm text-ink-500">
                   前スカート・後ろスカート・ベルトの3点を、撮り終えた状態で入れます。
+                  どこから始めるか選べます。
                 </p>
                 <button
                   type="button"
-                  onClick={seedDev}
-                  disabled={busy}
-                  className="flex items-center justify-center gap-2 rounded-xl bg-hold-600 px-5 py-3.5 text-base font-bold text-white active:bg-hold-700 disabled:opacity-50"
+                  onClick={() => seedDev('parts')}
+                  className="flex items-center justify-center gap-2 rounded-xl bg-hold-600 px-5 py-3.5 text-base font-bold text-white active:bg-hold-700"
                 >
                   <Icon name="part" className="h-5 w-5 shrink-0" />
-                  撮影ずみのパーツを入れる
+                  パーツの一覧から
                 </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => seedDev('seam')}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl border-2 border-hold-400 bg-white px-3 py-3 text-sm font-bold text-hold-700"
+                  >
+                    <Icon name="seam" className="h-4 w-4 shrink-0" />
+                    縫い代から
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => seedDev('layout')}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl border-2 border-hold-400 bg-white px-3 py-3 text-sm font-bold text-hold-700"
+                  >
+                    <Icon name="layout" className="h-4 w-4 shrink-0" />
+                    並べるところから
+                  </button>
+                </div>
                 {/* 「ぜんぶ消す」は見出しの「はじめから」に移した（学生も使うため） */}
               </div>
             )}
@@ -750,6 +785,7 @@ export function App() {
             onChange={updateParts}
             onAddMore={restart}
             onLayout={() => setStep('layout')}
+            openSeamFor={openSeamFor}
           />
         )}
         {step === 'layout' && (
