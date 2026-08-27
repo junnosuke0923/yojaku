@@ -91,15 +91,20 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded }: Props
   const currentMm = plan.allowancesMm[selected] ?? 0
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-2.5">
       {/*
         縦長のパーツだと図が画面を占領して、下の操作が押し出されてしまう。
-        高さに上限を付ける。図は SVG のほうで中央に収まる
+        高さに上限を付ける。図は SVG のほうで中央に収まる。
+
+        上限は「画面の高さから、下の操作のぶんを引いた残り」。
+        こうしておくと、小さい端末では図のほうが縮んで、
+        1画面に収まる状態をできるだけ保てる（依頼者の指示・2026-08-27）。
+        ただし縮みすぎると辺を押せなくなるので、下限も決めてある
       */}
       <svg
         viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
         className="w-full rounded-xl border border-ink-100 bg-table"
-        style={{ aspectRatio: `${view.w} / ${view.h}`, maxHeight: '44vh' }}
+        style={{ aspectRatio: `${view.w} / ${view.h}`, maxHeight: 'max(140px, min(34vh, calc(100dvh - 33rem)))' }}
         role="img"
         aria-label="型紙と縫い代"
       >
@@ -185,42 +190,41 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded }: Props
         })}
       </svg>
 
-      {/* まとめて決める。0 の辺は飛ばす（依頼者の指示） */}
-      {!seamIncluded && (
+      {/*
+        まとめてと、1本ずつ。もとは別々の枠だったが、
+        1画面に収めたいので同じ枠に入れてある（依頼者の指示・2026-08-27）
+      */}
       <div className="rounded-xl border border-ink-100 bg-white px-4 py-3">
-        <div className="flex items-center gap-3">
-          <span className="flex items-center gap-1.5 text-sm font-bold text-ink-700">
-            <Icon name="seam" className="h-4 w-4 shrink-0 text-mat-600" />
-            まとめて
-          </span>
-          <select
-            value={bulkCm}
-            onChange={(e) => setBulkCm(Number(e.target.value))}
-            className="tnum rounded-lg border border-ink-100 px-3 py-2 text-base"
-          >
-            {SEAM_STEPS_CM.filter((c) => c > 0).map((c) => (
-              <option key={c} value={c}>{c} cm</option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={doBulk}
-            className="ml-auto rounded-lg bg-mat-500 px-4 py-2 text-sm font-bold text-white active:bg-mat-600"
-          >
-            全部に付ける
-          </button>
-        </div>
+        {!seamIncluded && (
+          <div className="flex items-center gap-3 border-b border-ink-100 pb-3">
+            <span className="flex items-center gap-1.5 text-sm font-bold text-ink-700">
+              <Icon name="seam" className="h-4 w-4 shrink-0 text-mat-600" />
+              まとめて
+            </span>
+            <select
+              value={bulkCm}
+              onChange={(e) => setBulkCm(Number(e.target.value))}
+              className="tnum rounded-lg border border-ink-100 px-3 py-1.5 text-base"
+            >
+              {SEAM_STEPS_CM.filter((c) => c > 0).map((c) => (
+                <option key={c} value={c}>{c} cm</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={doBulk}
+              className="ml-auto rounded-lg bg-mat-500 px-4 py-2 text-sm font-bold text-white active:bg-mat-600"
+            >
+              全部に付ける
+            </button>
+          </div>
+        )}
         {note && (
           <div className="pt-2">
             <Note icon="check" tone="good">{note}</Note>
           </div>
         )}
-      </div>
-      )}
-
-      {/* 選んでいる1本を決める */}
-      <div className="rounded-xl border border-ink-100 bg-white px-4 py-3">
-        <div className="flex items-baseline gap-2 pb-3">
+        <div className="flex items-baseline gap-2 pt-3 pb-2">
           <span className="text-sm font-bold text-ink-700">
             {plan.groups[selected]?.no ?? 1} 番の辺
           </span>
@@ -259,9 +263,6 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded }: Props
                 わ（折り山）
               </button>
             </div>
-            <div className="pt-2">
-              <Note icon="fold">「わ」にした辺は、生地の折り山に当てて裁ちます。</Note>
-            </div>
           </>
         ) : (
           <>
@@ -281,12 +282,6 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded }: Props
                   </button>
                 )
               })}
-            </div>
-            <div className="pt-2">
-              <Note icon="fold">
-                縫い代 0 は「ここは折り山（わ）」の意味になります。折り山には縫い代を付けないので、
-                この2つは同じことです。
-              </Note>
             </div>
           </>
         )}

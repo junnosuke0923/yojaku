@@ -362,7 +362,7 @@ export function App() {
 
   return (
     <div className="mx-auto flex min-h-full w-full max-w-xl flex-col">
-      <header className="flex items-start justify-between gap-3 px-4 pt-6 pb-4">
+      <header className="flex items-start justify-between gap-3 px-4 pt-5 pb-3">
         <div className="flex min-w-0 flex-col gap-0.5">
           <h1 className="text-lg font-bold tracking-wide text-ink-900">要尺シミュレーター</h1>
           <span className="text-xs text-ink-300">
@@ -416,7 +416,7 @@ export function App() {
 
       <StepBar step={step} />
 
-      <main className="safe-b flex flex-1 flex-col gap-5 px-4 py-5">
+      <main className="safe-b flex flex-1 flex-col gap-4 px-4 py-4">
         {/*
           置きなおした版が出ているのに、古いページを開いたまま。
           この状態だと、押しても何も起きないところが出る。

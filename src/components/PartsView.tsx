@@ -14,7 +14,7 @@ import {
   type PartsState, type StoredPart,
 } from '../lib/store'
 import { FabricSetup } from './FabricSetup'
-import { Heading, Hint, Icon, Note } from './Icon'
+import { Heading, Hint, Icon } from './Icon'
 import { PatternMarks } from './PatternMarks'
 import { SeamEditor } from './SeamEditor'
 
@@ -48,22 +48,60 @@ export function PartsView({ state, onChange, onAddMore, onLayout, openSeamFor }:
 
   if (part) {
     return (
-      <section className="flex flex-col gap-4">
-        <button
-          type="button"
-          onClick={() => setEditing(null)}
-          className="flex items-center gap-1.5 self-start text-sm font-bold text-mat-700"
-        >
-          <Icon name="back" className="h-4 w-4 shrink-0" />
-          パーツの一覧へ
-        </button>
-
+      <section className="flex flex-col gap-2.5">
+        {/*
+          1画面に収めたいので、戻る・名前・隣の型紙への送りを1段にまとめてある
+          （依頼者の指示・2026-08-27）。送りは右上。
+        */}
         <div className="flex items-center gap-2">
-          <Icon name={part.seamIncluded ? 'scissors' : 'seam'} className="h-5 w-5 shrink-0 text-mat-600" />
-          <h2 className="text-base font-bold text-ink-900">{part.name}</h2>
-          <span className="tnum text-xs text-ink-300">
-            {(part.widthMm / 10).toFixed(1)} × {(part.heightMm / 10).toFixed(1)} cm
+          <button
+            type="button"
+            onClick={() => setEditing(null)}
+            aria-label="パーツの一覧へ"
+            className="flex h-9 w-8 shrink-0 items-center justify-center text-mat-700"
+          >
+            <Icon name="back" className="h-5 w-5 shrink-0" />
+          </button>
+          <Icon
+            name={part.seamIncluded ? 'scissors' : 'seam'}
+            className="h-5 w-5 shrink-0 text-mat-600"
+          />
+          <h2 className="truncate text-base font-bold text-ink-900">{part.name}</h2>
+          <span className="tnum shrink-0 text-xs text-ink-300">
+            {(part.widthMm / 10).toFixed(1)} × {(part.heightMm / 10).toFixed(1)}
           </span>
+
+          <div className="ml-auto flex shrink-0 overflow-hidden rounded-lg border border-ink-100 bg-white">
+            <button
+              type="button"
+              onClick={() => prev && setEditing(prev.id)}
+              disabled={!prev}
+              aria-label={prev ? `前の型紙：${prev.name}` : '前の型紙はありません'}
+              className="flex h-9 w-10 items-center justify-center text-ink-700 active:bg-chalk disabled:text-ink-100"
+            >
+              <Icon name="back" className="h-4 w-4 shrink-0" />
+            </button>
+            {next ? (
+              <button
+                type="button"
+                onClick={() => setEditing(next.id)}
+                aria-label={`次の型紙：${next.name}`}
+                className="flex h-9 w-10 items-center justify-center border-l border-ink-100 text-ink-700 active:bg-chalk"
+              >
+                <Icon name="back" className="h-4 w-4 shrink-0 rotate-180" />
+              </button>
+            ) : (
+              /* 最後の1枚まで来たら、そのまま並べるところへ進める */
+              <button
+                type="button"
+                onClick={onLayout}
+                aria-label="生地に並べる"
+                className="flex h-9 w-10 items-center justify-center border-l border-ink-100 bg-mat-500 text-white active:bg-mat-600"
+              >
+                <Icon name="layout" className="h-4 w-4 shrink-0" />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* 説明はひと言だけ。続きは「？」の中（依頼者の指示・2026-08-27） */}
@@ -89,42 +127,6 @@ export function PartsView({ state, onChange, onAddMore, onLayout, openSeamFor }:
 
         <OpenFoldOption part={part} onPatch={(over) => patch(part.id, over)} />
 
-        {/*
-          型紙が何枚もあるとき、1枚ごとに一覧へ戻るのは手間（依頼者の指示・2026-08-27）。
-          ここから隣の型紙へ直接移れるようにしてある。
-          最後の1枚まで来たら、そのまま並べるところへ進める
-        */}
-        <div className="flex gap-2 pt-1">
-          {prev && (
-            <button
-              type="button"
-              onClick={() => setEditing(prev.id)}
-              className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl border-2 border-ink-100 px-3 py-3 text-sm font-bold text-ink-700"
-            >
-              <Icon name="back" className="h-4 w-4 shrink-0" />
-              <span className="truncate">{prev.name}</span>
-            </button>
-          )}
-          {next ? (
-            <button
-              type="button"
-              onClick={() => setEditing(next.id)}
-              className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl bg-mat-500 px-3 py-3 text-sm font-bold text-white active:bg-mat-600"
-            >
-              <span className="truncate">{next.name}</span>
-              <Icon name="back" className="h-4 w-4 shrink-0 rotate-180" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={onLayout}
-              className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl bg-mat-500 px-3 py-3 text-sm font-bold text-white active:bg-mat-600"
-            >
-              <Icon name="layout" className="h-4 w-4 shrink-0" />
-              生地に並べる
-            </button>
-          )}
-        </div>
       </section>
     )
   }
@@ -253,79 +255,63 @@ function OpenFoldOption({
   if (!canOpenFold(part)) return null
 
   const size = opened ? sizeOf(opened) : null
-  // 幅が伸びたのか長さが伸びたのかは、開いてみれば分かる。決めつけずに測る
-  const along = size && plain
-    ? (size.widthMm - plain.widthMm > size.heightMm - plain.heightMm ? '幅' : '長さ')
-    : '幅'
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-ink-100 bg-white px-4 py-3">
-      <span className="flex items-center gap-1.5 text-sm font-bold text-ink-700">
+    <div className="flex flex-col gap-2 rounded-xl border border-ink-100 bg-white px-3 py-2">
+      {/*
+        1画面に収めたいので、選ぶところだけを1段にしてある（依頼者の指示・2026-08-27）。
+        説明は、ふつうでないほう（開いて裁つ）を選んだときにだけ出す
+      */}
+      <div className="flex items-center gap-2">
         <Icon name="fold" className="h-4 w-4 shrink-0 text-mat-600" />
-        「わ」の辺を、どう裁ちますか
-      </span>
-
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={() => onPatch({ openFold: false })}
-          className={`rounded-lg px-2 py-3 text-sm font-bold leading-snug ${
-            !open ? 'bg-mat-500 text-white' : 'border border-ink-100 text-ink-700'
-          }`}
-        >
-          生地の折り山に
-          <br />
-          当てて裁つ
-        </button>
-        <button
-          type="button"
-          onClick={() => onPatch({ openFold: true })}
-          className={`rounded-lg px-2 py-3 text-sm font-bold leading-snug ${
-            open ? 'bg-mat-500 text-white' : 'border border-ink-100 text-ink-700'
-          }`}
-        >
-          開いて{along}を倍にし、
-          <br />
-          一重の生地に裁つ
-        </button>
+        <span className="shrink-0 text-sm font-bold text-ink-700">「わ」の辺は</span>
+        <div className="ml-auto flex overflow-hidden rounded-lg border border-ink-100">
+          <button
+            type="button"
+            onClick={() => onPatch({ openFold: false })}
+            className={`px-3 py-2 text-xs font-bold ${
+              !open ? 'bg-mat-500 text-white' : 'text-ink-700'
+            }`}
+          >
+            折り山に当てる
+          </button>
+          <button
+            type="button"
+            onClick={() => onPatch({ openFold: true })}
+            className={`border-l border-ink-100 px-3 py-2 text-xs font-bold ${
+              open ? 'bg-mat-500 text-white' : 'text-ink-700'
+            }`}
+          >
+            開いて裁つ
+          </button>
+        </div>
       </div>
 
-      {open && opened && <OpenedPreview placed={opened} />}
-
-      <Note icon={open ? 'scissors' : 'fold'}>
-        {open ? (
-          <>
-            型紙を「わ」の辺で
-            <span className="font-bold text-ink-700">左右に開いた形</span>で置きます。
-            {size && (
-              <>
-                {' '}裁ち切りは{' '}
-                <span className="tnum font-bold text-ink-900">
-                  {(size.widthMm / 10).toFixed(1)} × {(size.heightMm / 10).toFixed(1)} cm
-                </span>
-                {plain && (
-                  <span className="tnum text-ink-300">
-                    {' '}（折り山に当てるなら {(plain.widthMm / 10).toFixed(1)} ×{' '}
-                    {(plain.heightMm / 10).toFixed(1)} cm）
+      {open && (
+        <>
+          {opened && <OpenedPreview placed={opened} />}
+          <p className="flex items-start gap-2 text-xs leading-relaxed text-ink-500">
+            <Icon name="scissors" className="mt-[0.2em] h-[1.15em] w-[1.15em] shrink-0" />
+            <span className="min-w-0 flex-1">
+              「わ」の辺で左右に開いた形で置きます。生地は折らなくてかまいません。
+              {size && (
+                <>
+                  {' '}裁ち切り{' '}
+                  <span className="tnum font-bold text-ink-900">
+                    {(size.widthMm / 10).toFixed(1)} × {(size.heightMm / 10).toFixed(1)} cm
                   </span>
-                )}
-                。
-              </>
-            )}
-            <br />
-            折り山は型紙の中にあるので、
-            <span className="font-bold text-ink-700">生地は折らなくてかまいません</span>。
-            ベルトのように、一重のところへ長く取るときはこちらです。
-          </>
-        ) : (
-          <>
-            「わ」の辺を<span className="font-bold text-ink-700">生地の折り山に当てて</span>、
-            二重のまま裁ちます。学校で最初に習うやり方です。
-            <br />
-            布としては、開いて裁つのと同じものが取れます。
-          </>
-        )}
-      </Note>
+                  {plain && (
+                    <span className="tnum text-ink-300">
+                      {' '}（当てるなら {(plain.widthMm / 10).toFixed(1)} ×{' '}
+                      {(plain.heightMm / 10).toFixed(1)}）
+                    </span>
+                  )}
+                </>
+              )}
+            </span>
+          </p>
+        </>
+      )}
     </div>
   )
 }
