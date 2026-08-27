@@ -16,6 +16,7 @@ import { GreenTuner } from './components/GreenTuner'
 import { PartsView } from './components/PartsView'
 import { ResultView } from './components/ResultView'
 import { RulerToggle } from './components/RulerToggle'
+import { replayTour, Tour } from './components/Tour'
 import { DEFAULT_GREEN, estimateHueCenter, type GreenParams } from './lib/hsv'
 import { loadImageFile, type LoadedImage } from './lib/image'
 import { analyze, previewGreenMask, type AnalyzeResult } from './lib/pipeline'
@@ -359,12 +360,14 @@ export function App() {
   const hasWork = onLayout
     ? parts.placements.length > 0
     : parts.parts.length > 0 || result !== null || image !== null
+  /** この画面に、呼び戻せる案内があるか */
+  const hasTour = step === 'photo' || step === 'parts' || step === 'layout'
 
   return (
     <div className="mx-auto flex min-h-full w-full max-w-xl flex-col">
       <header className="flex items-start justify-between gap-3 px-4 pt-5 pb-3">
         <div className="flex min-w-0 flex-col gap-0.5">
-          <h1 className="text-lg font-bold tracking-wide text-ink-900">要尺シミュレーター</h1>
+          <h1 className="text-base font-bold tracking-wide text-ink-900">要尺シミュレーター</h1>
           <span className="text-xs text-ink-300">
             {step === 'layout'
               ? '第4段階：生地の上に並べる'
@@ -381,6 +384,21 @@ export function App() {
           消えたり出たりすると、隣の「はじめから」の位置が動いて押し間違える
         */}
         <div className="mt-0.5 flex shrink-0 items-center gap-1.5">
+          {/*
+            はじめて開いたときの案内を、もう一度呼ぶための口。
+            案内は1回きりで消えるので、あとから見たい人の逃げ場がなくなる。
+            案内を持っている画面にだけ出す
+          */}
+          {hasTour && (
+            <button
+              type="button"
+              onClick={replayTour}
+              aria-label="この画面の使い方"
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-ink-100 bg-white text-ink-500 active:bg-chalk"
+            >
+              <Icon name="question" className="h-4 w-4 shrink-0" />
+            </button>
+          )}
           <div className="flex overflow-hidden rounded-lg border border-ink-100 bg-white">
             <button
               type="button"
@@ -505,6 +523,7 @@ export function App() {
 
         {step === 'photo' && (
           <section className="flex flex-col gap-4">
+            <Tour id="photo" />
             <p className="flex items-center gap-2 text-sm text-ink-500">
               <Icon name="camera" className="h-4 w-4 shrink-0 text-mat-600" />
               <span className="min-w-0 flex-1">
@@ -520,11 +539,13 @@ export function App() {
               ただ、はじめて開いた人の目に長い説明が3つ並ぶのは重い（依頼者・2026-08-27）ので、
               結論だけ出して、理由は「？」の中に畳んでおく
             */}
-            <Hint icon="ruler" summary={<>定規は<b className="text-ink-700">1本</b>で足ります</>}>
-              定規は写真の面そのものの実寸を決めているので、写真に1本あれば、
-              写っているパーツは全部そのまま測れます。
-              どれか1枚に載せても、マットの空いたところに置いてもかまいません。
-            </Hint>
+            <div data-tour="photo-hint">
+              <Hint icon="ruler" summary={<>定規は<b className="text-ink-700">1本</b>で足ります</>}>
+                定規は写真の面そのものの実寸を決めているので、写真に1本あれば、
+                写っているパーツは全部そのまま測れます。
+                どれか1枚に載せても、マットの空いたところに置いてもかまいません。
+              </Hint>
+            </div>
             <Hint icon="grain" summary={<>地の目は<b className="text-ink-700">定規と平行に</b>そろえて</>}>
               地の目の向きも、この定規1本から決めています。
               向きの違うものが混ざっていると、そちらが斜めに読まれてしまうので、
@@ -549,6 +570,7 @@ export function App() {
 
             <button
               type="button"
+              data-tour="photo-camera"
               onClick={() => cameraRef.current?.click()}
               className="flex items-center justify-center gap-2 rounded-xl bg-mat-500 px-5 py-4 text-base font-bold text-white active:bg-mat-600"
             >
@@ -815,7 +837,7 @@ const STEPS: Array<{ id: Step; label: string; icon: IconName }> = [
 function StepBar({ step }: { step: Step }) {
   const index = STEPS.findIndex((s) => s.id === step)
   return (
-    <ol className="flex gap-1 px-4">
+    <ol data-tour="steps" className="flex gap-1 px-4">
       {STEPS.map((s, i) => (
         <li key={s.id} className="flex flex-1 flex-col gap-1.5">
           <span className={`h-1 rounded-full ${i <= index ? 'bg-mat-500' : 'bg-ink-100'}`} />

@@ -103,6 +103,7 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded }: Props
       */}
       <svg
         viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
+        data-tour="seam-figure"
         className="w-full rounded-xl border border-ink-100 bg-table"
         style={{ aspectRatio: `${view.w} / ${view.h}`, maxHeight: 'max(140px, min(34vh, calc(100dvh - 33rem)))' }}
         role="img"
@@ -196,7 +197,7 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded }: Props
       */}
       <div className="rounded-xl border border-ink-100 bg-white px-4 py-3">
         {!seamIncluded && (
-          <div className="flex items-center gap-3 border-b border-ink-100 pb-3">
+          <div data-tour="seam-bulk" className="flex items-center gap-3 border-b border-ink-100 pb-3">
             <span className="flex items-center gap-1.5 text-sm font-bold text-ink-700">
               <Icon name="seam" className="h-4 w-4 shrink-0 text-mat-600" />
               まとめて
@@ -251,7 +252,7 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded }: Props
               縫い代つきの型紙でも「わ」の指定だけは要る。
               折り山に当てる辺かどうかで、要尺も枚数も変わるため
             */}
-            <div className="grid grid-cols-2 gap-2">
+            <div data-tour="seam-steps" className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => setAllowance(selected, SEAM_INCLUDED_MM)}
@@ -275,7 +276,7 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded }: Props
           </>
         ) : (
           <>
-            <div className="grid grid-cols-6 gap-1.5">
+            <div data-tour="seam-steps" className="grid grid-cols-6 gap-1.5">
               {SEAM_STEPS_CM.map((cm) => {
                 const on = Math.abs(currentMm - cm * 10) < 0.01
                 return (

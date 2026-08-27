@@ -23,7 +23,10 @@ type Props = {
 
 export function FabricSetup({ widthMm, hasNap, onWidth, onNap }: Props) {
   return (
-    <section className="flex flex-col gap-2 rounded-xl border border-ink-100 bg-white px-4 py-2.5">
+    <section
+      data-tour="fabric-width"
+      className="flex flex-col gap-2 rounded-xl border border-ink-100 bg-white px-4 py-2.5"
+    >
       <div className="flex items-center gap-2">
         <Icon name="clothWidth" className="h-4 w-4 shrink-0 text-mat-600" />
         <span className="text-sm font-bold text-ink-700">生地幅</span>
@@ -69,7 +72,7 @@ export function FabricSetup({ widthMm, hasNap, onWidth, onNap }: Props) {
           差し込めないとそのぶん生地を長く買うことになるので、
           あとから変えると並べ直しになります。
         </Hint>
-        <div className="grid grid-cols-2 gap-2 pt-1">
+        <div data-tour="fabric-nap" className="grid grid-cols-2 gap-2 pt-1">
           <button
             type="button"
             onClick={() => onNap(false)}

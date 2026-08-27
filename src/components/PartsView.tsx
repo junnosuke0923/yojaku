@@ -17,6 +17,7 @@ import { FabricSetup } from './FabricSetup'
 import { Heading, Hint, Icon } from './Icon'
 import { PatternMarks } from './PatternMarks'
 import { SeamEditor } from './SeamEditor'
+import { Tour } from './Tour'
 
 type Props = {
   state: PartsState
@@ -49,6 +50,7 @@ export function PartsView({ state, onChange, onAddMore, onLayout, openSeamFor }:
   if (part) {
     return (
       <section className="flex flex-col gap-2.5">
+        <Tour id="seam" />
         {/*
           1画面に収めたいので、戻る・名前・隣の型紙への送りを1段にまとめてある
           （依頼者の指示・2026-08-27）。送りは右上。
@@ -71,7 +73,10 @@ export function PartsView({ state, onChange, onAddMore, onLayout, openSeamFor }:
             {(part.widthMm / 10).toFixed(1)} × {(part.heightMm / 10).toFixed(1)}
           </span>
 
-          <div className="ml-auto flex shrink-0 overflow-hidden rounded-lg border border-ink-100 bg-white">
+          <div
+            data-tour="seam-next"
+            className="ml-auto flex shrink-0 overflow-hidden rounded-lg border border-ink-100 bg-white"
+          >
             <button
               type="button"
               onClick={() => prev && setEditing(prev.id)}
@@ -132,7 +137,8 @@ export function PartsView({ state, onChange, onAddMore, onLayout, openSeamFor }:
   }
 
   return (
-    <section className="flex flex-col gap-3">
+    <section className="flex flex-col gap-2.5">
+      <Tour id="parts" />
       <FabricSetup
         widthMm={state.fabricWidthMm}
         hasNap={state.hasNap}
@@ -168,10 +174,11 @@ export function PartsView({ state, onChange, onAddMore, onLayout, openSeamFor }:
       ) : (
         <>
           <ul className="flex flex-col gap-2.5">
-            {patterns.map((p) => (
+            {patterns.map((p, i) => (
               <PartRow
                 key={p.id}
                 part={p}
+                first={i === 0}
                 hasNap={state.hasNap}
                 onOpen={() => setEditing(p.id)}
                 onPatch={(over) => patch(p.id, over)}
@@ -183,14 +190,12 @@ export function PartsView({ state, onChange, onAddMore, onLayout, openSeamFor }:
           </ul>
 
           {/*
-            枚数には二つの意味がある（依頼者の指摘）。
-            ここで聞いているのは「できあがりに何枚要るか」。
-            裁断のときに置く型紙の数はこれとは別で、二重の生地の上なら1枚で足りる
+            枚数の意味（できあがりに何枚要るか）は、はじめて開いたときの案内で
+            型紙の行を指しながら説明している。ここに常時出しておくと、
+            同じことを二度言ううえに1画面から溢れるので置かない（依頼者の指示・2026-08-27）。
+            二重の上に置けば1つで2枚とれる、という続きは、
+            数が足りていないときに「置くパーツ」のところで出る
           */}
-          <Hint summary={<>枚数は<b className="text-ink-700">できあがりに必要な数</b>（左右で使うなら 2）</>}>
-            生地に並べるときは、二重に重なっているところに型紙を1つ置けば、
-            そのまま2枚とも裁てます。だから置く型紙の数は 2 つとは限りません。
-          </Hint>
 
           {/*
             定規は地の目の「向き」までは教えてくれない。上下対称だから。
@@ -211,6 +216,7 @@ export function PartsView({ state, onChange, onAddMore, onLayout, openSeamFor }:
 
           <button
             type="button"
+            data-tour="to-layout"
             onClick={onLayout}
             className="flex items-center justify-center gap-2 rounded-xl bg-mat-500 px-4 py-2.5 text-base font-bold text-white active:bg-mat-600"
           >
@@ -343,10 +349,12 @@ function OpenedPreview({ placed }: { placed: PlacedPart }) {
 }
 
 function PartRow({
-  part, hasNap, onOpen, onPatch, onRemove,
+  part, hasNap, first, onOpen, onPatch, onRemove,
 }: {
   part: StoredPart
   hasNap: boolean
+  /** はじめて開いたときの案内は、先頭の1行だけを指す */
+  first?: boolean
   onOpen: () => void
   onPatch: (over: Partial<StoredPart>) => void
   onRemove: () => void
@@ -361,7 +369,10 @@ function PartRow({
   const opened = part.openFold === true && folds > 0
 
   return (
-    <li className="flex gap-3 rounded-xl border border-ink-100 bg-white p-3">
+    <li
+      data-tour={first ? 'part-row' : undefined}
+      className="flex gap-3 rounded-xl border border-ink-100 bg-white p-3"
+    >
       <button type="button" onClick={onOpen} className="shrink-0" aria-label={`${part.name}の縫い代`}>
         <Thumb part={part} hasNap={hasNap} placed={placed} />
       </button>

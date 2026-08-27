@@ -25,6 +25,7 @@ import { placedPartOf, type PartsState, type StoredPart } from '../lib/store'
 import { FoldDiagram } from './FoldDiagram'
 import { Heading, Hint, Icon, Note } from './Icon'
 import { PatternMarks } from './PatternMarks'
+import { Tour } from './Tour'
 import type { Polygon } from '../lib/geom'
 
 type Props = {
@@ -156,6 +157,7 @@ export function LayoutView({ state, onChange, onBack }: Props) {
 
   return (
     <section className="flex flex-col gap-3.5 pb-40">
+      <Tour id="layout" />
       <button
         type="button"
         onClick={onBack}
@@ -273,7 +275,7 @@ function Totals({
   widthMm: number
 }) {
   return (
-    <div className="flex gap-3 rounded-xl border border-ink-100 bg-white px-4 py-4">
+    <div data-tour="totals" className="flex gap-3 rounded-xl border border-ink-100 bg-white px-4 py-4">
       {/* 買う長さは、生地の「丈」を測っている数字。絵でもそう見せる */}
       <Icon name="yardage" className="mt-1 h-9 w-9 shrink-0 text-mat-500" />
       <div className="min-w-0 flex-1">
@@ -688,6 +690,7 @@ function SectionCanvas({
       <svg
         ref={svgRef}
         viewBox={`${-PAD} ${-PAD} ${vbW} ${vbH}`}
+        data-tour={index === 0 ? 'fabric' : undefined}
         className={`w-full select-none rounded-xl border-2 bg-table ${
           active ? 'border-mat-500' : 'border-ink-100'
         }`}
@@ -1281,7 +1284,7 @@ function Tray({
   const reserves = state.parts.filter(isReserve)
 
   return (
-    <div className="flex flex-col gap-2">
+    <div data-tour="tray" className="flex flex-col gap-2">
       <Heading icon="part">置くパーツ</Heading>
       <ul className="flex flex-col gap-2">{patterns.map(row)}</ul>
       {shortage.length > 0 && (
