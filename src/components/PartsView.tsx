@@ -353,6 +353,19 @@ function OpenedPreview({ placed }: { placed: PlacedPart }) {
         points={placed.finishedLineMm.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')}
         fill="#FAF7F0" stroke="#2b332d" strokeWidth={line * 1.4}
       />
+      {/*
+        真ん中に通る折り線（依頼者の質問・2026-08-28）。
+        一点鎖線で引かないと、ただの幅広の紙に見えて、
+        「わ」の線を軸に左右へ開いた形だということが伝わらない
+      */}
+      {placed.centerLineMm && (
+        <path
+          d={`M${placed.centerLineMm.a.x.toFixed(1)} ${placed.centerLineMm.a.y.toFixed(1)}`
+            + ` L${placed.centerLineMm.b.x.toFixed(1)} ${placed.centerLineMm.b.y.toFixed(1)}`}
+          fill="none" stroke="#2b332d" strokeWidth={line}
+          strokeDasharray={`${line * 8} ${line * 3} ${line * 1.2} ${line * 3}`}
+        />
+      )}
     </svg>
   )
 }

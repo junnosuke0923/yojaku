@@ -38,10 +38,20 @@ type Props = {
    * 裏返して置いた型紙のように、紙の色を変えて描くときは、こちらも合わせる
    */
   paper?: string
+  /**
+   * 地の目線を、横へずらす量（依頼者の質問・2026-08-28）。
+   *
+   * 「わ」で開いた型紙には、真ん中に一点鎖線の中心線が通る。
+   * 地の目線もふつうは真ん中を通るので、そのままだと2本が重なって
+   * どちらがどちらだか読めなくなる。重なるときだけ、地の目線を脇へどける。
+   * 向きは地の目線と直角。縦の地の目なら左右へ、横なら上下へずれる
+   */
+  shift?: number
 }
 
 export function PatternMarks({
   poly, hasNap, name, fontScale = 0.075, direction = 'v', color = INK, paper = PAPER,
+  shift = 0,
 }: Props) {
   const b = bounds(poly)
   const s = Math.max(b.maxX - b.minX, b.maxY - b.minY)
@@ -73,8 +83,9 @@ export function PatternMarks({
   )
 
   if (direction === 'h') {
-    const g = grainLineH(poly)
-    if (!g) return label ? <g aria-hidden="true">{label}</g> : null
+    const g0 = grainLineH(poly)
+    if (!g0) return label ? <g aria-hidden="true">{label}</g> : null
+    const g = { ...g0, y: g0.y + shift }
     // 右向きは必ず描く。左向きは、向きのない生地のときだけ
     const arrow = (x: number, dir: 1 | -1) =>
       `M${x} ${g.y} L${x - head * dir} ${g.y - wing} L${x - head * dir} ${g.y + wing} Z`
@@ -88,8 +99,9 @@ export function PatternMarks({
     )
   }
 
-  const g = grainLine(poly)
-  if (!g) return label ? <g aria-hidden="true">{label}</g> : null
+  const g0 = grainLine(poly)
+  if (!g0) return label ? <g aria-hidden="true">{label}</g> : null
+  const g = { ...g0, x: g0.x + shift }
   const arrow = (y: number, dir: 1 | -1) =>
     `M${g.x} ${y} L${g.x - wing} ${y - head * dir} L${g.x + wing} ${y - head * dir} Z`
 

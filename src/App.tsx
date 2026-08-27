@@ -22,6 +22,7 @@ import { loadImageFile, type LoadedImage } from './lib/image'
 import { analyze, previewGreenMask, type AnalyzeResult } from './lib/pipeline'
 import { defaultRulerQuad, guessRuler, RULERS, type RulerId } from './lib/ruler'
 import { DEV_SEEDS } from './lib/devSeed'
+import { loadSaves, removeSave, whenOf, type Save } from './lib/saves'
 import { EMPTY, load as loadParts, save as saveParts, toStored, type PartsState } from './lib/store'
 import type { Quad } from './lib/geom'
 
@@ -103,6 +104,21 @@ export function App() {
   const [askReset, setAskReset] = useState(false)
   /** 開発用：パーツの一覧を開いたとき、この型紙の縫い代の画面を最初から出す */
   const [openSeamFor, setOpenSeamFor] = useState<string | null>(null)
+  /**
+   * しまってある見積もり（依頼者の指示・2026-08-28）。
+   *
+   * この端末の中だけに置く。`parts` とは別の引き出しで、
+   * いま触っている作業を上書きしない。開いたときに初めて入れかわる。
+   */
+  const [saves, setSaves] = useState<Save[]>(loadSaves)
+  /** しまうときの名前。しまってあるものを開いたときは、その名前が入る */
+  const [saveName, setSaveName] = useState('')
+  /** 「開く」を押したが、いまの作業が消えてよいかまだ聞いていないもの */
+  const [askOpen, setAskOpen] = useState<Save | null>(null)
+  /** 「消す」を押したが、まだ聞いている最中のもの。消すと戻せないので必ず一度たずねる */
+  const [askDrop, setAskDrop] = useState<string | null>(null)
+  /** しまってあるものを、最近の3件だけにしているか */
+  const [foldSaves, setFoldSaves] = useState(true)
   /**
    * 置きなおした新しい版が出ているのに、古いページを開いたままか。
    *
@@ -343,6 +359,28 @@ export function App() {
     setError(null)
   }
 
+  /**
+   * しまってあるものを開く（依頼者の指示・2026-08-28）。
+   *
+   * しまってあるのは作業まるごとなので、そのまま `parts` に入れれば続きから触れる。
+   * 写真そのものは持っていない（型紙の形はもう実寸で入っている）ので、
+   * 撮るところの状態は捨てて、並べる画面から始める。
+   *
+   * いまの作業は消えるので、何か触っていたら必ず一度たずねる。
+   * 1つ戻るの控えには積むので、開いてしまってからでも戻せる。
+   */
+  const openSave = (s: Save) => {
+    updateParts(s.state)
+    setSaveName(s.name)
+    setResult(null)
+    setImage(null)
+    setQuad(null)
+    setQuadAdjusted(false)
+    setError(null)
+    setAskOpen(null)
+    setStep('layout')
+  }
+
   /** 貯めたものを全部捨てて、最初の状態に戻す */
   const clearAll = () => {
     updateParts(EMPTY)
@@ -546,6 +584,56 @@ export function App() {
         {step === 'photo' && (
           <section className="flex flex-col gap-4">
             <Tour id="photo" />
+
+            {/*
+              ここで出るのは概算だということ（依頼者の指示・2026-08-28）。
+              最初の画面と、要尺が出たところの2か所に置く。
+              いちばん上に出しておかないと、数字を見てから初めて知ることになる。
+              ひと言だけ出して、理由は「？」の中に畳んでおく
+            */}
+            <div className="rounded-xl border border-ink-100 bg-white px-3 py-1">
+              <Hint icon="warn" summary={<>ここで出るのは生地の<b className="text-ink-700">概算</b>です</>}>
+                型紙の形は写真から読み取っているので、実物とは数ミリの差が出ます。
+                地直しの縮み、柄合わせ、裁つときのくせでも変わります。
+                買う長さの目安として使って、心配なときは少し多めに見てください。
+              </Hint>
+            </div>
+
+            {/*
+              しまってあるものを開くと、いま触っているぶんは置きかわる。
+              戻せない操作ではない（1つ戻るの控えに積んである）が、
+              黙って置きかえると何が起きたのか分からないので、一度たずねる
+            */}
+            {askOpen && (
+              <div className="flex flex-col gap-3 rounded-xl border-2 border-mat-500 bg-mat-50 px-4 py-4">
+                <p className="flex gap-2 text-sm leading-relaxed text-mat-700">
+                  <Icon name="hint" className="mt-[0.2em] h-[1.15em] w-[1.15em] shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    <span className="font-bold">「{askOpen.name}」を開きます。</span>
+                    いま触っているぶんは置きかわります。
+                    <span className="text-mat-600">上の「1つ戻る」で戻せます。</span>
+                  </span>
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => openSave(askOpen)}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-mat-500 px-4 py-3 text-sm font-bold text-white active:bg-mat-600"
+                  >
+                    <Icon name="layout" className="h-4 w-4 shrink-0" />
+                    開く
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAskOpen(null)}
+                    className="flex flex-1 items-center justify-center rounded-xl border-2 border-ink-100 px-4 py-3 text-sm font-bold text-ink-500"
+                  >
+                    やめる
+                  </button>
+                </div>
+              </div>
+            )}
+
             <p className="flex items-center gap-2 text-sm text-ink-500">
               <Icon name="camera" className="h-4 w-4 shrink-0 text-mat-600" />
               <span className="min-w-0 flex-1">
@@ -617,6 +705,86 @@ export function App() {
                 <Icon name="part" className="h-4 w-4 shrink-0" />
                 取り込んだ {parts.parts.length} 個のパーツを見る →
               </button>
+            )}
+
+            {/*
+              しまってある見積もり（依頼者の指示・2026-08-28）。
+              撮るボタンより下に置く。ふだんの入口は「撮る」なので、
+              上に積むと毎回それをまたぐことになる。
+              ふだんは最近の3件だけ。溜まってきたら開いて全部見る
+            */}
+            {saves.length > 0 && (
+              <div className="flex flex-col gap-2 rounded-xl border border-ink-100 bg-white px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <Icon name="save" className="h-4 w-4 shrink-0 text-mat-600" />
+                  <span className="text-sm font-bold text-ink-700">しまってある見積もり</span>
+                  <span className="tnum ml-auto text-xs text-ink-300">{saves.length} 件</span>
+                </div>
+                <ul className="flex flex-col gap-1.5">
+                  {(foldSaves ? saves.slice(0, 3) : saves).map((s) => (
+                    <li
+                      key={s.id}
+                      className="flex items-center gap-2 rounded-lg border border-ink-100 px-3 py-2"
+                    >
+                      {askDrop === s.id ? (
+                        <>
+                          <span className="min-w-0 flex-1 text-sm text-ink-700">
+                            消すと戻せません。よろしいですか？
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => { setSaves(removeSave(s.id)); setAskDrop(null) }}
+                            className="shrink-0 rounded-lg bg-seam px-3 py-1.5 text-xs font-bold text-white"
+                          >
+                            消す
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAskDrop(null)}
+                            className="shrink-0 rounded-lg border border-ink-100 px-3 py-1.5 text-xs font-bold text-ink-500"
+                          >
+                            やめる
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => (hasWork ? setAskOpen(s) : openSave(s))}
+                            className="flex min-w-0 flex-1 flex-col text-left active:opacity-60"
+                          >
+                            <span className="truncate text-sm font-bold text-ink-900">{s.name}</span>
+                            <span className="tnum flex flex-wrap items-baseline gap-x-2 text-xs text-ink-300">
+                              <span>{whenOf(s.savedAt)}</span>
+                              <span>生地幅 {s.summary.fabricWidthMm / 10} cm</span>
+                              <span className="font-bold text-mat-600">
+                                {(s.summary.purchaseMm / 10).toFixed(0)} cm
+                              </span>
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAskDrop(s.id)}
+                            aria-label={`${s.name}を消す`}
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-ink-100 text-ink-300 active:bg-chalk"
+                          >
+                            <Icon name="trash" className="h-4 w-4 shrink-0" />
+                          </button>
+                        </>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                {saves.length > 3 && (
+                  <button
+                    type="button"
+                    onClick={() => setFoldSaves(!foldSaves)}
+                    className="text-left text-xs font-bold text-mat-700"
+                  >
+                    {foldSaves ? `ぜんぶ見る（${saves.length} 件）` : '最近の3件だけ見る'}
+                  </button>
+                )}
+              </div>
             )}
 
             {DEV && (
@@ -836,7 +1004,14 @@ export function App() {
           />
         )}
         {step === 'layout' && (
-          <LayoutView state={parts} onChange={updateParts} onBack={() => setStep('parts')} />
+          <LayoutView
+            state={parts}
+            onChange={updateParts}
+            onBack={() => setStep('parts')}
+            saveName={saveName}
+            onSaveName={setSaveName}
+            onSaved={setSaves}
+          />
         )}
       </main>
     </div>

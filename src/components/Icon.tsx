@@ -29,7 +29,7 @@ export type IconName =
   | 'cloth' | 'selvage' | 'clothWidth' | 'yardage' | 'layout' | 'hold'
   | 'grain' | 'grainSide' | 'nap' | 'napNone' | 'flip' | 'mirror' | 'nest'
   | 'question' | 'hint' | 'warn' | 'check'
-  | 'plus' | 'trash' | 'back' | 'undo' | 'redo'
+  | 'plus' | 'trash' | 'back' | 'undo' | 'redo' | 'save'
 
 /**
  * みみのピン穴。生地の絵で使っている点々と同じもの。
@@ -172,6 +172,15 @@ const SHAPES: Record<IconName, ReactNode> = {
       <rect x="2.8" y="5.4" width="18.4" height="13.2" rx="1.2" strokeDasharray="3.1 2.5" />
       <path d="M7.4 16.4l3.4-6.6M12.4 16.4l3.4-6.6" />
     </>
+  ),
+
+  /*
+    しまっておく＝しおり。
+    「後で裁つぶんの余白（hold）」と同じ絵を使い回すと、
+    同じ画面に二通りの意味で出てしまうので、別の絵にしてある
+  */
+  save: (
+    <path d="M6.6 3.6h10.8a1.4 1.4 0 0 1 1.4 1.4v15.1a.7.7 0 0 1-1.07.6L12 17.3l-5.73 3.4A.7.7 0 0 1 5.2 20.1V5a1.4 1.4 0 0 1 1.4-1.4z" />
   ),
 
   /** 生地の上に型紙を並べたところ */

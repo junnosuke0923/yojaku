@@ -143,7 +143,8 @@ console.log('\n■ へこんだ角 — 形が壊れないか')
 
 const part = (id: string, w: number, h: number, hasFoldEdge = false): PlacedPart => ({
   // 実際の型紙と同じく、出来上がり線は裁ち切り線の内側にある
-  id, hasFoldEdge, cutLineMm: rect(w, h), finishedLineMm: rect(w, h), foldMarksMm: [],
+  id, hasFoldEdge, cutLineMm: rect(w, h), finishedLineMm: rect(w, h),
+  foldMarksMm: [], centerLineMm: null,
 })
 
 const fabric = (widthMm: number, folds: Fabric['sections'][number]['fold'][], hasNap = false): Fabric => ({
@@ -266,6 +267,23 @@ console.log('\n■ ベルトを「わ」で開いて、幅を倍にして裁つ'
     closed.foldMarksMm.length === 1, `${closed.foldMarksMm.length} 本`)
   ok('開いたほうは「わ」の記号を出さない',
     opened.foldMarksMm.length === 0, `${opened.foldMarksMm.length} 本`)
+
+  /*
+    開いた型紙の中心線（依頼者の質問・2026-08-28）。
+    「わ」の線を軸に反転して2倍になっていることが、図から読める状態かを見る。
+    線は開いた形のちょうど真ん中を、丈いっぱいに通っているはず。
+  */
+  {
+    const c = opened.centerLineMm
+    ok('開いたほうは中心線を持つ', c !== null, c ? 'あり' : 'なし')
+    ok('折り山に当てるほうは中心線を持たない',
+      closed.centerLineMm === null, closed.centerLineMm ? 'あり' : 'なし')
+    if (c) {
+      const bb = bounds(opened.finishedLineMm)
+      near('中心線は幅のまんなか', (c.a.x + c.b.x) / 2, (bb.minX + bb.maxX) / 2, 2)
+      near('中心線は丈いっぱい', Math.abs(c.b.y - c.a.y), bb.maxY - bb.minY, 2)
+    }
+  }
   {
     const facing = (name: string, pl: Placement) => {
       const { cut, marks } = orientedPair(closed, pl)

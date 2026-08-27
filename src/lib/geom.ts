@@ -184,3 +184,39 @@ export function minAreaRect(pts: Polygon): { quad: Quad; long: number; short: nu
   const { quad, long, short, angle } = best
   return { quad, long, short, angle }
 }
+
+/**
+ * a と b を通る**無限に伸びる直線**を、枠の中に入る部分だけ切り出す。
+ *
+ * 「わ」の辺で開いた型紙の中心線を引くのに使う。
+ * 折り山だった辺は型紙の一部しか通っていないことがあるので、
+ * そのまま引くと線が途中で終わってしまう。枠いっぱいまで伸ばしてから引く。
+ */
+export function clipLineToBox(a: Point, b: Point, box: Bounds): [Point, Point] | null {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  let t0 = -Infinity
+  let t1 = Infinity
+  // p * t <= q の形にそろえて、4辺ぶん順に狭めていく
+  const slab = (p: number, q: number): boolean => {
+    if (Math.abs(p) < 1e-9) return q >= 0
+    const r = q / p
+    if (p < 0) {
+      if (r > t1) return false
+      if (r > t0) t0 = r
+    } else {
+      if (r < t0) return false
+      if (r < t1) t1 = r
+    }
+    return true
+  }
+  if (!slab(-dx, a.x - box.minX)) return null
+  if (!slab(dx, box.maxX - a.x)) return null
+  if (!slab(-dy, a.y - box.minY)) return null
+  if (!slab(dy, box.maxY - a.y)) return null
+  if (!(t1 > t0)) return null
+  return [
+    { x: a.x + dx * t0, y: a.y + dy * t0 },
+    { x: a.x + dx * t1, y: a.y + dy * t1 },
+  ]
+}

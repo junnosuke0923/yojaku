@@ -10,7 +10,7 @@
  */
 
 import type { EdgeGroup } from './edges'
-import { bounds, centroid, type Polygon } from './geom'
+import { bounds, centroid, clipLineToBox, type Point, type Polygon } from './geom'
 import { rotate180 } from './marks'
 import { unionWithMirror } from './openFold'
 import { buildSeam, DEFAULT_SEAM_MM, initialPlan, SEAM_INCLUDED_MM, type SeamPlan } from './seam'
@@ -232,6 +232,8 @@ export function placedPartOf(part: StoredPart): PlacedPart | null {
 
   let cutLineMm = seam.cutLineMm
   let finishedLineMm = seam.finishedLineMm
+  /** 開いたときの中心線（＝鏡にした線）。開かなければ無い */
+  let centerLineMm: { a: Point; b: Point } | null = null
   // 0 は「ここは折り山」。負（縫い代つき）は折り山ではない
   let hasFoldEdge = plan.allowancesMm.some((a) => a === 0)
 
@@ -268,6 +270,15 @@ export function placedPartOf(part: StoredPart): PlacedPart | null {
         finishedLineMm = finished
         // 開いてしまえば、生地の折り山に当てる必要はない。一重の上に置ける
         hasFoldEdge = false
+        /*
+          鏡にした線が、開いた型紙の中心線になる（依頼者の質問・2026-08-28）。
+          もとの「わ」の辺は型紙の一部しか通っていないことがあるので、
+          出来上がり線の枠いっぱいまで伸ばしてから引く。
+          これを描かないと、ただの幅広の紙に見えて、
+          左右に開いた形になっていることが図から読めない。
+        */
+        const span = clipLineToBox(a, b, bounds(finished))
+        if (span) centerLineMm = { a: span[0], b: span[1] }
       }
     }
   }
@@ -317,6 +328,9 @@ export function placedPartOf(part: StoredPart): PlacedPart | null {
     foldMarksMm: foldMarksMm.map((m) => ({
       a: mv(m.a), b: mv(m.b), inn: mv(m.inn), lengthMm: m.lengthMm,
     })),
+    centerLineMm: centerLineMm
+      ? { a: mv(centerLineMm.a), b: mv(centerLineMm.b) }
+      : null,
   }
 }
 

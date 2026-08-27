@@ -167,6 +167,15 @@ export type PlacedPart = {
   hasFoldEdge: boolean
   /** 「わ」の辺に付ける作図の記号の置き場所。辺ごとに1つ */
   foldMarksMm: FoldMark[]
+  /**
+   * 「わ」の辺で開いて裁つ型紙の、中心線（依頼者の質問・2026-08-28）。
+   *
+   * 開いた型紙は左右対称の1枚になっていて、真ん中に折り線が通っている。
+   * これを引かないと、ただの幅広の紙にしか見えず、
+   * **「わ」で開いた形になっているのかどうかが図から読めない**。
+   * 一点鎖線で引く。開いていないパーツでは null。
+   */
+  centerLineMm: { a: Point; b: Point } | null
 }
 
 export const usableWidthMm = (fabric: Fabric) => Math.max(0, fabric.widthMm - SELVAGE_MM * 2)
@@ -189,7 +198,7 @@ export const newPlacement = (
  */
 export function orientedPair(
   part: PlacedPart, p: Placement,
-): { cut: Polygon; finished: Polygon; marks: FoldMark[] } {
+): { cut: Polygon; finished: Polygon; marks: FoldMark[]; center: { a: Point; b: Point } | null } {
   const swap = (poly: Polygon) => (p.rot90 ? poly.map((q) => ({ x: q.y, y: q.x })) : poly)
   const cut = swap(part.cutLineMm)
   const finished = swap(part.finishedLineMm)
@@ -206,13 +215,18 @@ export function orientedPair(
       return { x, y }
     })
 
-  // 「わ」の記号も、裁ち切り線とまったく同じ計算に通す
+  // 「わ」の記号も中心線も、裁ち切り線とまったく同じ計算に通す
   const marks = part.foldMarksMm.map((m) => {
     const [a, bb, inn] = move(swap([m.a, m.b, m.inn]))
     return { a, b: bb, inn, lengthMm: m.lengthMm }
   })
+  let center: { a: Point; b: Point } | null = null
+  if (part.centerLineMm) {
+    const [a, bb] = move(swap([part.centerLineMm.a, part.centerLineMm.b]))
+    center = { a, b: bb }
+  }
 
-  return { cut: move(cut), finished: move(finished), marks }
+  return { cut: move(cut), finished: move(finished), marks, center }
 }
 
 /** パーツを、置いた向きのとおりに変換した裁ち切り線 */

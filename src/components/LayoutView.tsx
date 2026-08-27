@@ -22,12 +22,13 @@ import {
   type Fabric, type FoldMark, type FoldMode, type PlacedPart, type Placement,
   type Section, type Side,
 } from '../lib/fabric'
+import { defaultName, MAX_SAVES, putSave, type Save } from '../lib/saves'
 import { placedPartOf, type PartsState, type StoredPart } from '../lib/store'
 import { FoldDiagram } from './FoldDiagram'
 import { Heading, Hint, Icon, Note } from './Icon'
 import { PatternMarks } from './PatternMarks'
 import { Tour } from './Tour'
-import type { Polygon } from '../lib/geom'
+import type { Point, Polygon } from '../lib/geom'
 
 type Props = {
   state: PartsState
@@ -37,6 +38,11 @@ type Props = {
    */
   onChange: (state: PartsState, group?: string) => void
   onBack: () => void
+  /** しまうときの名前。開いたものを直したときは、その名前が入っている */
+  saveName: string
+  onSaveName: (name: string) => void
+  /** しまい終わったら、一覧を持っている側へ知らせる */
+  onSaved: (saves: Save[]) => void
 }
 
 const FOLD_CHOICES: FoldMode[] = ['none', 'vLeft', 'vBoth', 'hTop', 'hBottom', 'hBoth']
@@ -56,7 +62,7 @@ const CLOTH = '#fdfcf8'
 const CLOTH_FOLDED = '#efeee2'
 const CREASE = '#35664e'
 
-export function LayoutView({ state, onChange, onBack }: Props) {
+export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSaved }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [activeSection, setActiveSection] = useState(state.sections[0]?.id ?? 's1')
 
@@ -255,6 +261,19 @@ export function LayoutView({ state, onChange, onBack }: Props) {
       */}
       <Totals report={report} widthMm={state.fabricWidthMm} />
 
+      {/*
+        出た見積もりを、名前を付けてしまっておく（依頼者の指示・2026-08-28）。
+        結果のすぐ下に置く。数字を見たその場でしまえないと、
+        わざわざ探しに行くことになって、結局しまわなくなる
+      */}
+      <SaveBox
+        report={report}
+        state={state}
+        name={saveName}
+        onName={onSaveName}
+        onSaved={onSaved}
+      />
+
       {selected && (
         <Controls
           placement={selected}
@@ -272,6 +291,24 @@ export function LayoutView({ state, onChange, onBack }: Props) {
       )}
     </section>
   )
+}
+
+/**
+ * 地の目線を脇へどける量（依頼者の質問・2026-08-28）。
+ *
+ * 「わ」で開いた型紙には、真ん中に一点鎖線の中心線が通る。
+ * 地の目線もふつうは真ん中なので、2本が平行だとぴったり重なって読めなくなる。
+ * 平行なときだけ、型紙の幅（横の地の目なら丈）の 2 割ほど脇へどける。
+ * 直角に交わるときは、線が1点で交わるだけなので、どけなくてよい。
+ */
+function grainShiftOf(
+  center: { a: Point; b: Point } | null, rot90: boolean, w: number, h: number,
+): number {
+  if (!center) return 0
+  const centerVertical = Math.abs(center.b.x - center.a.x) < Math.abs(center.b.y - center.a.y)
+  const grainVertical = !rot90
+  if (centerVertical !== grainVertical) return 0
+  return (grainVertical ? w : h) * 0.2
 }
 
 /* ------------------------------------------------------------------ 合計 */
@@ -292,6 +329,19 @@ function Totals({
         {(report.purchaseMm / 10).toFixed(0)}
         <span className="pl-1 text-lg font-bold text-ink-500">cm</span>
       </p>
+      {/*
+        この数字が概算であること（依頼者の指示・2026-08-28）。
+        **結果の真下**に置く。ここを離すと、数字だけを書き写して
+        そのぶんきっかり買いに行く人が出る。
+        ひと言だけ出して、理由は「？」の中に畳んでおく
+      */}
+      <div className="pt-0.5">
+        <Hint icon="warn" summary={<>この数字は<b className="text-ink-700">概算</b>です</>}>
+          型紙の形は写真から読み取っているので、実物とは数ミリの差が出ます。
+          地直しの縮み、柄合わせ、裁つときのくせでも変わります。
+          買う長さの目安として使って、心配なときは少し多めに見てください。
+        </Hint>
+      </div>
       {/* 計算の中身は、式のかたちで一目で見せる。文にすると読ませることになる */}
       {report.totalMm > 0 ? (
         <div className="pt-1">
@@ -323,6 +373,91 @@ function Totals({
         生地幅 {widthMm / 10} cm ／ みみを除くと {(widthMm - SELVAGE_MM * 2) / 10} cm
       </p>
       </div>
+    </div>
+  )
+}
+
+/* --------------------------------------------------------- しまっておく */
+
+/**
+ * 出した見積もりに名前を付けて、この端末の中にしまう（依頼者の指示・2026-08-28）。
+ *
+ * 同じ名前でしまうと書きかわる。「新しくしまう」「上書きする」を
+ * 別のボタンに分けるより、**同じ名前＝同じもの**と読めるほうが迷わない。
+ * 開いたものを直してもう一度しまうと、名前がそのまま入っているので上書きになる。
+ *
+ * 何も並べていないうちは出さない。しまう中身がまだ無いため。
+ */
+function SaveBox({
+  report, state, name, onName, onSaved,
+}: {
+  report: ReturnType<typeof computeYardage>
+  state: PartsState
+  name: string
+  onName: (name: string) => void
+  onSaved: (saves: Save[]) => void
+}) {
+  const [note, setNote] = useState<string | null>(null)
+  const [bad, setBad] = useState(false)
+
+  if (report.purchaseMm <= 0) return null
+
+  const doSave = () => {
+    const label = name.trim() || defaultName()
+    const r = putSave(
+      label,
+      {
+        purchaseMm: report.purchaseMm,
+        totalMm: report.totalMm,
+        fabricWidthMm: state.fabricWidthMm,
+        partCount: state.parts.length,
+        placementCount: state.placements.length,
+      },
+      state,
+    )
+    if (!r.ok) {
+      setBad(true)
+      setNote(
+        r.reason === 'full'
+          ? `しまえるのは ${MAX_SAVES} 件までです。最初の画面で、いらないものを消してください`
+          : '端末の置き場所がいっぱいです。最初の画面で、いらないものを消してください',
+      )
+      return
+    }
+    setBad(false)
+    onName(label)
+    onSaved(r.saves)
+    setNote(
+      r.overwrote
+        ? `「${label}」を書きかえました`
+        : `「${label}」にしまいました。次に開いたとき、最初の画面から呼び出せます`,
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-ink-100 bg-white px-4 py-3">
+      <div className="flex items-center gap-2">
+        <Icon name="save" className="h-4 w-4 shrink-0 text-mat-600" />
+        <span className="shrink-0 text-sm font-bold text-ink-700">しまっておく</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => { onName(e.target.value); setNote(null) }}
+          placeholder={defaultName()}
+          aria-label="しまう名前"
+          className="min-w-0 flex-1 rounded-lg border border-ink-100 px-3 py-2 text-base"
+        />
+        <button
+          type="button"
+          onClick={doSave}
+          className="shrink-0 rounded-lg bg-mat-500 px-4 py-2 text-sm font-bold text-white active:bg-mat-600"
+        >
+          しまう
+        </button>
+      </div>
+      {note && <Note icon={bad ? 'warn' : 'check'} tone={bad ? 'warn' : 'good'}>{note}</Note>}
     </div>
   )
 }
@@ -1125,7 +1260,8 @@ function SectionCanvas({
             const part = p ? partMap.get(p.partId) : null
             if (!p || !part) return null
             // 縫い代の画面と同じ描き分け。縫い代の重なり具合を見ながら置けるように
-            const { cut, finished, marks } = orientedPair(part, p)
+            const { cut, finished, marks, center } = orientedPair(part, p)
+            // 中心線と地の目線が重なるときだけ、地の目線を脇へどける
             const bad = badPlacements.has(p.id)
             const on = selectedId === p.id
             const twice = countOf(p.id) === 2
@@ -1229,9 +1365,25 @@ function SectionCanvas({
                   direction={p.rot90 ? 'h' : 'v'}
                   fontScale={0.1}
                   paper={p.mirrored ? '#e9e7e0' : undefined}
+                  shift={grainShiftOf(center, p.rot90 === true, box.w, box.h)}
                 />
                 {/* 「わ」の辺の印。地の目線より後に描いて、隠れないようにする */}
                 {foldMarks(marks)}
+                {/*
+                  「わ」で開いて裁つ型紙の中心線（依頼者の質問・2026-08-28）。
+                  一点鎖線。作図で中心線・折り線を表す決まった引き方で、
+                  これがあって初めて「左右に開いた1枚」だと読める
+                */}
+                {center && (
+                  <path
+                    d={`M${center.a.x.toFixed(1)} ${center.a.y.toFixed(1)}`
+                      + ` L${center.b.x.toFixed(1)} ${center.b.y.toFixed(1)}`}
+                    fill="none"
+                    stroke="#2b332d"
+                    strokeWidth={W * 0.004}
+                    strokeDasharray={`${W * 0.03} ${W * 0.012} ${W * 0.005} ${W * 0.012}`}
+                  />
+                )}
                 {/* 裏返してあることを、絵と言葉の両方で言う。形だけでは気づけない */}
                 {p.mirrored && box.w > W * 0.22 && box.h > W * 0.12 && (
                   <g>
