@@ -67,6 +67,15 @@ export function App() {
   const [parts, setParts] = useState<PartsState>(loadParts)
   /** 取り込もうとしている型紙に、もう縫い代が付いているか */
   const [seamIncluded, setSeamIncluded] = useState(false)
+  /**
+   * 「はじめから」を押したあと、本当に消してよいかを聞いている最中か。
+   *
+   * 取り込んだものは端末の中に残るので、閉じても次に開いたとき続きから触れる。
+   * それは狙いどおりなのだけれど、次の課題に移るときや、
+   * 人に渡して試してもらうときに戻せないと困る、という指摘を受けて付けた
+   * （依頼者・2026-08-27）。消すと戻せないので、必ず一度たずねる
+   */
+  const [askReset, setAskReset] = useState(false)
 
   const updateParts = (next: PartsState) => {
     setParts(next)
@@ -186,31 +195,87 @@ export function App() {
     }
   }
 
-  /** 開発用：貯めたものを全部捨てて、最初の状態に戻す */
+  /** 貯めたものを全部捨てて、最初の状態に戻す */
   const clearAll = () => {
     updateParts(EMPTY)
     setResult(null)
+    setImage(null)
+    setQuad(null)
+    setQuadAdjusted(false)
+    setError(null)
     setStep('photo')
   }
 
+  /** 消すものが何かあるか。まっさらのときに「はじめから」を出しても意味がない */
+  const hasWork = parts.parts.length > 0 || result !== null || image !== null
+
   return (
     <div className="mx-auto flex min-h-full w-full max-w-xl flex-col">
-      <header className="flex items-baseline justify-between px-4 pt-6 pb-4">
-        <h1 className="text-lg font-bold tracking-wide text-ink-900">要尺シミュレーター</h1>
-        <span className="text-xs text-ink-300">
-          {step === 'layout'
-            ? '第4段階：生地の上に並べる'
-            : step === 'parts'
-              ? seamIncluded
-                ? '第2段階：取り込んで、わの辺を決める'
-                : '第2・3段階：取り込んで、縫い代を付ける'
-              : '第1段階：実寸をつかむ'}
-        </span>
+      <header className="flex items-start justify-between gap-3 px-4 pt-6 pb-4">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <h1 className="text-lg font-bold tracking-wide text-ink-900">要尺シミュレーター</h1>
+          <span className="text-xs text-ink-300">
+            {step === 'layout'
+              ? '第4段階：生地の上に並べる'
+              : step === 'parts'
+                ? seamIncluded
+                  ? '第2段階：取り込んで、わの辺を決める'
+                  : '第2・3段階：取り込んで、縫い代を付ける'
+                : '第1段階：実寸をつかむ'}
+          </span>
+        </div>
+        {hasWork && !askReset && (
+          <button
+            type="button"
+            onClick={() => setAskReset(true)}
+            className="mt-0.5 flex shrink-0 items-center gap-1 rounded-lg border border-ink-100 bg-white px-2.5 py-1.5 text-xs font-bold text-ink-500 active:bg-chalk"
+          >
+            <Icon name="trash" className="h-3.5 w-3.5 shrink-0" />
+            はじめから
+          </button>
+        )}
       </header>
 
       <StepBar step={step} />
 
       <main className="safe-b flex flex-1 flex-col gap-5 px-4 py-5">
+        {/*
+          消すと戻せないので、押したその場では消さずに一度たずねる。
+          何がいくつ消えるのかを、押す前に数字で見せておく
+        */}
+        {askReset && (
+          <div className="flex flex-col gap-3 rounded-xl border-2 border-seam bg-white px-4 py-4">
+            <p className="flex gap-2 text-sm leading-relaxed text-ink-700">
+              <Icon name="warn" className="mt-[0.2em] h-[1.15em] w-[1.15em] shrink-0 text-seam" />
+              <span className="min-w-0 flex-1">
+                取り込んだパーツ
+                <span className="font-bold"> {parts.parts.length} 個</span>
+                と、生地の設定・並べた場所を
+                <span className="font-bold">ぜんぶ消して</span>、
+                写真を撮るところからやり直します。消したものは戻せません。
+              </span>
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => { clearAll(); setAskReset(false) }}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-seam px-4 py-3 text-sm font-bold text-white"
+              >
+                <Icon name="trash" className="h-4 w-4 shrink-0" />
+                消して、はじめから
+              </button>
+              <button
+                type="button"
+                onClick={() => setAskReset(false)}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl border-2 border-ink-100 px-4 py-3 text-sm font-bold text-ink-700"
+              >
+                <Icon name="back" className="h-4 w-4 shrink-0" />
+                やめる
+              </button>
+            </div>
+          </div>
+        )}
+
         {error && (
           <p className="flex gap-2 rounded-xl border border-seam bg-white px-4 py-3 text-sm leading-relaxed text-seam">
             <Icon name="warn" className="mt-[0.2em] h-[1.15em] w-[1.15em] shrink-0" />
@@ -313,14 +378,7 @@ export function App() {
                   <Icon name="part" className="h-5 w-5 shrink-0" />
                   撮影ずみのパーツを入れる
                 </button>
-                <button
-                  type="button"
-                  onClick={clearAll}
-                  className="flex items-center justify-center gap-2 rounded-xl border-2 border-hold-400 px-5 py-3 text-sm font-bold text-hold-700"
-                >
-                  <Icon name="trash" className="h-4 w-4 shrink-0" />
-                  ぜんぶ消して、まっさらにする
-                </button>
+                {/* 「ぜんぶ消す」は見出しの「はじめから」に移した（学生も使うため） */}
               </div>
             )}
           </section>

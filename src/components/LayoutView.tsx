@@ -317,7 +317,9 @@ function SectionCanvas({
   onDrop: () => void
 }) {
   const svgRef = useRef<SVGSVGElement>(null)
-  const drag = useRef<{ id: string; x0: number; y0: number; px: number; py: number } | null>(null)
+  const drag = useRef<
+    { id: string; x0: number; y0: number; px: number; py: number; w: number } | null
+  >(null)
 
   if (!report) return null
 
@@ -355,7 +357,10 @@ function SectionCanvas({
     onActivate()
     onSelect(p.id)
     ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
-    drag.current = { id: p.id, x0: p.xMm, y0: p.yMm, px: e.clientX, py: e.clientY }
+    const box = report.boxes.find((b) => b.placementId === p.id)
+    drag.current = {
+      id: p.id, x0: p.xMm, y0: p.yMm, px: e.clientX, py: e.clientY, w: box?.w ?? 0,
+    }
   }
 
   const moveDrag = (e: PointerEvent) => {
@@ -363,8 +368,19 @@ function SectionCanvas({
     if (!d) return
     const k = mmPerPx()
     const snap = (v: number) => Math.round(v / SNAP_MM) * SNAP_MM
+    /*
+      横は生地の幅で止める（依頼者の指摘・2026-08-27）。
+      これまで左だけ 0 で止めて右は素通しだったので、
+      「左は出られないのに右は出られる」という食い違いになっていた。
+      幅そのものが足りない型紙は、止めても右へはみ出したままになる。
+      そのときは注意書きが出るので、押し込んで隠してしまわないよう Math.max(0, …) を外側に置く。
+
+      縦は止めない。生地は下へいくらでも伸ばして買えるもので、
+      いま使っている長さがそのまま買う長さになる（＝はみ出しという概念がない）
+    */
+    const maxX = Math.max(0, W - d.w)
     onMove(d.id, {
-      xMm: Math.max(0, snap(d.x0 + (e.clientX - d.px) * k)),
+      xMm: Math.max(0, Math.min(maxX, snap(d.x0 + (e.clientX - d.px) * k))),
       yMm: Math.max(0, snap(d.y0 + (e.clientY - d.py) * k)),
     })
   }
@@ -377,24 +393,42 @@ function SectionCanvas({
    * （＝生地幅を半分に折ったとき）。このときだけ、耳の側に下の一枚がのぞく。
    */
   const flaps: Array<{ side: Side; x: number; y: number; w: number; h: number; full: boolean }> = []
+  /**
+   * 両側から折って、みみが中央で出会っているときに、そのあいだへ残す隙間（依頼者の指示・2026-08-27）。
+   *
+   * ぴったり突き合わせて描くと、二重の帯が1枚の面につながって見えてしまい、
+   * 「ここが端どうしの出会うところ」だと分からない。
+   * 隙間から下の一枚（明るいほうの色）がのぞくので、そこが境目だと目で分かる。
+   * 絵のうえだけの隙間で、計算にはいっさい効かない。
+   */
+  const MEET = W * 0.013
+  const meetV = depth.left > 0 && depth.right > 0 && depth.left + depth.right >= W - 0.5
+  const meetH = depth.top > 0 && depth.bottom > 0 && depth.top + depth.bottom >= L - 0.5
   if (depth.left > 0) {
-    flaps.push({ side: 'left', x: 0, y: 0, w: depth.left, h: L, full: depth.left >= W - 0.5 })
+    const w = meetV ? depth.left - MEET * 0.5 : depth.left
+    flaps.push({ side: 'left', x: 0, y: 0, w, h: L, full: depth.left >= W - 0.5 })
   }
   if (depth.right > 0) {
-    flaps.push({
-      side: 'right', x: W - depth.right, y: 0, w: depth.right, h: L,
-      full: depth.right >= W - 0.5,
-    })
+    const w = meetV ? depth.right - MEET * 0.5 : depth.right
+    flaps.push({ side: 'right', x: W - w, y: 0, w, h: L, full: depth.right >= W - 0.5 })
   }
   if (depth.top > 0) {
-    flaps.push({ side: 'top', x: 0, y: 0, w: W, h: depth.top, full: depth.top >= L - 0.5 })
+    const h = meetH ? depth.top - MEET * 0.5 : depth.top
+    flaps.push({ side: 'top', x: 0, y: 0, w: W, h, full: depth.top >= L - 0.5 })
   }
   if (depth.bottom > 0) {
-    flaps.push({
-      side: 'bottom', x: 0, y: L - depth.bottom, w: W, h: depth.bottom,
-      full: depth.bottom >= L - 0.5,
-    })
+    const h = meetH ? depth.bottom - MEET * 0.5 : depth.bottom
+    flaps.push({ side: 'bottom', x: 0, y: L - h, w: W, h, full: depth.bottom >= L - 0.5 })
   }
+
+  /**
+   * 帯の名前に「生地が」を付けられるか。
+   * 帯が細いところで長い名前を書くと、帯からはみ出して読めなくなる。
+   * 一重の帯だけ短くなると別のものに見えるので、全部まとめて決める
+   */
+  const longLayerLabels = flaps.every(
+    (f) => (f.side === 'left' || f.side === 'right' ? f.w : W) > W * 0.34,
+  )
 
   /**
    * 下になっている一枚。折り返しが面を丸ごと覆っているときだけ、
@@ -534,6 +568,20 @@ function SectionCanvas({
     )
   }
 
+  /**
+   * 裏返し：紙をめくった形。左半分が表、右半分が浮き上がってめくれている。
+   * 操作のボタンに付いている mirror の印と同じ意味。
+   */
+  const iconFlip = (cx: number, cy: number, sz: number, color: string) => (
+    <g fill="none" stroke={color} strokeWidth={sz * 0.13} strokeLinejoin="round">
+      <path d={`M${cx} ${cy - sz * 0.5} V${cy + sz * 0.5}`} strokeDasharray={`${sz * 0.16} ${sz * 0.13}`} />
+      <path d={`M${cx - sz * 0.06} ${cy - sz * 0.42} H${cx - sz * 0.5} V${cy + sz * 0.42} H${cx - sz * 0.06}`} />
+      <path d={`M${cx + sz * 0.06} ${cy - sz * 0.42} L${cx + sz * 0.5} ${cy - sz * 0.2}`
+        + ` L${cx + sz * 0.5} ${cy + sz * 0.6} L${cx + sz * 0.06} ${cy + sz * 0.42} Z`}
+        fill={color} fillOpacity={0.18} />
+    </g>
+  )
+
   /** はさみ：裁ち端の印 */
   const iconScissors = (cx: number, cy: number, sz: number, color: string) => (
     <g stroke={color} strokeWidth={sz * 0.13} fill="none" strokeLinecap="round">
@@ -635,6 +683,19 @@ function SectionCanvas({
             patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
             <rect width={W * 0.026} height={W * 0.026} fill="#f6f2e4" fillOpacity="0.92" />
             <path d={`M0 0 V${W * 0.026}`} stroke="#b6a97e" strokeWidth={W * 0.005} />
+          </pattern>
+
+          {/*
+            裏返して置いた型紙の「紙の裏」（依頼者の指示・2026-08-27）。
+            表と同じ白い紙で描くと、裏返したことが絵から消えてしまう。
+            紙をひっくり返すと、鉛筆の線が透けてうっすら見える——
+            あの見え方を、細い斜線を反対向きに敷いて表している。
+            「あとで裁つ余白」の斜線とは向きも色も変えてあるので、取り違えない
+          */}
+          <pattern id={`${gid}-back`} width={W * 0.019} height={W * 0.019}
+            patternUnits="userSpaceOnUse" patternTransform="rotate(-45)">
+            <rect width={W * 0.019} height={W * 0.019} fill="#e9e7e0" />
+            <path d={`M0 0 V${W * 0.019}`} stroke="#c2bfb4" strokeWidth={W * 0.0028} />
           </pattern>
 
           {/* 折り山の明暗は、生地からはみ出さないように切り抜く */}
@@ -882,11 +943,15 @@ function SectionCanvas({
                 strokeWidth={W * 0.005}
                 strokeLinejoin="round"
               />
-              {/* もとの型紙（出来上がり線） */}
+              {/*
+                もとの型紙（出来上がり線）。
+                裏返して置いたものは、紙の裏を上に向けている状態なので、
+                白い表ではなく、うっすら斜線の入った裏の色で描く（依頼者の指示・2026-08-27）
+              */}
               <polygon
                 points={pts(finished)}
-                fill="#FAF7F0"
-                fillOpacity={0.94}
+                fill={p.mirrored ? `url(#${gid}-back)` : '#FAF7F0'}
+                fillOpacity={p.mirrored ? 1 : 0.94}
                 stroke="#2b332d"
                 strokeWidth={W * 0.005}
                 strokeLinejoin="round"
@@ -897,7 +962,22 @@ function SectionCanvas({
                 name={state.parts.find((x) => x.id === p.partId)?.name}
                 direction={p.rot90 ? 'h' : 'v'}
                 fontScale={0.1}
+                paper={p.mirrored ? '#e9e7e0' : undefined}
               />
+              {/* 裏返してあることを、絵と言葉の両方で言う。形だけでは気づけない */}
+              {p.mirrored && box.w > W * 0.22 && box.h > W * 0.12 && (
+                <g>
+                  {iconFlip(box.w * 0.5 - W * 0.075, W * 0.055, W * 0.044, '#5c665f')}
+                  <text
+                    x={box.w * 0.5 + W * 0.012} y={W * 0.055}
+                    fontSize={W * 0.036} fontWeight={700} fill="#5c665f"
+                    textAnchor="middle" dominantBaseline="middle"
+                    stroke="#e9e7e0" strokeWidth={W * 0.012} paintOrder="stroke"
+                  >
+                    裏返し
+                  </text>
+                </g>
+              )}
               {/* 二重のところに置いた型紙は、1つで2枚とれる */}
               {twice && (
                 <g>
@@ -915,7 +995,14 @@ function SectionCanvas({
         {/* 二重の印しもパーツの上に出す。先に描くと型紙の下に隠れてしまう */}
         {flaps.map((f) => {
           const horiz = f.side === 'left' || f.side === 'right'
-          const label = f.full ? 'ぜんぶ二重' : '二重'
+          /*
+            ただ「二重」とだけ書くと、置いた型紙が2枚という意味に読めてしまう
+            （依頼者から実際にそう質問された・2026-08-27）。
+            数えているのは布の枚数なので、主語を書いておく。
+            帯が細くて文字がはみ出すときだけ短いほうにする
+          */
+          const label = longLayerLabels
+            ? (f.full ? '生地がぜんぶ二重' : '生地が二重') : '二重'
           const tx = horiz ? (f.side === 'left' ? f.w / 2 : W - f.w / 2) : W * 0.5
           const ty = horiz ? L * 0.045 : f.side === 'top' ? f.h / 2 : L - f.h / 2
           return (
@@ -940,12 +1027,14 @@ function SectionCanvas({
           const ty = vert ? L * 0.045 : (depth.top + (L - depth.bottom)) / 2
           const room = vert ? W - depth.left - depth.right : L - depth.top - depth.bottom
           if (room < (vert ? W : L) * 0.3) return null
+          // 二重の帯と同じ書き方にする。片方だけ主語が付いていると、違うものに見える
+          const label = longLayerLabels ? '生地が一重' : '一重'
           return (
             <g>
-              {iconLayers(tx - W * 0.078, ty, W * 0.046, 1, '#7d867e', true)}
+              {iconLayers(tx - label.length * W * 0.019 - W * 0.04, ty, W * 0.046, 1, '#7d867e', true)}
               <text x={tx} y={ty} fontSize={W * 0.036} fontWeight={600} fill="#7d867e"
                 textAnchor="middle" dominantBaseline="middle"
-                stroke="#ffffff" strokeWidth={W * 0.012} paintOrder="stroke">一重</text>
+                stroke="#ffffff" strokeWidth={W * 0.012} paintOrder="stroke">{label}</text>
             </g>
           )
         })()}
@@ -1068,6 +1157,21 @@ function SectionCanvas({
         {' '}型紙の<span className="font-bold text-cut">青いふち</span>が縫い代、
         その内側の線が出来上がり線です。
       </Note>
+
+      {/*
+        「いちばん長い型紙より生地が長いのはなぜか」と聞かれた（依頼者・2026-08-27）。
+        長さは型紙の丈ではなく、いちばん下まで届いた型紙の「下端の位置」で決まる。
+        置き方しだいで変わる数字なので、それが分かるように書いておく
+      */}
+      {report.boxes.length > 0 && (
+        <Note icon="yardage">
+          この生地の長さ <span className="font-bold text-ink-700">{(used / 10).toFixed(0)} cm</span> は、
+          型紙の丈ではなく
+          <span className="font-bold text-ink-700">いちばん下まで届いている型紙の、下の端</span>
+          で決まります。上に空きがあるぶんもそのまま長さになるので、
+          すき間を詰めて上へ寄せるほど短くなります。
+        </Note>
+      )}
     </div>
   )
 }

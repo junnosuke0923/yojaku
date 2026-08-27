@@ -33,6 +33,15 @@ const UPPER = 205 - 74
 const R = (LOWER - UPPER) / 2
 /** 折り山の丸みがはみ出す分の余白 */
 const PAD = 56
+/**
+ * 両側から折ったとき、中央で出会うみみのあいだに残す隙間（依頼者の指示・2026-08-27）。
+ *
+ * ぴったり突き合わせて描くと、二重の帯が1枚の面に見えてしまい、
+ * 「ここが端どうしの出会うところ」だと分からない。
+ * 実物でも、折った耳がぴったり揃うことはまずない。
+ * 隙間から下の一枚がのぞいていることが、いちばん強い手がかりになる。
+ */
+const MEET_GAP = 30
 
 const CLOTH = '#cdcbbc'
 const CREASE = '#35664e'
@@ -44,8 +53,9 @@ export function FoldDiagram({ fold, nearMm, farMm, spanMm }: Props) {
   // 折り返しが極端に浅くても、絵としては見える太さを残す。
   // 両側から折るときだけは、互いに乗り上げないよう半分で止める
   const both = nearMm > 0 && farMm > 0
-  // 両側から折るときは、みみが中央で出会うところまで（＝半分ずつ）がいちばん深い
-  const cap = both ? W * 0.5 : W
+  // 両側から折るときは、みみが中央で出会うところまで（＝半分ずつ）がいちばん深い。
+  // ただし、ぴったり突き合わせては描かない（MEET_GAP を見よ）
+  const cap = both ? (W - MEET_GAP) * 0.5 : W
   const arm = (mm: number) => (mm <= 0 ? 0 : Math.min(Math.max(toX(mm), 90), cap))
   const near = arm(nearMm)
   const far = arm(farMm)
@@ -53,7 +63,7 @@ export function FoldDiagram({ fold, nearMm, farMm, spanMm }: Props) {
    * 見えている面が丸ごと二重。
    * 片側から折るなら端まで届いたとき、両側から折るなら中央で出会ったとき
    */
-  const allDoubled = near + far >= W - 0.5
+  const allDoubled = near + far >= W - (both ? MEET_GAP : 0) - 0.5
   /** 両側から折って、左右のみみが中央で突き合わさっている */
   const metInMiddle = both && allDoubled
   const folded = near > 0 || far > 0
@@ -63,6 +73,13 @@ export function FoldDiagram({ fold, nearMm, farMm, spanMm }: Props) {
    */
   const pending = !folded && foldSidesOf(fold).length > 0
   const along = isHorizontalFold(fold) ? '長さの向き' : '幅の向き'
+
+  /*
+    「二重」とだけ書くと、置いた型紙が2枚という意味に読めてしまう
+    （依頼者から実際にそう質問された・2026-08-27）。数えているのは布の枚数なので、
+    腕が広いときは主語を書く。狭いときははみ出すので短いほうにする
+  */
+  const layerLabel = (len: number) => (len > 230 ? '生地が二重' : '二重')
 
   /** 折り返した腕。端（みみ）から折り山まで戻って、下の一枚につながる */
   const flap = (at: 'near' | 'far', len: number) => {
@@ -124,7 +141,7 @@ export function FoldDiagram({ fold, nearMm, farMm, spanMm }: Props) {
         {near > 0 && (
           <>
             <text x={near / 2} y={UPPER - 26} fontSize={30} fontWeight={700} fill={CREASE}
-              textAnchor="middle">二重</text>
+              textAnchor="middle">{layerLabel(near)}</text>
             <text x={4} y={LOWER + 52} fontSize={30} fontWeight={700} fill={CREASE}>わ</text>
             {/* 中央で出会っているときは、みみの名前をひとつだけ、その場所に置く */}
             {!metInMiddle && (
@@ -136,7 +153,7 @@ export function FoldDiagram({ fold, nearMm, farMm, spanMm }: Props) {
         {far > 0 && (
           <>
             <text x={W - far / 2} y={UPPER - 26} fontSize={30} fontWeight={700} fill={CREASE}
-              textAnchor="middle">二重</text>
+              textAnchor="middle">{layerLabel(far)}</text>
             <text x={W - 4} y={LOWER + 52} fontSize={30} fontWeight={700} fill={CREASE}
               textAnchor="end">わ</text>
             {!metInMiddle && (
@@ -146,11 +163,17 @@ export function FoldDiagram({ fold, nearMm, farMm, spanMm }: Props) {
           </>
         )}
 
-        {/* 突き合わさったみみ。ここで生地の端どうしが出会っている */}
+        {/*
+          中央で向かい合っているみみ。
+          隙間そのものが「ここが端どうしの出会うところ」を語るので、
+          あとは両端に印を付けて、名前をひとつ添えるだけにする
+        */}
         {metInMiddle && (
           <>
-            <path d={`M${W * 0.5} ${UPPER - 12} v${THICK + 24}`} stroke={FAINT}
-              strokeWidth={4} strokeDasharray="9 8" />
+            {[near, W - far].map((x) => (
+              <path key={x} d={`M${x} ${UPPER - THICK * 0.5 - 7} v${THICK + 14}`}
+                stroke={FAINT} strokeWidth={4} strokeLinecap="round" />
+            ))}
             <text x={W * 0.5} y={UPPER - 26} fontSize={22} fill={FAINT} textAnchor="middle">
               みみ
             </text>
@@ -158,7 +181,11 @@ export function FoldDiagram({ fold, nearMm, farMm, spanMm }: Props) {
         )}
         {W - near - far > W * 0.16 && (
           <text x={(near + (W - far)) / 2} y={LOWER + 52} fontSize={28} fill={FAINT}
-            textAnchor="middle">{folded ? '一重' : pending ? 'まだ折っていません' : '折らずに一重'}</text>
+            textAnchor="middle">{
+              folded
+                ? (W - near - far > W * 0.3 ? '生地が一重' : '一重')
+                : pending ? 'まだ折っていません' : '折らずに一重'
+            }</text>
         )}
       </svg>
 
@@ -173,6 +200,9 @@ export function FoldDiagram({ fold, nearMm, farMm, spanMm }: Props) {
             <span className="font-bold text-mat-600">すべて二重</span>です。
             折り山が<span className="font-bold text-mat-600">左右に1本ずつ</span>あるので、
             「わ」の辺を持つ型紙を、左右どちらにも当てられます。
+            真ん中を少し空けて描いてあるのは、
+            <span className="font-bold text-mat-600">ここでみみが向かい合っている</span>
+            ことを見せるためです。実物でもぴったりは揃いません。
           </>
         ) : allDoubled ? (
           <>

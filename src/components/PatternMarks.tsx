@@ -33,10 +33,15 @@ type Props = {
   direction?: 'v' | 'h'
   /** 印しの色。生地の上では白っぽい下地に載るので、変えたいことがある */
   color?: string
+  /**
+   * 下地の紙の色。名前の後ろに敷いて、地の目線が字を貫かないようにするもの。
+   * 裏返して置いた型紙のように、紙の色を変えて描くときは、こちらも合わせる
+   */
+  paper?: string
 }
 
 export function PatternMarks({
-  poly, hasNap, name, fontScale = 0.075, direction = 'v', color = INK,
+  poly, hasNap, name, fontScale = 0.075, direction = 'v', color = INK, paper = PAPER,
 }: Props) {
   const b = bounds(poly)
   const s = Math.max(b.maxX - b.minX, b.maxY - b.minY)
@@ -59,7 +64,7 @@ export function PatternMarks({
       fontSize={fs}
       fontWeight={700}
       fill={color}
-      stroke={PAPER}
+      stroke={paper}
       strokeWidth={fs * 0.3}
       paintOrder="stroke"
     >
