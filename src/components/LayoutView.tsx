@@ -17,14 +17,14 @@
 import { useMemo, useRef, useState, type PointerEvent, type ReactNode } from 'react'
 import { isReserve, RESERVE_CHOICES, toReserve } from '../lib/store'
 import {
-  canHalfFold, computeYardage, FOLD_LABELS, FOLD_MARK_REF_MM, foldSidesOf, isHalfFold,
-  isHorizontalFold, isVerticalSide, newPlacement, orientedPair, PURCHASE_MARGIN_MM,
-  SELVAGE_MM, SNAP_MM, toggleFoldSide,
+  canHalfFold, computeYardage, FOLD_LABELS, FOLD_MARK_REF_MM, foldOfSides, foldSidesOf,
+  isHalfFold, isHorizontalFold, isVerticalSide, newPlacement, orientedPair,
+  PURCHASE_MARGIN_MM, SELVAGE_MM, SNAP_MM, toggleFoldSide,
   type Fabric, type FoldMark, type FoldMode, type PlacedPart, type Placement,
   type Section, type Side,
 } from '../lib/fabric'
 import { defaultName, MAX_SAVES, putSave, type Save } from '../lib/saves'
-import { FoldPicker } from './FoldPicker'
+import { FoldPicker, type EdgeAction } from './FoldPicker'
 import { placedPartOf, type PartsState, type StoredPart } from '../lib/store'
 import { FoldDiagram } from './FoldDiagram'
 import { Heading, Hint, Icon, Note } from './Icon'
@@ -208,7 +208,7 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
           onActivate={() => setActiveSection(section.id)}
           onSelect={setSelectedId}
           onMove={patch}
-          onFold={(fold) => {
+          onFold={(fold, halfFold) => {
             /*
               折り山を移したら、そこに当てていた型紙も付け替える
               （依頼者の指示・2026-08-28）。実物でも、折る側を変えたら
@@ -226,7 +226,11 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
             const to = foldSidesOf(fold)
             onChange({
               ...state,
-              sections: state.sections.map((s) => (s.id === section.id ? { ...s, fold } : s)),
+              sections: state.sections.map((s) =>
+                s.id === section.id
+                  ? { ...s, fold, ...(halfFold === undefined ? {} : { halfFold }) }
+                  : s,
+              ),
               placements: state.placements.map((pl) => {
                 if (pl.sectionId !== section.id) return pl
                 const was = pl.snapTo
@@ -503,7 +507,8 @@ function SectionCanvas({
   onActivate: () => void
   onSelect: (id: string) => void
   onMove: (id: string, over: Partial<Placement>, group?: string) => void
-  onFold: (fold: FoldMode) => void
+  /** 折り方を変える。「きっちり折るか」も同時に決まるときは、いっしょに渡す */
+  onFold: (fold: FoldMode, halfFold?: boolean) => void
   onHalf: (halfFold: boolean) => void
   onDrop: () => void
 }) {
@@ -511,6 +516,8 @@ function SectionCanvas({
   const drag = useRef<
     { id: string; x0: number; y0: number; px: number; py: number; w: number; group: string } | null
   >(null)
+  /** 辺を引きずっている最中に出す、いま何をしているのかのひと言 */
+  const [hint, setHint] = useState<string | null>(null)
 
   if (!report) return null
 
@@ -534,6 +541,61 @@ function SectionCanvas({
   const badPlacements = new Set(
     report.problems.flatMap((p) => (p.placementId ? [p.placementId] : [])),
   )
+  /**
+   * 辺をさわり終えたときの処理（依頼者の指示・2026-08-28）。
+   *
+   * 押しただけなら「わ」が付いたり外れたりするだけ。
+   * 内側へ引きずったときは、引いた深さで「きっちり折るか」まで決まる。
+   * 半分の位置に吸い付くので、いちばん多いたたみ方はそこで止めれば出る。
+   */
+  const applyEdge = (side: Side, action: EdgeAction) => {
+    if (action === 'toggle') { onFold(toggleFoldSide(section.fold, side)); return }
+    if (action === 'off') {
+      const left = new Set(foldSidesOf(section.fold))
+      left.delete(side)
+      onFold(foldOfSides(left))
+      return
+    }
+    // まだ「わ」でなければ付ける。縦と横は両立しないので、通し方は押したときと同じ
+    const next = foldSidesOf(section.fold).includes(side)
+      ? section.fold
+      : toggleFoldSide(section.fold, side)
+    onFold(next, action === 'half')
+  }
+
+  /**
+   * 大きい裁ち合わせ図の、端の札（「わ」「みみ」）も押せるようにする
+   * （依頼者の指示・2026-08-28）。上の小さな図と同じことができる第二の入口。
+   *
+   * 札は生地の枠の外の余白にあり、型紙とは重ならないので、
+   * 型紙を引きずるつもりの指が折り方を変えてしまう心配がない。
+   * 生地の面そのものは押せるようにしていない。そこは型紙のための場所である。
+   */
+  const edgeTag = (
+    side: Side, cx: number, cy: number, w: number, h: number, body: ReactNode,
+  ) => (
+    <g
+      key={`tag-${side}`}
+      role="button"
+      tabIndex={0}
+      aria-label={`${SIDE_LABELS[side]}の端を「わ」にする`}
+      style={{ cursor: 'pointer' }}
+      onPointerDown={(e) => {
+        e.stopPropagation()
+        onActivate()
+        onFold(toggleFoldSide(section.fold, side))
+      }}
+    >
+      {/* 押せることが分かるだけの、ごく薄い下地 */}
+      <rect
+        x={cx - w / 2} y={cy - h / 2} width={w} height={h} rx={W * 0.02}
+        fill="#ffffff" fillOpacity={0.5}
+        stroke={CREASE} strokeOpacity={0.16} strokeWidth={W * 0.004}
+      />
+      {body}
+    </g>
+  )
+
   const gid = `fold-${section.id}`
   const vbW = W + PAD * 2
   const vbH = L + PAD * 2
@@ -985,18 +1047,21 @@ function SectionCanvas({
         図のとなりに結果を文字で出して、押して決めて名前で覚える順にしてある。
       */}
       <div className="flex items-start gap-2 rounded-xl border border-ink-100 bg-white px-2 py-1.5">
-        <FoldPicker fold={section.fold} onToggle={(side) => {
-          onActivate()
-          onFold(toggleFoldSide(section.fold, side))
-        }} />
+        <FoldPicker
+          fold={section.fold}
+          half={half}
+          onHint={setHint}
+          onEdge={(side, action) => { onActivate(); applyEdge(side, action) }}
+        />
         <div className="flex min-w-0 flex-1 flex-col gap-1.5 pt-1">
           <span className="flex items-center gap-1.5 text-sm font-bold text-ink-700">
             <Icon name="layout" className="h-4 w-4 shrink-0 text-mat-600" />
             {state.sections.length > 1 ? `${index + 1} つめ・` : ''}
             {FOLD_LABELS[section.fold]}
           </span>
-          <span className="text-xs leading-relaxed text-ink-300">
-            辺を押すと「わ」になります
+          {/* 引きずっている最中は、いま何をしているのかをここに出す */}
+          <span className={`text-xs leading-relaxed ${hint ? 'font-bold text-mat-700' : 'text-ink-300'}`}>
+            {hint ?? '辺を押すか、内側へ引きずります'}
           </span>
           {canHalfFold(section.fold) && (
             <select
@@ -1499,16 +1564,17 @@ function SectionCanvas({
               ? Math.min(0, under.x0) - PAD * 0.4
               : Math.max(W, under.x1, ...foldParts.map((p) => p.sel?.x ?? W)) + PAD * 0.4
             const size = W * 0.036
-            return (
-              <g key={`sv-${s}`}>
+            // 押すとこちら側が「わ」になる。上の小さな図で押すのと同じこと
+            return edgeTag(s, x, L * 0.5, W * 0.13, W * 0.32, (
+              <>
                 {iconLayers(x, L * 0.5 - size * 1.9, W * 0.052, hasUnder ? 2 : 1, '#8a9188')}
                 <text x={x} y={L * 0.5 + size * 0.3} fontSize={size} fill="#8a9188"
                   textAnchor="middle">
                   <tspan x={x}>み</tspan>
                   <tspan x={x} dy={size * 1.05}>み</tspan>
                 </text>
-              </g>
-            )
+              </>
+            ))
           })}
 
           {/*
@@ -1535,12 +1601,16 @@ function SectionCanvas({
               left: L * 0.5, right: L * 0.5,
               top: -SP - PAD * 0.36, bottom: L + SP + PAD * 0.36,
             }[side]
+            const tag = horiz
+              ? { w: W * 0.16, h: W * 0.34 }
+              : { w: W * 0.34, h: W * 0.16 }
             return (
               <g key={side}>
                 <line x1={apex[0]} y1={apex[1]} x2={apex[2]} y2={apex[3]}
                   stroke={CREASE} strokeWidth={W * 0.007} strokeLinecap="round" />
-                {horiz ? (
-                  <g>
+                {/* 押すと「わ」が外れる。折り山の札そのものが、その口になっている */}
+                {edgeTag(side, lx, ly, tag.w, tag.h, horiz ? (
+                  <>
                     {iconFold(lx, ly - W * 0.105, W * 0.056, side, CREASE)}
                     <text x={lx} y={ly - W * 0.032} fontSize={W * 0.052} fontWeight={700}
                       fill={CREASE} textAnchor="middle" dominantBaseline="middle">わ</text>
@@ -1550,16 +1620,16 @@ function SectionCanvas({
                         <tspan key={i} x={lx} dy={i === 0 ? 0 : W * 0.033}>{c}</tspan>
                       ))}
                     </text>
-                  </g>
+                  </>
                 ) : (
-                  <g>
+                  <>
                     {iconFold(lx - W * 0.105, ly, W * 0.056, side, CREASE)}
                     <text x={lx + W * 0.02} y={ly} fontSize={W * 0.042} fontWeight={700}
                       fill={CREASE} textAnchor="middle" dominantBaseline="middle">
                       わ（折り山）
                     </text>
-                  </g>
-                )}
+                  </>
+                ))}
               </g>
             )
           })}
