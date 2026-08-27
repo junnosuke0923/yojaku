@@ -232,7 +232,16 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded }: Props
             長さ {Math.round((plan.groups[selected]?.lengthMm ?? 0) / 10)} cm
           </span>
           <span className="tnum ml-auto text-lg font-bold text-seam">
-            {currentMm === 0 ? 'わ' : seamIncluded ? 'ふつうの辺' : `${(currentMm / 10).toFixed(1)} cm`}
+            {currentMm === 0 ? (
+              <>
+                わ
+                <span className="pl-1 text-xs font-bold opacity-70">縫い代 0</span>
+              </>
+            ) : seamIncluded ? (
+              'ふつうの辺'
+            ) : (
+              `${(currentMm / 10).toFixed(1)} cm`
+            )}
           </span>
         </div>
 
@@ -278,7 +287,18 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded }: Props
                       on ? 'bg-seam text-white' : 'border border-ink-100 text-ink-700'
                     }`}
                   >
-                    {cm === 0 ? 'わ' : cm}
+                    {/*
+                      「わ」と「縫い代 0」が同じことだと、札そのものに書いておく
+                      （依頼者の案・2026-08-27）。文で説明するより短く、消えない
+                    */}
+                    {cm === 0 ? (
+                      <>
+                        わ
+                        <span className="pl-0.5 text-[0.72em] opacity-70">0</span>
+                      </>
+                    ) : (
+                      cm
+                    )}
                   </button>
                 )
               })}
