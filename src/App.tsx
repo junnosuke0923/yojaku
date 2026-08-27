@@ -76,6 +76,16 @@ export function App() {
    * （依頼者・2026-08-27）。消すと戻せないので、必ず一度たずねる
    */
   const [askReset, setAskReset] = useState(false)
+  /**
+   * 置きなおした新しい版が出ているのに、古いページを開いたままか。
+   *
+   * 置きなおすたびに JS のファイル名が変わるので、スマホが古い index.html を
+   * 持ったままだと、そこに書いてある名前のファイルはもうサーバーに無い。
+   * 実機では「撮影ずみのパーツを入れる」が読み込みに失敗する形で出た（2026-08-27）。
+   * 黙って読み込み直すと作業中の指の動きを取り上げてしまうので、
+   * 気づいたことだけを伝えて、押すかどうかは本人に決めてもらう
+   */
+  const [stale, setStale] = useState(false)
 
   const updateParts = (next: PartsState) => {
     setParts(next)
@@ -115,6 +125,44 @@ export function App() {
     setQuad(next)
     setQuadAdjusted(true)
   }
+
+  /*
+    置きなおした版が出ていないかを、サーバーの version.txt で確かめる。
+
+    見にいくのは、開いたとき・画面に戻ってきたとき・5分おき。
+    `cache: 'no-store'` を付けないと、この確認そのものが古い答えを返してしまう。
+    圏外や、まだ version.txt を置いていない古い配信では、黙って何もしない。
+  */
+  useEffect(() => {
+    let alive = true
+    const check = async () => {
+      try {
+        const res = await fetch('./version.txt', { cache: 'no-store' })
+        if (!res.ok) return
+        const latest = (await res.text()).trim()
+        /*
+          version.txt が無いとき、代わりに index.html を返してくる配信がある
+          （開発中のサーバーがそう。Wi-Fi のログイン画面なども同じことをする）。
+          目印は日時の一行なので、それらしくない返事は無かったことにする
+        */
+        if (!latest || latest.length > 40 || latest.includes('<')) return
+        if (alive && latest !== __BUILD_ID__) setStale(true)
+      } catch {
+        // 通信できないだけなので、何も言わない
+      }
+    }
+    // 開いたときは必ず1回見る。そのあとの繰り返しだけ、裏に回っているあいだ休む
+    void check()
+    const visible = () => document.visibilityState === 'visible'
+    const onVisible = () => { if (visible()) void check() }
+    document.addEventListener('visibilitychange', onVisible)
+    const timer = setInterval(() => { if (visible()) void check() }, 5 * 60 * 1000)
+    return () => {
+      alive = false
+      document.removeEventListener('visibilitychange', onVisible)
+      clearInterval(timer)
+    }
+  }, [])
 
   // 自動判別は「初期値の提案」まで。学生が一度でも選び直したら、もう上書きしない。
   useEffect(() => {
@@ -189,7 +237,13 @@ export function App() {
       updateParts({ ...EMPTY, parts: added })
       setStep('parts')
     } catch {
-      setError('開発用のデータを読み込めませんでした。')
+      // 読み込みに失敗するのは、たいてい「古いページを開いたまま」のとき。
+      // 置きなおすたびにファイル名が変わるので、古い名前はもうサーバーに無い
+      setError(
+        '開発用のデータを読み込めませんでした。'
+        + '古いページを開いたままかもしれません。読み込み直してから、もう一度押してください。',
+      )
+      setStale(true)
     } finally {
       setBusy(false)
     }
@@ -239,6 +293,33 @@ export function App() {
       <StepBar step={step} />
 
       <main className="safe-b flex flex-1 flex-col gap-5 px-4 py-5">
+        {/*
+          置きなおした版が出ているのに、古いページを開いたまま。
+          この状態だと、押しても何も起きないところが出る。
+          取り込んだものは端末に残るので、読み込み直しても消えない
+        */}
+        {stale && (
+          <div className="flex flex-col gap-3 rounded-xl border-2 border-mat-500 bg-mat-50 px-4 py-4">
+            <p className="flex gap-2 text-sm leading-relaxed text-mat-700">
+              <Icon name="hint" className="mt-[0.2em] h-[1.15em] w-[1.15em] shrink-0" />
+              <span className="min-w-0 flex-1">
+                <span className="font-bold">新しい版が出ています。</span>
+                いま開いているのは古いページなので、押しても動かないところがあります。
+                読み込み直してください。
+                <span className="text-mat-600">取り込んだパーツは消えません。</span>
+              </span>
+            </p>
+            <button
+              type="button"
+              onClick={() => location.reload()}
+              className="flex items-center justify-center gap-2 rounded-xl bg-mat-500 px-4 py-3 text-sm font-bold text-white active:bg-mat-600"
+            >
+              <Icon name="back" className="h-4 w-4 shrink-0" />
+              読み込み直す
+            </button>
+          </div>
+        )}
+
         {/*
           消すと戻せないので、押したその場では消さずに一度たずねる。
           何がいくつ消えるのかを、押す前に数字で見せておく
