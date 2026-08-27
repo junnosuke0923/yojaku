@@ -18,7 +18,8 @@
  *
  * さわり方は2通りある。**押す**と「わ」が付いたり外れたりする。
  * **辺をつまんで内側へ引きずる**と、引いた深さで折り方まで決まる
- * （浅ければ「型紙に合わせて」、半分まで引けば「きっちり半分」に吸い付く）。
+ * （浅ければ「型紙に合わせて」、きっちり折り切る位置まで引けばそこに吸い付く）。
+ * 片わなら折り切る位置は向かい側の生地端で、両わなら真ん中になる。
  * 引きずるほうは、押すことの上位互換ではなく、
  * 「半分に折る」の選択をひとつの動作にまとめるためのもの。
  *
@@ -50,11 +51,18 @@ type Props = {
   onHint: (text: string | null) => void
 }
 
-/* 図の座標。押す口を辺の外側へ広く取れるよう、生地のまわりに余白を置いてある */
+/*
+  図の座標。押す口を辺の外側へ広く取れるよう、生地のまわりに余白を置いてある。
+
+  左右の余白（46 と 44）が、生地の幅（42）より広いことには意味がある。
+  片わをきっちり折るとき、折り返す一枚は**向かい側の生地端まで**行く。
+  その一枚は折る前、生地の外側に開いて寝ている。つまり生地の幅ぶんの余白が
+  外側に要る。狭いと、折れる動きの始まりが図からはみ出して切れる。
+*/
 const VW = 132
 const VH = 118
-const X0 = 38
-const X1 = 94
+const X0 = 46
+const X1 = 88
 const Y0 = 27
 const Y1 = 91
 
@@ -62,17 +70,17 @@ const Y1 = 91
 const SP = 5
 /**
  * 押しただけのときに、折り返して見せる深さ（辺から辺までのうちの割合）。
+ * 「型紙に合わせて折る」＝深さがまだ決まっていないときの、仮の見せ方。
  *
- * 0.42 なのは、折れる動きが始まる位置＝生地の外側に、この深さぶんの余白が
- * 要るため。上下の辺の外側にある余白は 27 目盛りで、辺から辺までは 64 目盛り。
- * これより深くすると、倒れてくる前の一枚が図からはみ出して切れてしまう。
+ * 0.42 なのは、上下の辺で折るときの余白がそれしかないため。
+ * 上下の外側の余白は 27 目盛りで、辺から辺までは 64 目盛り。
  */
 const TAP_DEPTH = 0.42
 
 /** これより浅く引いて離したら、折らなかったことにする */
 const OFF_UNDER = 0.12
-/** これより深く引いたら、きっちり半分に吸い付く */
-const SNAP_OVER = 0.38
+/** きっちり折った先まで、これだけ近づいたら吸い付く */
+const SNAP_NEAR = 0.76
 
 const CLOTH = '#fdfcf8'
 const CREASE = '#35664e'
@@ -100,10 +108,10 @@ const OUT: Record<Side, [number, number]> = {
  * 角では隣どうしがぶつかるので、辺に沿う向きは中ほどだけにして重ならないようにした。
  */
 const HIT: Record<Side, [number, number, number, number]> = {
-  left: [6, 34, 38, 50],
-  right: [88, 34, 38, 50],
-  top: [46, 2, 40, 38],
-  bottom: [46, 78, 40, 38],
+  left: [6, 34, 42, 50],
+  right: [86, 34, 42, 50],
+  top: [50, 2, 34, 38],
+  bottom: [50, 78, 34, 38],
 }
 
 /** その辺から向かい側までの長さ。引きずれる幅でもある */
@@ -194,6 +202,23 @@ export function FoldPicker({ fold, half, onEdge, onHint }: Props) {
   const sides = foldSidesOf(fold)
   const on = (s: Side) => sides.includes(s)
 
+  /** その辺と向かい合う、もう1本の縦の折り山があるか＝両わになるか */
+  const bothOn = (s: Side) => sides.some((t) => isVerticalSide(t) && t !== s)
+
+  /**
+   * その辺をきっちり折ったとき、折り返した一枚の先頭がどこまで来るか。
+   *
+   * **片わなら、向かい側の生地端まで行く**（依頼者の指摘・2026-08-28）。
+   * みみからみみへ折るのだから、動いたみみは向かい側のみみの上に重なる。
+   * 途中で止まるのは、折りかけて手を離した形であって、半分に折った形ではない。
+   *
+   * 両わなら真ん中まで。左右のみみが中央で出会う形になる。
+   *
+   * この図は**折りたたんだあとの面**を描いている（折り山が辺に来ているのがその印）。
+   * だから「半分」は図の真ん中ではなく、図の端である。
+   */
+  const snugDepth = (s: Side) => (bothOn(s) ? spanOf(s) / 2 : spanOf(s))
+
   const svgRef = useRef<SVGSVGElement>(null)
   /** 引きずっている最中の記録。描き直しに関わらないので ref に置く */
   const drag = useRef<{ side: Side; cx: number; cy: number; moved: boolean } | null>(null)
@@ -234,9 +259,14 @@ export function FoldPicker({ fold, half, onEdge, onHint }: Props) {
     return Math.max(0, Math.min(spanOf(s), raw))
   }
 
+  /** きっちり折る位置に吸い付いたか。近づいた割合で見る */
+  const snapped = (s: Side, raw: number) =>
+    canHalfOn(s) && raw >= snugDepth(s) * SNAP_NEAR
+
   const hintOf = (s: Side, d: number, snap: boolean) => {
     if (d < spanOf(s) * OFF_UNDER) return `${SIDE_NAMES[s]}は折らない`
-    if (snap) return 'きっちり半分に折る'
+    // 言い方は、下のプルダウンと揃えてある
+    if (snap) return bothOn(s) ? '中央まで折る' : '半分に折る'
     return '型紙に合わせて折る'
   }
 
@@ -254,10 +284,9 @@ export function FoldPicker({ fold, half, onEdge, onHint }: Props) {
     // 少し動いただけなら、まだ「押した」の範囲。指はまっすぐには止まらない
     if (!d.moved && far < 7) return
     d.moved = true
-    const span = spanOf(d.side)
     const raw = depthAt(d.side, e.clientX, e.clientY)
-    const snap = canHalfOn(d.side) && raw >= span * SNAP_OVER
-    const shown = snap ? span / 2 : raw
+    const snap = snapped(d.side, raw)
+    const shown = snap ? snugDepth(d.side) : raw
     setLive({ side: d.side, d: shown, snap })
     onHint(hintOf(d.side, raw, snap))
   }
@@ -272,7 +301,7 @@ export function FoldPicker({ fold, half, onEdge, onHint }: Props) {
     const span = spanOf(d.side)
     const raw = depthAt(d.side, e.clientX, e.clientY)
     if (raw < span * OFF_UNDER) onEdge(d.side, 'off')
-    else if (canHalfOn(d.side) && raw >= span * SNAP_OVER) onEdge(d.side, 'half')
+    else if (snapped(d.side, raw)) onEdge(d.side, 'half')
     else onEdge(d.side, 'partial')
   }
 
@@ -375,8 +404,11 @@ export function FoldPicker({ fold, half, onEdge, onHint }: Props) {
       {/* 押して付いたときの、パタンと折れる一枚 */}
       {flip && !live && sheet(
         flip.side,
-        // きっちり折るときは、倒れ切った先がちょうど半分の印に重なるようにする
-        spanOf(flip.side) * (half && canHalfOn(flip.side) ? 0.5 : TAP_DEPTH),
+        // きっちり折るときは、倒れ切った先が実物どおりの位置になる。
+        // 片わなら向かい側の生地端まで、両わなら真ん中まで（`snugDepth`）
+        half && canHalfOn(flip.side)
+          ? snugDepth(flip.side)
+          : spanOf(flip.side) * TAP_DEPTH,
         `flip-${flip.side}-${flip.seq}`, true)}
 
       {/* 辺。「わ」なら太い緑の山、そうでなければ、みみ（点々）か裁ち端（波） */}
@@ -398,12 +430,13 @@ export function FoldPicker({ fold, half, onEdge, onHint }: Props) {
       })}
 
       {/*
-        きっちり半分の位置。引きずっている最中だけ出して、
-        「ここまで引けば半分」が目で分かるようにする。吸い付く先の目印
+        きっちり折り切ったときに、動いたみみが来る位置。引きずっている最中だけ出して、
+        「ここまで引けばきっちり」が目で分かるようにする。吸い付く先の目印。
+        片わならそれは向かい側の生地端で、両わなら真ん中になる
       */}
       {live && canHalfOn(live.side) && (() => {
         const s = live.side
-        const at = spanOf(s) / 2
+        const at = snugDepth(s)
         const p = isVerticalSide(s)
           ? { x1: s === 'left' ? X0 + at : X1 - at, y1: Y0 - 4, x2: s === 'left' ? X0 + at : X1 - at, y2: Y1 + 4 }
           : { x1: X0 - 4, y1: s === 'top' ? Y0 + at : Y1 - at, x2: X1 + 4, y2: s === 'top' ? Y0 + at : Y1 - at }
@@ -428,13 +461,25 @@ export function FoldPicker({ fold, half, onEdge, onHint }: Props) {
       })}
 
       {/*
-        きっちり折ってあることの印。半分の位置にみみの点々を置く。
-        みみからみみへきっちり折れば、みみは真ん中に来る。実物どおりに描けばそうなる
+        きっちり折ってあることの印。動いたみみが行き着いた先に、点々を置く。
+
+        両わなら、左右のみみが中央で出会うので真ん中に1本。
+        片わなら、動いたみみは**向かい側のみみの上に重なる**ので、
+        その辺のすぐ内側にもう1本置いて、みみが2本あることを示す
+        （依頼者の指摘・2026-08-28。この図は折りたたんだあとの面なので、
+        「半分」は図の真ん中ではなく図の端になる）。
       */}
-      {half && !live && sides.some(isVerticalSide) && (
-        <line x1={(X0 + X1) / 2} y1={Y0} x2={(X0 + X1) / 2} y2={Y1}
-          stroke={EDGE} strokeWidth={2} strokeLinecap="round" strokeDasharray="1 5" />
-      )}
+      {half && !live && (() => {
+        const v = sides.filter(isVerticalSide)
+        if (v.length === 0) return null
+        const at = v.length === 2
+          ? (X0 + X1) / 2
+          : (v[0] === 'left' ? X1 - 3.5 : X0 + 3.5)
+        return (
+          <line x1={at} y1={Y0} x2={at} y2={Y1}
+            stroke={EDGE} strokeWidth={2} strokeLinecap="round" strokeDasharray="1 5" />
+        )
+      })()}
 
       {/* さわる口。見えないが、辺の外側まで広く取ってある */}
       {(['left', 'right', 'top', 'bottom'] as Side[]).map((s) => {
