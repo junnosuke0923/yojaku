@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CornerPicker, rectifyQuad } from './components/CornerPicker'
-import { Heading, Icon, Note, type IconName } from './components/Icon'
+import { Heading, Hint, Icon, Note, type IconName } from './components/Icon'
 import { LayoutView } from './components/LayoutView'
 import { GreenTuner } from './components/GreenTuner'
 import { PartsView } from './components/PartsView'
@@ -26,6 +26,9 @@ import type { Quad } from './lib/geom'
 type Step = 'photo' | 'ruler' | 'result' | 'parts' | 'layout'
 
 const RULER_KEY = 'yojaku.ruler'
+
+/** 控えておく操作の数。これ以上は古いほうから捨てる */
+const HISTORY_MAX = 40
 
 /**
  * 開発用の入口。URL のうしろに ?dev を付けて開いたときだけ出る。
@@ -87,9 +90,50 @@ export function App() {
    */
   const [stale, setStale] = useState(false)
 
-  const updateParts = (next: PartsState) => {
+  /**
+   * 1つ戻る／1つ進むための控え（依頼者の指示・2026-08-27）。
+   *
+   * 取り込んだパーツ・生地の設定・並べた場所は、まとめて1つの塊で持っている。
+   * だから「変える前の塊を積んでおく」だけで、どの画面の操作でも戻せる。
+   *
+   * 指で引きずっているあいだは 1mm 動くたびに変わるので、
+   * そのまま積むと、戻すのに何十回も押すことになる。
+   * ひと続きの操作には同じ合図（group）を付けてもらい、それは1回ぶんにまとめる。
+   * 「何ミリ秒以内なら同じ操作」という決め方はしない。
+   * 絵が重いときは指を動かしている最中でも間隔が開いてしまい、当てにならないため
+   */
+  const history = useRef<{ past: PartsState[]; future: PartsState[]; group: string | null }>({
+    past: [], future: [], group: null,
+  })
+  /** 戻る／進むが押せるかどうかを画面に伝えるためだけの数 */
+  const [, bumpHistory] = useState(0)
+
+  const updateParts = (next: PartsState, group?: string) => {
+    const h = history.current
+    // 同じ合図が続いているあいだ（＝1回の引きずりの最中）は、控えを積み増さない
+    if (!(group && group === h.group)) {
+      h.past.push(parts)
+      if (h.past.length > HISTORY_MAX) h.past.shift()
+    }
+    h.group = group ?? null
+    h.future = []
     setParts(next)
     saveParts(next)
+    bumpHistory((t) => t + 1)
+  }
+
+  /** 控えから1つ取り出して入れ替える。戻ると進むは向きが違うだけ */
+  const step1 = (back: boolean) => {
+    const h = history.current
+    const from = back ? h.past : h.future
+    const to = back ? h.future : h.past
+    const prev = from.pop()
+    if (!prev) return
+    to.push(parts)
+    h.group = null
+    setParts(prev)
+    saveParts(prev)
+    bumpHistory((t) => t + 1)
   }
 
   const cameraRef = useRef<HTMLInputElement>(null)
@@ -278,16 +322,43 @@ export function App() {
                 : '第1段階：実寸をつかむ'}
           </span>
         </div>
-        {hasWork && !askReset && (
-          <button
-            type="button"
-            onClick={() => setAskReset(true)}
-            className="mt-0.5 flex shrink-0 items-center gap-1 rounded-lg border border-ink-100 bg-white px-2.5 py-1.5 text-xs font-bold text-ink-500 active:bg-chalk"
-          >
-            <Icon name="trash" className="h-3.5 w-3.5 shrink-0" />
-            はじめから
-          </button>
-        )}
+        {/*
+          1つ戻る／1つ進む。どの画面にいても同じ場所にある。
+          押せないときは薄くして、その場に残す。
+          消えたり出たりすると、隣の「はじめから」の位置が動いて押し間違える
+        */}
+        <div className="mt-0.5 flex shrink-0 items-center gap-1.5">
+          <div className="flex overflow-hidden rounded-lg border border-ink-100 bg-white">
+            <button
+              type="button"
+              onClick={() => step1(true)}
+              disabled={history.current.past.length === 0}
+              aria-label="1つ戻る"
+              className="flex h-9 w-10 items-center justify-center text-ink-700 active:bg-chalk disabled:text-ink-100"
+            >
+              <Icon name="undo" className="h-4 w-4 shrink-0" />
+            </button>
+            <button
+              type="button"
+              onClick={() => step1(false)}
+              disabled={history.current.future.length === 0}
+              aria-label="1つ進む"
+              className="flex h-9 w-10 items-center justify-center border-l border-ink-100 text-ink-700 active:bg-chalk disabled:text-ink-100"
+            >
+              <Icon name="redo" className="h-4 w-4 shrink-0" />
+            </button>
+          </div>
+          {hasWork && !askReset && (
+            <button
+              type="button"
+              onClick={() => setAskReset(true)}
+              aria-label="ぜんぶ消して、はじめから"
+              className="flex h-9 w-10 items-center justify-center rounded-lg border border-ink-100 bg-white text-ink-500 active:bg-chalk"
+            >
+              <Icon name="trash" className="h-4 w-4 shrink-0" />
+            </button>
+          )}
+        </div>
       </header>
 
       <StepBar step={step} />
@@ -375,23 +446,19 @@ export function App() {
             {/*
               「定規は1本でいい」「地の目はそろえる」の2つは、
               何枚も一度に撮るときにいちばん間違えやすいところ（依頼者の質問・2026-08-26）。
-              定規は写真の面そのものの実寸を決めているので、写真に1本あれば全部測れる。
-              一方で地の目の向きも定規から取っているため、そこだけは全部そろえてもらう。
+              ただ、はじめて開いた人の目に長い説明が3つ並ぶのは重い（依頼者・2026-08-27）ので、
+              結論だけ出して、理由は「？」の中に畳んでおく
             */}
-            <Note icon="ruler">
-              <span className="font-bold text-ink-700">定規は写真に1本で足ります。</span>
-              何枚か並べて一度に撮るときも、どれか1枚に載せるか、
-              マットの上の空いたところに置くだけでかまいません。
-              全部のパーツが同じ実寸に直ります。
-            </Note>
-            <Note icon="grain">
-              そのかわり、
-              <span className="font-bold text-ink-700">
-                並べたパーツの地の目は、全部そろえて定規と平行に
-              </span>
-              してください。地の目の向きはこの定規1本から決めています。
-              向きの違うものは、分けて撮ってください。
-            </Note>
+            <Hint icon="ruler" summary={<>定規は<b className="text-ink-700">1本</b>で足ります</>}>
+              定規は写真の面そのものの実寸を決めているので、写真に1本あれば、
+              写っているパーツは全部そのまま測れます。
+              どれか1枚に載せても、マットの空いたところに置いてもかまいません。
+            </Hint>
+            <Hint icon="grain" summary={<>地の目は<b className="text-ink-700">定規と平行に</b>そろえて</>}>
+              地の目の向きも、この定規1本から決めています。
+              向きの違うものが混ざっていると、そちらが斜めに読まれてしまうので、
+              分けて撮ってください。
+            </Hint>
 
             <input
               ref={cameraRef}
@@ -443,12 +510,8 @@ export function App() {
                   <Icon name="hold" className="h-4 w-4 shrink-0" />
                   開発用（?dev を付けて開いたときだけ出ます）
                 </p>
-                <p className="text-sm leading-relaxed text-ink-500">
-                  スカートの図を撮り終えた状態から始めます。
-                  <span className="font-bold text-ink-700">
-                    前スカート・後ろスカート・ベルトの3点
-                  </span>
-                  が入り、縫い代の画面へ進みます。
+                <p className="text-sm text-ink-500">
+                  前スカート・後ろスカート・ベルトの3点を、撮り終えた状態で入れます。
                 </p>
                 <button
                   type="button"

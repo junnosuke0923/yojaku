@@ -20,6 +20,7 @@
  * 赤い注意文の中なら赤く、緑の見出しの中なら緑になる。
  */
 
+import { useState } from 'react'
 import type { ReactNode, SVGProps } from 'react'
 
 export type IconName =
@@ -28,7 +29,7 @@ export type IconName =
   | 'cloth' | 'selvage' | 'clothWidth' | 'yardage' | 'layout' | 'hold'
   | 'grain' | 'grainSide' | 'nap' | 'napNone' | 'flip' | 'mirror' | 'nest'
   | 'question' | 'hint' | 'warn' | 'check'
-  | 'plus' | 'trash' | 'back'
+  | 'plus' | 'trash' | 'back' | 'undo' | 'redo'
 
 /**
  * みみのピン穴。生地の絵で使っている点々と同じもの。
@@ -286,6 +287,24 @@ const SHAPES: Record<IconName, ReactNode> = {
   ),
 
   back: <path d="M15 4.6L7.6 12l7.4 7.4" />,
+
+  /*
+    1つ戻る／1つ進む。
+    しつけ糸をほどいて縫い直すように、来た道をぐるりと戻る矢印で描く。
+    左右を鏡にしただけの一対にしてあるので、並べたときに対の関係が目で分かる
+  */
+  undo: (
+    <>
+      <path d="M4.6 8.3h9.1a5.1 5.1 0 0 1 0 10.2H7.2" />
+      <path d="M8.4 4.5L4.6 8.3l3.8 3.8" />
+    </>
+  ),
+  redo: (
+    <>
+      <path d="M19.4 8.3h-9.1a5.1 5.1 0 0 0 0 10.2h6.5" />
+      <path d="M15.6 4.5l3.8 3.8-3.8 3.8" />
+    </>
+  ),
 }
 
 type Props = Omit<SVGProps<SVGSVGElement>, 'name'> & {
@@ -334,6 +353,57 @@ export function Note({
       <Icon name={icon} className="mt-[0.15em] h-[1.15em] w-[1.15em] shrink-0 opacity-70" />
       <span className="min-w-0 flex-1">{children}</span>
     </p>
+  )
+}
+
+/**
+ * ひと言だけ出して、続きは畳んでおく補足。
+ *
+ * 「説明文がやたら長かったり多かったりして、感覚的にやれない」という
+ * 指摘を受けて入れた（依頼者・2026-08-27）。
+ * 説明そのものは要るのだけれど、**読まなくても手が動く状態**が先にあって、
+ * 引っかかった人だけが「？」を押して読む、という順番にする。
+ *
+ * ひと言（summary）は、それだけで結論になっていること。
+ * 「くわしくは？」の続きだと成り立たない書き方にはしない。
+ */
+export function Hint({
+  icon = 'hint', summary, children,
+}: {
+  icon?: IconName
+  /** 畳んだままでも意味が通る、ひと言 */
+  summary: ReactNode
+  /** 「？」を押したときに出る続き */
+  children: ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="flex flex-col text-xs leading-relaxed text-ink-500">
+      {/*
+        行そのものを押せるようにしてある。
+        小さな「？」だけを的にすると、指では狙いにくい
+      */}
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 py-1 text-left"
+      >
+        <Icon name={icon} className="h-[1.15em] w-[1.15em] shrink-0 opacity-70" />
+        <span className="min-w-0 flex-1">{summary}</span>
+        <span
+          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${
+            open ? 'border-mat-500 bg-mat-50 text-mat-700' : 'border-ink-100 text-ink-300'
+          }`}
+        >
+          <Icon name="question" className="h-3.5 w-3.5 shrink-0" />
+        </span>
+        <span className="sr-only">{open ? '説明を閉じる' : 'くわしく'}</span>
+      </button>
+      {open && (
+        <p className="rounded-lg bg-chalk px-3 py-2 pl-[2.1em] text-ink-500">{children}</p>
+      )}
+    </div>
   )
 }
 

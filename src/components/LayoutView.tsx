@@ -23,13 +23,17 @@ import {
 } from '../lib/fabric'
 import { placedPartOf, type PartsState, type StoredPart } from '../lib/store'
 import { FoldDiagram } from './FoldDiagram'
-import { Heading, Icon, Note } from './Icon'
+import { Heading, Hint, Icon, Note } from './Icon'
 import { PatternMarks } from './PatternMarks'
 import type { Polygon } from '../lib/geom'
 
 type Props = {
   state: PartsState
-  onChange: (state: PartsState) => void
+  /**
+   * 2つめは「ひと続きの操作」の合図。
+   * 同じ合図が続くあいだ、1つ戻るの控えは1回ぶんにまとめられる
+   */
+  onChange: (state: PartsState, group?: string) => void
   onBack: () => void
 }
 
@@ -37,6 +41,9 @@ const FOLD_CHOICES: FoldMode[] = ['none', 'vLeft', 'vBoth', 'hTop', 'hBottom', '
 
 /** 生地が空でも、置き場所が見えるように確保しておく長さ(mm) */
 const MIN_VIEW_MM = 400
+
+/** 引きずるたびに増える番号。ひと続きの動きに同じ合図を付けるためだけのもの */
+let dragSeq = 0
 
 const SIDE_LABELS: Record<Side, string> = {
   left: '左', right: '右', top: '上', bottom: '下',
@@ -77,11 +84,11 @@ export function LayoutView({ state, onChange, onBack }: Props) {
   const countOf = (placementId: string) =>
     report.counts.find((c) => c.placementId === placementId)?.count ?? 1
 
-  const patch = (id: string, over: Partial<Placement>) =>
+  const patch = (id: string, over: Partial<Placement>, group?: string) =>
     onChange({
       ...state,
       placements: state.placements.map((p) => (p.id === id ? { ...p, ...over } : p)),
-    })
+    }, group)
 
   const place = (partId: string) => {
     const id = `pl${state.placements.length}_${partId}`
@@ -269,17 +276,27 @@ function Totals({
         {(report.purchaseMm / 10).toFixed(0)}
         <span className="pl-1 text-lg font-bold text-ink-500">cm</span>
       </p>
-      <p className="tnum pt-1 text-xs leading-relaxed text-ink-500">
-        {report.totalMm > 0 ? (
-          <>
-            並べたぶんが {(report.totalMm / 10).toFixed(0)} cm。
-            地直しの縮みと裁ち端のぶんを {PURCHASE_MARGIN_MM / 10} cm 足して、
-            10cm 単位に切り上げています。
-          </>
-        ) : (
-          <>下の「置く」から、生地の上にパーツを並べてください。</>
-        )}
-      </p>
+      {/* 計算の中身は、式のかたちで一目で見せる。文にすると読ませることになる */}
+      {report.totalMm > 0 ? (
+        <div className="pt-1">
+          <Hint
+            icon="scissors"
+            summary={
+              <span className="tnum">
+                並べたぶん {(report.totalMm / 10).toFixed(0)}
+                <span className="px-1 text-ink-300">＋</span>
+                ゆとり {PURCHASE_MARGIN_MM / 10}
+                <span className="px-1 text-ink-300">→ 切り上げ</span>
+              </span>
+            }
+          >
+            足している {PURCHASE_MARGIN_MM / 10} cm は、地直しの縮みと裁ち端のぶんです。
+            そのうえで 10cm 単位に切り上げています。
+          </Hint>
+        </div>
+      ) : (
+        <p className="pt-1 text-xs text-ink-500">下の「置く」から並べてください。</p>
+      )}
       <p className="tnum flex items-center gap-1.5 pt-2 text-xs text-ink-300">
         <Icon name="clothWidth" className="h-3.5 w-3.5 shrink-0" />
         {/*
@@ -311,14 +328,14 @@ function SectionCanvas({
   countOf: (placementId: string) => number
   onActivate: () => void
   onSelect: (id: string) => void
-  onMove: (id: string, over: Partial<Placement>) => void
+  onMove: (id: string, over: Partial<Placement>, group?: string) => void
   onFold: (fold: FoldMode) => void
   onHalf: (halfFold: boolean) => void
   onDrop: () => void
 }) {
   const svgRef = useRef<SVGSVGElement>(null)
   const drag = useRef<
-    { id: string; x0: number; y0: number; px: number; py: number; w: number } | null
+    { id: string; x0: number; y0: number; px: number; py: number; w: number; group: string } | null
   >(null)
 
   if (!report) return null
@@ -358,8 +375,12 @@ function SectionCanvas({
     onSelect(p.id)
     ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
     const box = report.boxes.find((b) => b.placementId === p.id)
+    // ひと続きの引きずりに、1つだけの合図を付ける。
+    // 離してもう一度つかんだら別の合図になるので、戻るは1回ずつ効く
+    dragSeq += 1
     drag.current = {
       id: p.id, x0: p.xMm, y0: p.yMm, px: e.clientX, py: e.clientY, w: box?.w ?? 0,
+      group: `drag${dragSeq}`,
     }
   }
 
@@ -382,7 +403,7 @@ function SectionCanvas({
     onMove(d.id, {
       xMm: Math.max(0, Math.min(maxX, snap(d.x0 + (e.clientX - d.px) * k))),
       yMm: Math.max(0, snap(d.y0 + (e.clientY - d.py) * k)),
-    })
+    }, d.group)
   }
 
   const endDrag = () => { drag.current = null }
@@ -1126,52 +1147,56 @@ function SectionCanvas({
         )}
       </svg>
 
-      <Note icon="fold">
+      {/*
+        絵の下に長い説明を積むと、読む前に手が止まる（依頼者・2026-08-27）。
+        ひと言だけ出して、折り方のこまかい話は「？」の中に畳んでおく
+      */}
+      <Hint
+        icon="fold"
+        summary={half
+          ? <>見えている面は<b className="text-mat-600">ぜんぶ二重</b>。型紙1つで2枚とれます</>
+          : flaps.length > 0
+            ? <>濃いところが<b className="text-mat-600">二重</b>、白いところが一重です</>
+            : <>折らずに<b className="text-ink-700">一重</b>で使っています</>}
+      >
         {half && section.fold === 'vBoth' ? (
           <>
             生地幅 {(report.foldDepth.left * 4 + SELVAGE_MM * 2) / 10} cm を、
-            <span className="font-bold text-mat-600">両側のみみが中央で出会う</span>まで
-            折っています。見えている面は
-            <span className="font-bold text-mat-600">ぜんぶ二重</span>で、
-            型紙を1つ置けばそのまま2枚とも裁てます。
-            <span className="font-bold text-mat-600">折り山は左右に1本ずつ</span>、
-            みみは真ん中で突き合わさっています。
+            両側のみみが中央で出会うまで折っています。
+            折り山が左右に1本ずつあるので、「わ」の辺を持つ型紙を、左右どちらにも当てられます。
           </>
         ) : half ? (
           <>
-            生地幅 {(report.foldDepth.left * 2 + SELVAGE_MM * 2) / 10} cm を
-            <span className="font-bold text-mat-600">きっちり半分</span>に折っています。
-            見えている面は<span className="font-bold text-mat-600">ぜんぶ二重</span>で、
-            型紙を1つ置けばそのまま2枚とも裁てます。
-            折り山の反対の端には<span className="font-bold">みみが2枚</span>重なっていて、
-            下の一枚が少しのぞいています。
+            生地幅 {(report.foldDepth.left * 2 + SELVAGE_MM * 2) / 10} cm を、きっちり半分に折っています。
+            折り山の反対の端にはみみが2枚重なっていて、下の一枚が少しのぞいています。
           </>
         ) : flaps.length > 0 ? (
           <>
-            濃いところが<span className="font-bold text-mat-600">二重</span>
-            （折り返したぶん）、白いところが一重です。
+            「わに当てる」を使った型紙の幅のぶんだけ、生地を折り返しています。
+            折り返したところに置いた型紙は、1つで2枚とれます。
           </>
         ) : (
-          <>折らずに一重で使っています。</>
+          <>「わに当てる」を使った型紙を置くと、その幅のぶんだけ生地を折り返します。</>
         )}
-        {' '}型紙の<span className="font-bold text-cut">青いふち</span>が縫い代、
-        その内側の線が出来上がり線です。
-      </Note>
+      </Hint>
 
       {/*
         「いちばん長い型紙より生地が長いのはなぜか」と聞かれた（依頼者・2026-08-27）。
-        長さは型紙の丈ではなく、いちばん下まで届いた型紙の「下端の位置」で決まる。
-        置き方しだいで変わる数字なので、それが分かるように書いておく
+        長さは型紙の丈ではなく、いちばん下まで届いた型紙の「下端の位置」で決まる
       */}
       {report.boxes.length > 0 && (
-        <Note icon="yardage">
-          この生地の長さ <span className="font-bold text-ink-700">{(used / 10).toFixed(0)} cm</span> は、
-          型紙の丈ではなく
-          <span className="font-bold text-ink-700">いちばん下まで届いている型紙の、下の端</span>
-          で決まります。上に空きがあるぶんもそのまま長さになるので、
+        <Hint
+          icon="yardage"
+          summary={<>長さ <b className="text-ink-700">{(used / 10).toFixed(0)} cm</b> ＝ いちばん下の型紙の、下の端まで</>}
+        >
+          型紙の丈ではありません。上に空きがあるぶんもそのまま長さになるので、
           すき間を詰めて上へ寄せるほど短くなります。
-        </Note>
+        </Hint>
       )}
+
+      <Note icon="seam">
+        型紙の<span className="font-bold text-cut">青いふち</span>が縫い代、内側の線が出来上がり線。
+      </Note>
     </div>
   )
 }
@@ -1244,13 +1269,10 @@ function Tray({
       <Heading icon="part">置くパーツ</Heading>
       <ul className="flex flex-col gap-2">{patterns.map(row)}</ul>
       {shortage.length > 0 && (
-        <Note>
-          数えているのは<span className="font-bold text-ink-700">できあがりの枚数</span>です。
-          二重のところに置いた型紙は
-          <span className="font-bold text-mat-600">1つで2枚</span>
-          （型紙に <span className="font-bold text-mat-600">×2</span> と出ます）。
+        <Hint summary={<>数えているのは<b className="text-ink-700">できあがりの枚数</b></>}>
+          二重のところに置いた型紙は1つで2枚（型紙に ×2 と出ます）。
           折り山に当てたパーツは、開いて左右対称の1枚です。
-        </Note>
+        </Hint>
       )}
 
       <div className="mt-3 flex flex-col gap-2">
@@ -1301,14 +1323,11 @@ function ReserveAdder({
 
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-dashed border-hold-400 bg-hold-50 px-4 py-3">
-      <Note icon="hold">
-        仮縫いのあとで寸法が変わるものは、いまは裁たずに
-        <span className="font-bold text-ink-700">場所だけ空けておきます</span>。
-        ベルトなら
-        <span className="font-bold text-ink-700">「ベルト幅×2＋縫い代」の幅</span>で、
-        <span className="font-bold text-ink-700">「ウエスト寸法＋縫い代」以上の長さ</span>。
+      <Hint icon="hold" summary={<>いまは裁たずに<b className="text-ink-700">場所だけ空けておきます</b></>}>
+        仮縫いのあとで寸法が変わるものは、ここで大きさだけ決めておきます。
+        ベルトなら「ベルト幅×2＋縫い代」の幅で、「ウエスト寸法＋縫い代」以上の長さ。
         きっちりでなくてかまいません。
-      </Note>
+      </Hint>
 
       <div className="flex flex-wrap gap-1.5">
         {RESERVE_CHOICES.map((c) => (

@@ -8,7 +8,7 @@
  */
 
 import { COMMON_WIDTHS_MM } from '../lib/fabric'
-import { Heading, Icon, Note } from './Icon'
+import { Heading, Hint, Icon, Note } from './Icon'
 
 type Props = {
   widthMm: number
@@ -55,10 +55,11 @@ export function FabricSetup({ widthMm, hasNap, onWidth, onNap }: Props) {
 
       <div className="flex flex-col gap-3 border-t border-ink-100 pt-4">
         <Heading icon="question">この生地に、上下の向きはありますか</Heading>
-        <Note>
-          ここは<span className="font-bold text-ink-700">いちばん最初に決めます</span>。
-          差し込めるかどうかで、買う長さそのものが変わるためです。
-        </Note>
+        <Hint summary={<>ここは<b className="text-ink-700">いちばん最初に</b>決めます</>}>
+          パーツを 180 度回して差し込めるかどうかが、ここで決まります。
+          差し込めないと、そのぶん生地を長く買うことになるので、
+          あとから変えると並べ直しになります。
+        </Hint>
         <div className="grid grid-cols-2 gap-2">
           <button
             type="button"

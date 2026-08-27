@@ -14,7 +14,7 @@ import {
   type PartsState, type StoredPart,
 } from '../lib/store'
 import { FabricSetup } from './FabricSetup'
-import { Heading, Icon, Note } from './Icon'
+import { Heading, Hint, Icon, Note } from './Icon'
 import { PatternMarks } from './PatternMarks'
 import { SeamEditor } from './SeamEditor'
 
@@ -149,28 +149,28 @@ export function PartsView({ state, onChange, onAddMore, onLayout }: Props) {
             裁断のときに置く型紙の数はこれとは別で、二重の生地の上なら1枚で足りる
           */}
           <div className="rounded-xl border border-ink-100 bg-white px-4 py-3">
-            <Note>
-              ここの枚数は<span className="font-bold text-ink-700">できあがりに必要な数</span>です。
-              左右で使うパーツなら 2 枚。
-              <br />
-              生地に並べるときは、<span className="font-bold text-ink-700">
-                二重に重なっているところに型紙を1つ置けば、そのまま2枚とも裁てます
-              </span>。だから置く型紙の数は 2 つとは限りません。
-            </Note>
+            <Hint summary={<>枚数は<b className="text-ink-700">できあがりに必要な数</b>（左右で使うなら 2）</>}>
+              生地に並べるときは、二重に重なっているところに型紙を1つ置けば、
+              そのまま2枚とも裁てます。だから置く型紙の数は 2 つとは限りません。
+            </Hint>
           </div>
 
           {/*
             定規は地の目の「向き」までは教えてくれない。上下対称だから。
             まっすぐ縦にするところまでは自動、どちらが上かは学生に決めてもらう
           */}
-          <Note icon="grain">
-            地の目は、写真で定規を沿わせた向きから
-            <span className="font-bold text-ink-700">自動でまっすぐ縦</span>にしています。
-            ただし、どちらが上かまでは写真から決められません。
+          <Hint
+            icon="grain"
+            summary={state.hasNap
+              ? <>上下が逆なら「上下」で直してください</>
+              : <>上下が逆でも、買う長さは変わりません</>}
+          >
+            地の目は、写真で定規を沿わせた向きから自動でまっすぐ縦にしています。
+            ただし定規は上下対称なので、どちらが上かまでは写真から決められません。
             {state.hasNap
-              ? '向きのある生地では上下が買う長さに効くので、逆さまなら「上下」で直してください。'
-              : '向きのない生地なら、上下が逆でも買う長さは変わりません。'}
-          </Note>
+              ? '向きのある生地では、上下がそのまま買う長さに効きます。'
+              : '向きのない生地では、180 度回して差し込めるので上下を問いません。'}
+          </Hint>
 
           <button
             type="button"

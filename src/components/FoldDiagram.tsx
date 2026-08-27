@@ -189,42 +189,24 @@ export function FoldDiagram({ fold, nearMm, farMm, spanMm }: Props) {
         )}
       </svg>
 
-      <p className="flex gap-2 pt-1 text-xs leading-relaxed text-ink-500">
-        <Icon name={allDoubled || folded ? 'fold' : 'hint'}
-          className="mt-[0.15em] h-[1.15em] w-[1.15em] shrink-0 opacity-70" />
+      {/*
+        絵の下に長い文を置くと、絵より先に文を読ませてしまう（依頼者・2026-08-27）。
+        絵で言えていることは書かない。ひと言だけ添える
+      */}
+      <p className="flex items-center gap-2 pt-1 text-xs text-ink-500">
+        <Icon name={folded ? 'fold' : 'hint'} className="h-[1.15em] w-[1.15em] shrink-0 opacity-70" />
         <span className="min-w-0 flex-1">
-        {metInMiddle ? (
-          <>
-            両側のみみを<span className="font-bold text-mat-600">中央で突き合わせる</span>まで
-            折っているので、見えている面は
-            <span className="font-bold text-mat-600">すべて二重</span>です。
-            折り山が<span className="font-bold text-mat-600">左右に1本ずつ</span>あるので、
-            「わ」の辺を持つ型紙を、左右どちらにも当てられます。
-            真ん中を少し空けて描いてあるのは、
-            <span className="font-bold text-mat-600">ここでみみが向かい合っている</span>
-            ことを見せるためです。実物でもぴったりは揃いません。
-          </>
-        ) : allDoubled ? (
-          <>
-            きっちり半分に折っているので、見えている面は
-            <span className="font-bold text-mat-600">すべて二重</span>です。
-            どこに型紙を1つ置いても、そのまま
-            <span className="font-bold text-mat-600">2枚とも裁てます</span>。
-          </>
-        ) : folded ? (
-          <>
-            折り返したところは生地が<span className="font-bold text-mat-600">二重</span>です。
-            そこに型紙を1つ置けば、そのまま
-            <span className="font-bold text-mat-600">2枚とも裁てます</span>。
-          </>
-        ) : pending ? (
-          <>
-            「<span className="font-bold text-mat-700">わに当てる</span>」を使った型紙を置くと、
-            その型紙の幅のぶんだけ生地を折り返します。
-          </>
-        ) : (
-          <>折らずに一重で使います。型紙は必要な枚数だけ置いてください。</>
-        )}
+          {metInMiddle ? (
+            <>両側から中央まで折ってあります。<b className="text-mat-600">折り山は左右に1本ずつ</b></>
+          ) : allDoubled ? (
+            <>きっちり半分。<b className="text-mat-600">どこに置いても1つで2枚</b></>
+          ) : folded ? (
+            <>折り返したところは<b className="text-mat-600">二重</b>。ここなら1つで2枚</>
+          ) : pending ? (
+            <>「わに当てる」を使った型紙を置くと、その幅だけ折り返します</>
+          ) : (
+            <>折らずに一重で使います</>
+          )}
         </span>
       </p>
     </div>
