@@ -16,7 +16,7 @@ import { GreenTuner } from './components/GreenTuner'
 import { PartsView } from './components/PartsView'
 import { ResultView } from './components/ResultView'
 import { RulerToggle } from './components/RulerToggle'
-import { replayTour, Tour } from './components/Tour'
+import { replayTour, Tour, TOUR_ON } from './components/Tour'
 import { DEFAULT_GREEN, estimateHueCenter, type GreenParams } from './lib/hsv'
 import { loadImageFile, type LoadedImage } from './lib/image'
 import { analyze, previewGreenMask, type AnalyzeResult } from './lib/pipeline'
@@ -360,8 +360,8 @@ export function App() {
   const hasWork = onLayout
     ? parts.placements.length > 0
     : parts.parts.length > 0 || result !== null || image !== null
-  /** この画面に、呼び戻せる案内があるか */
-  const hasTour = step === 'photo' || step === 'parts' || step === 'layout'
+  /** この画面に、呼び戻せる案内があるか（いまは案内そのものを止めてある） */
+  const hasTour = TOUR_ON && (step === 'photo' || step === 'parts' || step === 'layout')
 
   return (
     <div className="mx-auto flex min-h-full w-full max-w-xl flex-col">

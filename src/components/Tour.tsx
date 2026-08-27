@@ -17,6 +17,19 @@ import { Icon } from './Icon'
 
 export type TourId = 'photo' | 'parts' | 'seam' | 'layout'
 
+/**
+ * いまは出さない（依頼者の指示・2026-08-27）。
+ *
+ * 機能の直しと画面の調整がこの先も続くので、案内の文面と実物が食い違いやすく、
+ * 画面を変えるたびに文面も直すことになる。画面が固まってから出す。
+ *
+ * `true` に戻すときは、あわせて次の2つをやること。
+ *   - 案内と同じことを言っている常設の説明を、もう一度消す
+ *     （パーツ一覧の「枚数はできあがりに必要な数」がそれ。いまは戻してある）
+ *   - 指す相手（data-tour の印）が、そのときの画面と合っているか確かめる
+ */
+export const TOUR_ON: boolean = false
+
 /** 案内の1つぶん。target は、指す相手に付けた data-tour の値 */
 type Spot = {
   target: string
@@ -119,6 +132,7 @@ const TOURS: Record<TourId, Spot[]> = {
 const listeners = new Set<() => void>()
 
 export function replayTour() {
+  if (!TOUR_ON) return
   listeners.forEach((f) => f())
 }
 
@@ -136,6 +150,7 @@ export function Tour({ id }: { id: TourId }) {
 
   /* はじめて開いたときだけ。画面が組み上がるのを少し待ってから出す */
   useEffect(() => {
+    if (!TOUR_ON) return
     if (localStorage.getItem(KEY + id) === '1') return
     const timer = setTimeout(() => setAt(0), 450)
     return () => clearTimeout(timer)
