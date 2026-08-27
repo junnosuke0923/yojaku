@@ -488,14 +488,18 @@ function SectionCanvas({
     紙を2枚わずかにずらして重ねたときのように、角がのぞいていれば、
     そこに布が2枚あることが言葉なしで分かる
   */
-  const UNDER_SHIFT = RIM * 1.9
+  const UNDER_SHIFT = RIM * 1.15
   if (hasUnder) {
     if (isHorizontalFold(section.fold)) under.x1 += UNDER_SHIFT
     else under.y1 += UNDER_SHIFT
   }
 
-  /** 回り込みが見えるのは、折り返しが面を丸ごと覆っている側だけ */
-  const curlSide = flaps.find((f) => f.full)?.side
+  /**
+   * 生地が回り込んで見える側（依頼者の指示・2026-08-27）。
+   * 折り返しがあるところは、どの折り方でも同じように描く。
+   * 縦の折りなら折り山の下の端、横の折りなら折り山の右の端に回り込みが出る。
+   */
+  const curlSides = flaps.map((f) => f.side)
   /**
    * 折り山の端で、生地がぐるっと回って戻ってくるところの半径
    * （裁ち合わせ図の昔からの描き方・依頼者の指示・2026-08-27）。
@@ -568,10 +572,10 @@ function SectionCanvas({
     */
     const hook = (x: number, y: number) =>
       `A${RHO.toFixed(1)} ${RHO.toFixed(1)} 0 0 0 ${x.toFixed(1)} ${y.toFixed(1)}`
-    const uTop = curlSide === 'top'
-    const uRight = curlSide === 'right'
-    const uBottom = curlSide === 'bottom'
-    const uLeft = curlSide === 'left'
+    const uTop = curlSides.includes('top')
+    const uRight = curlSides.includes('right')
+    const uBottom = curlSides.includes('bottom')
+    const uLeft = curlSides.includes('left')
     /** 上の端の終わり／右の端の終わり／下の端の始まりと終わり */
     const topEnd = uTop ? x1 + RHO : x1 - tr
     const rightEnd = uRight ? y1 + RHO : uBottom ? y1 - RHO : y1 - br
@@ -611,9 +615,8 @@ function SectionCanvas({
    * 折り山に沿う向きを u、折り山から離れる向きを v として組み立て、
    * 最後に画面の向きへ移している。折り山が左でも右でも上でも下でも、同じ式で書けるため
    */
-  const foldShape = (() => {
-    const foldSide = curlSide
-    if (!foldSide) return null
+  const foldParts = flaps.map((f) => {
+    const foldSide = f.side
     const vertical = foldSide === 'left' || foldSide === 'right'
     /** u は折り山に沿う向き。その向こうの端で回り込む */
     const uMax = vertical ? L : W
@@ -633,24 +636,29 @@ function SectionCanvas({
 
     /** 手前の角のまるみ。ここは上の一枚とぴったり重なる */
     const v0 = -SP + r
-    /** みみの側へのぞく先 */
-    const v1 = vMax + RIM
-    /** 下の一枚の裁ち端。上の一枚より UNDER_SHIFT だけ先 */
+    /**
+     * 下の一枚が届いている先。
+     * 折り返しが面を丸ごと覆っているときは、向こうの端からも RIM だけのぞく。
+     * 面の一部だけを覆っているときは、覆っているぶんだけ
+     */
+    const v1 = f.full ? vMax + RIM : depth[foldSide]
+    /** 下の一枚の端。上の一枚より UNDER_SHIFT だけ先 */
     const uEnd = uMax + UNDER_SHIFT
-    /** 半円が裁ち端に接するところ */
+    /** 半円が端に接するところ */
     const vTan = -SP + RHO
 
     let d = `M${at(0, v0)} L${at(0, v1)} L${at(uEnd, v1)}`
-    // 裁ち端。上の一枚と同じく、うっすら波打たせる
+    // 向こうの端。縦の折りならここは裁ち端なので、上の一枚と同じく波打たせる。
+    // 横の折りならここはみみなので、まっすぐのままにする
     const steps = 24
     for (let i = steps - 1; i >= 0; i--) {
       const v = vTan + ((v1 - vTan) * i) / steps
-      const wave = i === 0 ? 0 : amp * Math.sin((v / (W * 0.1)) * Math.PI * 2)
+      const wave = i === 0 || !vertical ? 0 : amp * Math.sin((v / (W * 0.1)) * Math.PI * 2)
       d += ` L${at(uEnd + wave, v)}`
     }
     // 折り山の端。ここで生地が半円を描いて向こうへ回り込む
     const turn = 14
-    /** 半円の上。t = π/2 が頂き、0 が上の一枚の裁ち端、π が下の一枚の裁ち端 */
+    /** 半円の上。t = π/2 が頂き、0 が上の一枚の端、π が下の一枚の端 */
     const rim = (t: number) =>
       at(uMax + RHO - RHO * Math.cos(t), -SP + RHO - RHO * Math.sin(t))
     for (let i = 1; i <= turn; i++) d += ` L${rim(Math.PI - (Math.PI / 2) * (i / turn))}`
@@ -658,35 +666,34 @@ function SectionCanvas({
     d += ` L${at(r, -SP)} Q${at(0, -SP)} ${at(0, v0)} Z`
 
     /*
-      回り込みの外側。折り山の明暗の帯を、ここまで届かせるための切り抜き。
-
-      帯が上の一枚のところで止まってしまうと、明かりが角で断ち切られ、
-      せっかく U 字にしても「回って戻ってきている」ようには見えない。
-      角を回ったところまで同じ明暗を続けると、山がそのまま向こうへ
-      転がっていくように見える（依頼者の指示・2026-08-27）
+      横の折りでは、回り込んだ先に「下の一枚のみみ」が出る。
+      点々が2列あることが、そこに布が2枚あるといういちばん強い手がかりになるので、
+      のぞいている長さのぶんだけピン穴を並べる。
+      面を丸ごと覆っているときは under の側でまとめて描くので、ここでは描かない
     */
-    let wrap = `M${rim(Math.PI / 2)}`
-    for (let i = 1; i <= turn; i++) wrap += ` L${rim(Math.PI / 2 + (Math.PI / 2) * (i / turn))}`
-    wrap += ` L${at(uEnd, -SP)} Z`
+    const a = xy(uEnd, vTan)
+    const b = xy(uEnd, v1)
+    const sel = vertical || f.full
+      ? null
+      : { x: a.x, y0: Math.min(a.y, b.y), y1: Math.max(a.y, b.y) }
 
-    return { under: d, wrap }
-  })()
-  const underPath = foldShape?.under ?? ''
+    return { under: d, side: foldSide, sel }
+  })
 
   /**
    * みみ。実物のみみには、織るときの機械のピン穴が点々と並んでいる。
    * くし歯だと定規の目盛りに見えてしまうので（依頼者の指摘）、
    * 学生が毎日見ているピン穴のほうで描く。
    */
-  const selvageBand = (xEdge: number, inward: 1 | -1) => {
+  const selvageBand = (xEdge: number, inward: 1 | -1, yFrom = 0, yTo = L) => {
     const bw = W * 0.02
     const dots: number[] = []
     const step = W * 0.042
-    for (let y = step * 0.6; y < L - step * 0.3; y += step) dots.push(y)
+    for (let y = yFrom + step * 0.6; y < yTo - step * 0.3; y += step) dots.push(y)
     return (
       <g>
-        <rect x={inward === 1 ? xEdge : xEdge - bw} y={0} width={bw} height={L}
-          fill="#8d8a78" opacity={0.1} />
+        <rect x={inward === 1 ? xEdge : xEdge - bw} y={yFrom} width={bw}
+          height={Math.max(0, yTo - yFrom)} fill="#8d8a78" opacity={0.1} />
         {dots.map((y) => (
           <circle key={y} cx={xEdge + inward * bw * 0.5} cy={y} r={W * 0.0035}
             fill="#8d8a78" opacity={0.55} />
@@ -874,7 +881,7 @@ function SectionCanvas({
                 折り山の端では、回り込んだ先まで届かせる */}
             <clipPath id={`${gid}-clip`}>
               <path d={topPath} />
-              {foldShape && <path d={foldShape.wrap} />}
+              {foldParts.map((p) => <path key={p.side} d={p.under} />)}
             </clipPath>
 
             {/* 折り返した生地の端から内側へ落ちる影 */}
@@ -921,17 +928,17 @@ function SectionCanvas({
             </filter>
           </defs>
 
-          {/* 下になっている一枚。耳の側に少しだけのぞく */}
-          {hasUnder && (
-            <>
-              <path d={underPath} fill={CLOTH_FOLDED} filter={`url(#${gid}-drop2)`} />
-              <path d={underPath} fill={`url(#${gid}-weave)`} />
-            </>
-          )}
+          {/* 下になっている一枚。折り山の向こうの端で、生地が回って戻ってくる */}
+          {foldParts.map((p) => (
+            <g key={`under-${p.side}`}>
+              <path d={p.under} fill={CLOTH_FOLDED} filter={`url(#${gid}-drop2)`} />
+              <path d={p.under} fill={`url(#${gid}-weave)`} />
+            </g>
+          ))}
 
           {/* 上に来ている一枚。ここに型紙を並べる */}
           <path d={topPath} fill={CLOTH}
-            filter={hasUnder ? `url(#${gid}-drop)` : `url(#${gid}-drop2)`} />
+            filter={foldParts.length > 0 ? `url(#${gid}-drop)` : `url(#${gid}-drop2)`} />
           <path d={topPath} fill={`url(#${gid}-weave)`} />
 
           {/*
@@ -975,6 +982,10 @@ function SectionCanvas({
                 selvageBand(s === 'left' ? under.x0 : under.x1, s === 'left' ? 1 : -1)}
             </g>
           ))}
+          {/* 横わで回り込んだ先にのぞく、下の一枚のみみ */}
+          {foldParts.map((p) => (p.sel
+            ? <g key={`under-sv-${p.side}`}>{selvageBand(p.sel.x, -1, p.sel.y0, p.sel.y1)}</g>
+            : null))}
           {/* 裁ち端の名前。はさみの印を添える */}
           {cutTop && (
             <g>
@@ -985,7 +996,30 @@ function SectionCanvas({
             </g>
           )}
 
-          {/* 折り返して上に乗っているぶん。面の一部だけを覆うときは、端に影を落とす */}
+          {/*
+            両側から折って、みみが中央で出会うところの隙間（依頼者の指示・2026-08-27）。
+            ここだけは下の一枚が見えているので、下の一枚の色で塗る。
+            そうすると「ここが端どうしの出会うところ」だと目で分かる
+          */}
+          {meetV && (
+            <rect x={depth.left - MEET * 0.5} y={0}
+              width={Math.max(MEET, W - depth.right + MEET * 0.5 - (depth.left - MEET * 0.5))}
+              height={L} fill={CLOTH_FOLDED} />
+          )}
+          {meetH && (
+            <rect x={0} y={depth.top - MEET * 0.5} width={W}
+              height={Math.max(MEET, L - depth.bottom + MEET * 0.5 - (depth.top - MEET * 0.5))}
+              fill={CLOTH_FOLDED} />
+          )}
+
+          {/*
+            折り返して上に乗っているぶん。面の一部だけを覆うときは、端に影を落とす。
+
+            色は変えない（依頼者の指示・2026-08-27）。
+            折り方によって二重のところの色が違うと、同じ生地に見えなくなる。
+            二重であることは、ずらして描いた下の一枚・回り込み・端の線・
+            「生地が二重」の文字のほうで伝える
+          */}
           {flaps.filter((f) => !f.full).map((f) => {
             const horiz = f.side === 'left' || f.side === 'right'
             // 影は、折り返した生地の「端」から、下の一枚のほうへ伸びる
@@ -994,8 +1028,6 @@ function SectionCanvas({
             const flip = f.side === 'right' || f.side === 'bottom'
             return (
               <g key={f.side}>
-                <rect x={f.x} y={f.y} width={f.w} height={f.h} fill={CLOTH_FOLDED}
-                  fillOpacity={0.85} />
                 <rect
                   x={horiz ? sx : 0}
                   y={horiz ? 0 : sy}
@@ -1171,8 +1203,12 @@ function SectionCanvas({
             )
           })}
 
-          {/* 二重の印しもパーツの上に出す。先に描くと型紙の下に隠れてしまう */}
-          {flaps.map((f) => {
+          {/*
+            二重の印しもパーツの上に出す。先に描くと型紙の下に隠れてしまう。
+            両側から折って面が丸ごと二重になるときは、同じことを二度書かない
+            （両方の折り返しが面の真ん中に同じ文字を重ねてしまう）
+          */}
+          {(flaps.some((f) => f.full) ? flaps.filter((f) => f.full).slice(0, 1) : flaps).map((f) => {
             const horiz = f.side === 'left' || f.side === 'right'
             /*
               ただ「二重」とだけ書くと、置いた型紙が2枚という意味に読めてしまう
@@ -1224,9 +1260,11 @@ function SectionCanvas({
             横棒2本＝二重（断面図と同じ見方）。「（2枚）」と文字で書くより伝わる
           */}
           {selvages.map((s) => {
+            // 下の一枚がいちばん外へ出ているところより、さらに外に書く。
+            // 横わでは回り込んだぶん右へ出ているので、それも数に入れる
             const x = s === 'left'
-              ? -(hasUnder ? RIM : 0) - PAD * 0.4
-              : (hasUnder ? W + RIM : W) + PAD * 0.4
+              ? Math.min(0, under.x0) - PAD * 0.4
+              : Math.max(W, under.x1, ...foldParts.map((p) => p.sel?.x ?? W)) + PAD * 0.4
             const size = W * 0.036
             return (
               <g key={`sv-${s}`}>
@@ -1251,7 +1289,7 @@ function SectionCanvas({
             // ただし回り込む端だけは、半円の頂きまで伸ばす。
             // 山の線の先が U 字のいちばん奥に届いていないと、そこで途切れて見える
             const r = SP * 1.6
-            const far = side === curlSide ? RHO : -r
+            const far = curlSides.includes(side) ? RHO : -r
             const apex = {
               left: [-SP, r, -SP, L + far], right: [W + SP, r, W + SP, L + far],
               top: [r, -SP, W + far, -SP], bottom: [r, L + SP, W + far, L + SP],
