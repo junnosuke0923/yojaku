@@ -595,6 +595,26 @@ function SectionCanvas({
     ].join(' ')
   }
 
+  /**
+   * 折り山の明暗の帯。上の一枚と下の一枚に、それぞれ切り抜きを変えて2回重ねる。
+   * 同じものを2回使うので、ここで一度だけ組み立てておく
+   */
+  const crestBands = () => foldSides.map((s) => {
+    const horiz = s === 'left' || s === 'right'
+    const x = s === 'left' ? -SP : W + SP - CR
+    const y = s === 'top' ? -SP : L + SP - CR
+    return (
+      <rect
+        key={`sp-${s}`}
+        x={horiz ? x : -SP - RHO}
+        y={horiz ? -SP - RHO : y}
+        width={horiz ? CR : W + SP * 2 + RHO * 2}
+        height={horiz ? L + SP * 2 + RHO * 2 : CR}
+        fill={`url(#${gid}-sp-${s})`}
+      />
+    )
+  })
+
   /** 上下の端が、はさみで切った裁ち端かどうか（横わでそちらを折るときだけ違う） */
   const cutTop = !foldSides.includes('top')
   const cutBottom = !foldSides.includes('bottom')
@@ -877,10 +897,20 @@ function SectionCanvas({
               <path d={`M0 0 V${W * 0.019}`} stroke="#c2bfb4" strokeWidth={W * 0.0028} />
             </pattern>
 
-            {/* 折り山の明暗は、生地からはみ出さないように切り抜く。
-                折り山の端では、回り込んだ先まで届かせる */}
+            {/*
+              折り山の明暗は、生地からはみ出さないように切り抜く。
+              上の一枚と下の一枚で切り抜きを分けてあるのが大事なところ。
+
+              ひとつにまとめて上から塗ると、明暗が回り込みの継ぎ目を塗りつぶしてしまい、
+              せっかくの半円のアールが消えて、ただの丸い角に見える
+              （依頼者の指摘・2026-08-27）。
+              下の一枚 →（明暗）→ 上の一枚 →（明暗）の順に重ねると、
+              上の一枚の落とす影が下の一枚の上に出て、2枚の境目が残る
+            */}
             <clipPath id={`${gid}-clip`}>
               <path d={topPath} />
+            </clipPath>
+            <clipPath id={`${gid}-clip-under`}>
               {foldParts.map((p) => <path key={p.side} d={p.under} />)}
             </clipPath>
 
@@ -935,6 +965,10 @@ function SectionCanvas({
               <path d={p.under} fill={`url(#${gid}-weave)`} />
             </g>
           ))}
+          {/* 下の一枚のほうの、折り山の明暗。回り込んだ先まで明かりを続ける */}
+          {foldParts.length > 0 && (
+            <g clipPath={`url(#${gid}-clip-under)`}>{crestBands()}</g>
+          )}
 
           {/* 上に来ている一枚。ここに型紙を並べる */}
           <path d={topPath} fill={CLOTH}
@@ -946,23 +980,7 @@ function SectionCanvas({
             「生地がここで向こう側へ折り返している」ことを、この帯とまるい角で見せる。
             型紙より先に描く（型紙は生地の上に乗るので、隠れてよい）
           */}
-          <g clipPath={`url(#${gid}-clip)`}>
-            {foldSides.map((s) => {
-              const horiz = s === 'left' || s === 'right'
-              const x = s === 'left' ? -SP : W + SP - CR
-              const y = s === 'top' ? -SP : L + SP - CR
-              return (
-                <rect
-                  key={`sp-${s}`}
-                  x={horiz ? x : -SP - RHO}
-                  y={horiz ? -SP - RHO : y}
-                  width={horiz ? CR : W + SP * 2 + RHO * 2}
-                  height={horiz ? L + SP * 2 + RHO * 2 : CR}
-                  fill={`url(#${gid}-sp-${s})`}
-                />
-              )
-            })}
-          </g>
+          <g clipPath={`url(#${gid}-clip)`}>{crestBands()}</g>
 
           {/*
             端の描き分け。折り山・耳・裁ち端は実物ではまったく別のものなので、
