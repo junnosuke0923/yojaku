@@ -60,8 +60,14 @@ const Y1 = 91
 
 /** 折り山が外へふくらむ量 */
 const SP = 5
-/** 押しただけのときに、折り返して見せる深さ（辺から辺までのうちの割合） */
-const TAP_DEPTH = 0.45
+/**
+ * 押しただけのときに、折り返して見せる深さ（辺から辺までのうちの割合）。
+ *
+ * 0.42 なのは、折れる動きが始まる位置＝生地の外側に、この深さぶんの余白が
+ * 要るため。上下の辺の外側にある余白は 27 目盛りで、辺から辺までは 64 目盛り。
+ * これより深くすると、倒れてくる前の一枚が図からはみ出して切れてしまう。
+ */
+const TAP_DEPTH = 0.42
 
 /** これより浅く引いて離したら、折らなかったことにする */
 const OFF_UNDER = 0.12
@@ -141,22 +147,34 @@ function cutPath(s: Side) {
 }
 
 /**
- * 折り返す動きを、辺を軸にした裏返しで表す。
- * `scaleX(-1)`（左右の辺）や `scaleY(-1)`（上下の辺）を折り山の位置で行うと、
- * 外側にあった一枚が、山を軸にパタンと内側へ倒れてくる形になる。
+ * 折り返す動きの、3つの姿。
+ *
+ * 折り山を軸に裏返す（左右の辺なら `scale(-1,1)`、上下の辺なら `scale(1,-1)`）と、
+ * 外側にあった一枚が、山を軸に内側へ倒れてくる形になる。
+ *
+ * 途中の姿（`mid`）を挟んであるのは、裏返すだけでは**紙が折れたように見えない**
+ * ため（依頼者・2026-08-28「折れる動作というのが見て取れない」）。
+ * 真横から見ると、折っている途中の紙は立ち上がってこちらに近づく。
+ * そこで途中では、軸の向きにはぺたんと潰しつつ（0.06）、
+ * 軸と直角の向きには少し大きくし（1.14）、わずかに上へ持ち上げる。
+ * 手前に立った紙は大きく見える——それを平面の図で言い換えたもの。
+ *
+ * 3つとも**同じ並びの変形**で書いてある。並びが違うと、ブラウザは行列に
+ * 直してから間を埋めるので、途中の姿が思ったとおりにならない。
  */
-function flipFrames(s: Side): { from: string; to: string } {
+type FlipFrames = { from: string; mid: string; to: string }
+
+const xf = (ax: number, ay: number, sx: number, sy: number, ly = 0) =>
+  `translate(0,${ly}px) translate(${ax}px,${ay}px) scale(${sx},${sy})`
+  + ` translate(${-ax}px,${-ay}px)`
+
+function flipFrames(s: Side): FlipFrames {
   const [ax, ay] = ENDS[s]
-  if (isVerticalSide(s)) {
-    return {
-      from: `translate(${ax}px,0) scaleX(-1) translate(${-ax}px,0)`,
-      to: `translate(${ax}px,0) scaleX(1) translate(${-ax}px,0)`,
-    }
-  }
-  return {
-    from: `translate(0,${ay}px) scaleY(-1) translate(0,${-ay}px)`,
-    to: `translate(0,${ay}px) scaleY(1) translate(0,${-ay}px)`,
-  }
+  const cx = (X0 + X1) / 2
+  const cy = (Y0 + Y1) / 2
+  return isVerticalSide(s)
+    ? { from: xf(ax, cy, -1, 1), mid: xf(ax, cy, 0.06, 1.14, -3), to: xf(ax, cy, 1, 1) }
+    : { from: xf(cx, ay, 1, -1), mid: xf(cx, ay, 1.14, 0.06, -3), to: xf(cx, ay, 1, 1) }
 }
 
 /**
@@ -261,10 +279,15 @@ export function FoldPicker({ fold, half, onEdge, onHint }: Props) {
   /**
    * 折り返して重なっている一枚。押したとき・引きずっている最中だけ出す。
    *
-   * 塗りは付けない。同じ生地なのだから、どの折り方でも面の色は変えない決まりがある
-   * （依頼者の指示・2026-08-27。大きい裁ち合わせ図でも同じ）。
-   * 代わりに**先頭の端をみみの点々で描く**。折り返せば、みみが内側へ入ってくる。
-   * 実物でそうなるとおりに描けば、色を使わずに一枚が動いていることが分かる。
+   * **生地と同じ色で塗り、下に影を落とす。**
+   * はじめは塗らずに線だけにしていたが、同じ色の生地の上に薄い灰色の線を
+   * 引いても、動いていることが見て取れなかった（依頼者・2026-08-28）。
+   * 色を変えれば目立つが、どの折り方でも生地の色は変えない決まりがある
+   * （依頼者の指示・2026-08-27）。そこで**色ではなく影**で浮かせた。
+   * 同じ一枚の生地が、台から離れてこちら側へ倒れてくる、というだけの意味になる。
+   * 影は動いている間だけのもので、折り終わった図には残らない。
+   *
+   * 先頭の端は、みみの点々で描く。折り返せば、みみが内側へ入ってくる。
    */
   const sheet = (s: Side, d: number, key: string, animate: boolean) => {
     const box = flapBox(s, d)
@@ -282,12 +305,14 @@ export function FoldPicker({ fold, half, onEdge, onHint }: Props) {
         key={key}
         className={animate ? 'fp-flip' : undefined}
         style={f
-          ? ({ ['--fp-from']: f.from, ['--fp-to']: f.to } as React.CSSProperties)
+          ? ({
+            ['--fp-from']: f.from, ['--fp-mid']: f.mid, ['--fp-to']: f.to,
+          } as React.CSSProperties)
           : undefined}
       >
-        <rect {...box} fill="none" stroke={EDGE} strokeWidth={0.8} strokeOpacity={0.7} />
+        <rect {...box} fill={CLOTH} stroke={EDGE} strokeWidth={1} filter="url(#fp-lift)" />
         <line x1={lead[0]} y1={lead[1]} x2={lead[2]} y2={lead[3]}
-          stroke={EDGE} strokeWidth={2} strokeLinecap="round" strokeDasharray="1 5" />
+          stroke={EDGE} strokeWidth={2.4} strokeLinecap="round" strokeDasharray="1 5" />
       </g>
     )
   }
@@ -296,27 +321,50 @@ export function FoldPicker({ fold, half, onEdge, onHint }: Props) {
     <svg
       ref={svgRef}
       viewBox={`0 0 ${VW} ${VH}`}
-      className="h-[118px] w-[132px] shrink-0 touch-none select-none"
+      className="h-[140px] w-[156px] shrink-0 touch-none select-none"
       role="group"
       aria-label="生地を上から見た図。辺を押すと「わ」になります"
     >
       <style>{`
         /*
-          折れる動き。辺を軸に、外にあった一枚が内側へ倒れてくる。
-          倒れ切ったところで消えるのは、そこで下の生地と重なって
-          見分けが付かなくなるから（二重でも生地の色は変えない決まり）。
+          折れる動き。辺を軸に、外にあった一枚が起き上がって内側へ倒れてくる。
+
+          760ms のうち、倒れるのに 7 割（約 530ms）を使う。
+          はじめは 260ms だったが、それでは目が追いつかなかった
+          （依頼者・2026-08-28）。手で紙を折るのと同じくらいの速さにしてある。
+
+          倒れ切ったあと、すぐには消さずにいったん止める。
+          そこが「折り終わったところ」だと分かるための間で、
+          そのあと消えるのは、下の生地と重なって見分けが付かなくなるから
+          （二重でも生地の色は変えない決まり）。
         */
-        .fp-flip { animation: fp-flip 260ms cubic-bezier(.32,.72,.35,1) forwards;
+        .fp-flip { animation: fp-flip 760ms forwards;
                    transform-box: view-box; transform-origin: 0 0 }
         @keyframes fp-flip {
-          from { transform: var(--fp-from); opacity: .95 }
-          72%  { opacity: .95 }
-          to   { transform: var(--fp-to);   opacity: 0 }
+          0%   { transform: var(--fp-from); opacity: 1;
+                 animation-timing-function: cubic-bezier(.45,.05,.75,.35) }
+          40%  { transform: var(--fp-mid);  opacity: 1;
+                 animation-timing-function: cubic-bezier(.25,.7,.4,1) }
+          70%  { transform: var(--fp-to);   opacity: 1 }
+          84%  { transform: var(--fp-to);   opacity: 1 }
+          100% { transform: var(--fp-to);   opacity: 0 }
         }
+        /* 動きを控えめにする設定の人には、動かさずに結果だけ見せる */
         @media (prefers-reduced-motion: reduce) {
           .fp-flip { animation-duration: 1ms }
         }
       `}</style>
+
+      {/*
+        浮いている一枚の影。色を変えずに「台から離れている」ことだけを言う。
+        折り終われば影ごと消えるので、落ち着いた図には出てこない
+      */}
+      <defs>
+        <filter id="fp-lift" x="-25%" y="-25%" width="150%" height="150%">
+          <feDropShadow dx="0" dy="1.2" stdDeviation="1.6"
+            floodColor="#2f3b33" floodOpacity="0.34" />
+        </filter>
+      </defs>
 
       {/* 生地の面 */}
       <rect x={X0} y={Y0} width={X1 - X0} height={Y1 - Y0} fill={CLOTH} />
