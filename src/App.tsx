@@ -505,10 +505,13 @@ export function App() {
 
         {step === 'photo' && (
           <section className="flex flex-col gap-4">
-            <p className="text-sm leading-relaxed text-ink-500">
-              緑のマットの上に型紙を置き、
-              <span className="font-bold text-ink-700">地の目線に沿わせて方眼定規</span>
-              を載せて、真上から撮ってください。
+            <p className="flex items-center gap-2 text-sm text-ink-500">
+              <Icon name="camera" className="h-4 w-4 shrink-0 text-mat-600" />
+              <span className="min-w-0 flex-1">
+                緑のマットに型紙と
+                <span className="font-bold text-ink-700">方眼定規</span>
+                を置いて、真上から
+              </span>
             </p>
 
             {/*

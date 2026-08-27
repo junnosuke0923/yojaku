@@ -132,7 +132,7 @@ export function PartsView({ state, onChange, onAddMore, onLayout, openSeamFor }:
   }
 
   return (
-    <section className="flex flex-col gap-5">
+    <section className="flex flex-col gap-3">
       <FabricSetup
         widthMm={state.fabricWidthMm}
         hasNap={state.hasNap}
@@ -167,7 +167,7 @@ export function PartsView({ state, onChange, onAddMore, onLayout, openSeamFor }:
         </div>
       ) : (
         <>
-          <ul className="flex flex-col gap-3">
+          <ul className="flex flex-col gap-2.5">
             {patterns.map((p) => (
               <PartRow
                 key={p.id}
@@ -187,12 +187,10 @@ export function PartsView({ state, onChange, onAddMore, onLayout, openSeamFor }:
             ここで聞いているのは「できあがりに何枚要るか」。
             裁断のときに置く型紙の数はこれとは別で、二重の生地の上なら1枚で足りる
           */}
-          <div className="rounded-xl border border-ink-100 bg-white px-4 py-3">
-            <Hint summary={<>枚数は<b className="text-ink-700">できあがりに必要な数</b>（左右で使うなら 2）</>}>
-              生地に並べるときは、二重に重なっているところに型紙を1つ置けば、
-              そのまま2枚とも裁てます。だから置く型紙の数は 2 つとは限りません。
-            </Hint>
-          </div>
+          <Hint summary={<>枚数は<b className="text-ink-700">できあがりに必要な数</b>（左右で使うなら 2）</>}>
+            生地に並べるときは、二重に重なっているところに型紙を1つ置けば、
+            そのまま2枚とも裁てます。だから置く型紙の数は 2 つとは限りません。
+          </Hint>
 
           {/*
             定規は地の目の「向き」までは教えてくれない。上下対称だから。
@@ -214,7 +212,7 @@ export function PartsView({ state, onChange, onAddMore, onLayout, openSeamFor }:
           <button
             type="button"
             onClick={onLayout}
-            className="flex items-center justify-center gap-2 rounded-xl bg-mat-500 px-4 py-3 text-base font-bold text-white active:bg-mat-600"
+            className="flex items-center justify-center gap-2 rounded-xl bg-mat-500 px-4 py-2.5 text-base font-bold text-white active:bg-mat-600"
           >
             <Icon name="layout" className="h-5 w-5 shrink-0" />
             生地の上に並べる →
@@ -369,7 +367,8 @@ function PartRow({
       </button>
 
       <div className="flex min-w-0 flex-1 flex-col gap-2">
-        <div className="flex items-center gap-2">
+        {/* 1画面に近づけるため、行を折り返させない（依頼者の指示・2026-08-27） */}
+        <div className="flex items-center gap-1.5">
           <select
             value={NAME_CHOICES.includes(part.name) ? part.name : ''}
             onChange={(e) => onPatch({ name: e.target.value || part.name })}
@@ -380,22 +379,30 @@ function PartRow({
           </select>
           <button
             type="button"
+            onClick={() => onPatch({ flipped: !part.flipped })}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-ink-100 text-ink-700"
+            aria-label="地の目の上下を入れかえる"
+          >
+            <Icon name="flip" className="h-4 w-4 shrink-0" />
+          </button>
+          <button
+            type="button"
             onClick={onRemove}
-            className="shrink-0 px-1.5 text-ink-300"
+            className="flex h-8 w-6 shrink-0 items-center justify-center text-ink-300"
             aria-label="このパーツを消す"
           >
             <Icon name="trash" className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="whitespace-nowrap text-xs text-ink-500">できあがりに</span>
+        <div className="flex items-center gap-1.5">
+          <Icon name="part" className="h-3.5 w-3.5 shrink-0 text-ink-300" />
           {[1, 2, 4].map((k) => (
             <button
               key={k}
               type="button"
               onClick={() => onPatch({ needed: k })}
-              className={`tnum rounded-lg px-3 py-1 text-sm font-bold ${
+              className={`tnum rounded-lg px-2.5 py-1 text-sm font-bold ${
                 part.needed === k ? 'bg-mat-500 text-white' : 'border border-ink-100 text-ink-700'
               }`}
             >
@@ -404,33 +411,29 @@ function PartRow({
           ))}
           <button
             type="button"
-            onClick={() => onPatch({ flipped: !part.flipped })}
-            className="ml-auto flex items-center gap-1 rounded-lg border border-ink-100 px-3 py-1 text-xs font-bold text-ink-700"
-            aria-label="地の目の上下を入れかえる"
+            onClick={onOpen}
+            className="tnum ml-auto flex min-w-0 items-center gap-1 truncate text-[11px] text-ink-500"
           >
-            <Icon name="flip" className="h-3.5 w-3.5 shrink-0" />
-            上下
+            <Icon name="scissors" className="h-3.5 w-3.5 shrink-0" />
+            {size
+              ? `${(size.widthMm / 10).toFixed(1)} × ${(size.heightMm / 10).toFixed(1)}`
+              : '—'}
           </button>
         </div>
 
-        <button type="button" onClick={onOpen} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-left">
-          <span className="tnum flex items-center gap-1 text-xs text-ink-500">
-            <Icon name="scissors" className="h-3.5 w-3.5 shrink-0" />
-            裁ち切り{' '}
-            {size
-              ? `${(size.widthMm / 10).toFixed(1)} × ${(size.heightMm / 10).toFixed(1)} cm`
-              : '—'}
-          </span>
-          {folds > 0 && (
-            <span className="flex items-center gap-1 text-xs font-bold text-seam">
-              <Icon name="fold" className="h-3.5 w-3.5 shrink-0" />
-              {opened ? 'わで開いて裁つ' : `わ ${folds}本`}
-            </span>
-          )}
-          {part.seamIncluded && (
-            <span className="text-xs text-ink-300">縫い代つき</span>
-          )}
-        </button>
+        {(folds > 0 || part.seamIncluded) && (
+          <button type="button" onClick={onOpen} className="flex items-center gap-2 text-left">
+            {folds > 0 && (
+              <span className="flex items-center gap-1 text-[11px] font-bold text-seam">
+                <Icon name="fold" className="h-3.5 w-3.5 shrink-0" />
+                {opened ? 'わで開いて裁つ' : `わ ${folds}本`}
+              </span>
+            )}
+            {part.seamIncluded && (
+              <span className="text-[11px] text-ink-300">縫い代つき</span>
+            )}
+          </button>
+        )}
       </div>
     </li>
   )
@@ -462,7 +465,7 @@ function Thumb({
   return (
     <svg
       viewBox={`${b.minX - pad} ${b.minY - pad} ${w + pad * 2} ${h + pad * 2}`}
-      className="h-24 w-24 rounded-lg bg-table"
+      className="h-20 w-20 rounded-lg bg-table"
       role="img"
       aria-hidden="true"
     >

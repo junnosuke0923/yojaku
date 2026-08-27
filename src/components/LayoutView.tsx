@@ -155,7 +155,7 @@ export function LayoutView({ state, onChange, onBack }: Props) {
   const shortage = state.parts.filter((p) => !isReserve(p) && takenOf(p.id) < p.needed)
 
   return (
-    <section className="flex flex-col gap-5 pb-40">
+    <section className="flex flex-col gap-3.5 pb-40">
       <button
         type="button"
         onClick={onBack}
@@ -491,15 +491,19 @@ function SectionCanvas({
    * うっすら波打たせて、まっすぐな折り山・点々のみみと描き分ける。
    * （開始点へは移動しない。輪郭の途中に差し込んで使う）
    */
-  const waveSeg = (x0: number, x1: number, y: number) => {
+  const waveSeg = (from: number, to: number, y: number) => {
     const amp = W * 0.005
     const step = W * 0.05
+    const dir = to >= from ? 1 : -1
+    const span = Math.abs(to - from)
     let d = ''
     let up = true
-    for (let x = x0; x < x1 - 0.01; x += step) {
-      const to = Math.min(x + step, x1)
-      const mx = ((x + to) / 2).toFixed(1)
-      d += ` Q${mx} ${(y + (up ? -amp : amp)).toFixed(1)} ${to.toFixed(1)} ${y.toFixed(1)}`
+    for (let t = 0; t < span - 0.01; t += step) {
+      const seg = Math.min(step, span - t)
+      const x = from + dir * t
+      const nx = from + dir * (t + seg)
+      const mx = ((x + nx) / 2).toFixed(1)
+      d += ` Q${mx} ${(y + (up ? -amp : amp)).toFixed(1)} ${nx.toFixed(1)} ${y.toFixed(1)}`
       up = !up
     }
     return d
@@ -512,7 +516,10 @@ function SectionCanvas({
    * 裁った縁や耳は角が立つ。上から見たときの、この角の違いが
    * 「どちらが折り山か」を言葉なしで伝えてくれる。
    */
-  const sheet = (x0: number, y0: number, x1: number, y1: number, cutTop = false) => {
+  const sheet = (
+    x0: number, y0: number, x1: number, y1: number,
+    cutTop = false, cutBottom = false,
+  ) => {
     const r = SP * 1.7
     const tl = ext.left > 0 || ext.top > 0 ? r : 0
     const tr = ext.right > 0 || ext.top > 0 ? r : 0
@@ -525,19 +532,22 @@ function SectionCanvas({
       cutTop ? waveSeg(x0 + tl, x1 - tr, y0) : `H${(x1 - tr).toFixed(1)}`,
       arc(tr, x1, y0 + tr),
       `V${(y1 - br).toFixed(1)}`, arc(br, x1 - br, y1),
-      `H${(x0 + bl).toFixed(1)}`, arc(bl, x0, y1 - bl),
+      // 下の端も、上と同じく裁ち端。まっすぐ引くと折り山に見える（依頼者の指摘・2026-08-27）
+      cutBottom ? waveSeg(x1 - br, x0 + bl, y1) : `H${(x0 + bl).toFixed(1)}`,
+      arc(bl, x0, y1 - bl),
       `V${(y0 + tl).toFixed(1)}`, arc(tl, x0 + tl, y0),
       'Z',
     ].join(' ')
   }
 
-  /** 上の端が、はさみで切った裁ち端かどうか（横わで上を折るときだけ違う） */
+  /** 上下の端が、はさみで切った裁ち端かどうか（横わでそちらを折るときだけ違う） */
   const cutTop = !foldSides.includes('top')
+  const cutBottom = !foldSides.includes('bottom')
 
-  const topPath = sheet(-ext.left, -ext.top, W + ext.right, L + ext.bottom, cutTop)
+  const topPath = sheet(-ext.left, -ext.top, W + ext.right, L + ext.bottom, cutTop, cutBottom)
   const underPath = sheet(
     under.x0 - ext.left, under.y0 - ext.top,
-    under.x1 + ext.right, under.y1 + ext.bottom, cutTop,
+    under.x1 + ext.right, under.y1 + ext.bottom, cutTop, cutBottom,
   )
 
   /**
