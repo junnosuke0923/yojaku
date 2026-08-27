@@ -90,6 +90,38 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded }: Props
 
   const currentMm = plan.allowancesMm[selected] ?? 0
 
+  /**
+   * 「わ」の辺に付ける、作図の記号（依頼者の指示・2026-08-27）。
+   *
+   * ◎ を半分にした形——同じ中心の半円を二重に、辺の上に伏せて描く。
+   * 学校の作図では、これが「この辺は折り山（わ）」を表す決まった印なので、
+   * 文字より先に、この形で読み取れるようにしておく。
+   *
+   * 平らな側を辺に伏せ、まるいほうは型紙の内側へふくらませる。
+   * 辺の向きは `outward`（外向きの法線）から出す。
+   * 辺に沿う向きを t = (outward.y, -outward.x) に取ると、
+   * SVG の弧を sweep=1 で引いたときに内側へふくらむ。
+   */
+  const foldMark = (g: (typeof plan.groups)[number]) => {
+    const cx = g.midpoint.x + view.dx
+    const cy = g.midpoint.y + view.dy
+    const tx = g.outward.y
+    const ty = -g.outward.x
+    // 短い辺で大きく描くと、辺からはみ出して別の形に見える
+    const R = Math.min(15, g.lengthMm * 0.3)
+    if (R < 4) return null
+    const half = (rr: number) =>
+      `M${(cx - tx * rr).toFixed(1)} ${(cy - ty * rr).toFixed(1)}`
+      + ` A${rr.toFixed(1)} ${rr.toFixed(1)} 0 0 1`
+      + ` ${(cx + tx * rr).toFixed(1)} ${(cy + ty * rr).toFixed(1)}`
+    return (
+      <g key={`wa-${g.no}`} fill="none" stroke="#2b332d" strokeWidth={2}>
+        <path d={half(R)} />
+        <path d={half(R * 0.48)} />
+      </g>
+    )
+  }
+
   return (
     <div className="flex flex-col gap-2.5">
       {/*
@@ -136,6 +168,9 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded }: Props
         {/* 地の目線とパーツ名 */}
         <PatternMarks poly={shifted} hasNap={hasNap} name={name} />
 
+        {/* 「わ」の辺に付ける作図の記号。地の目線より後に描いて、隠れないようにする */}
+        {plan.groups.map((g, gi) => (plan.allowancesMm[gi] === 0 ? foldMark(g) : null))}
+
         {/* 選んでいる辺を光らせる */}
         {plan.groups.map((g, gi) => (
           <path
@@ -181,8 +216,15 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded }: Props
                 fill={on ? '#ffffff' : '#5c665f'} fontWeight={700}>
                 {g.no}
               </text>
+              {/*
+                「わ」の字は、さらに外へ押し出す。
+                番号のふきだしの真下に置くと、辺に付けた わ の記号に重なる
+              */}
               {mm === 0 && (
-                <text x={cx} y={cy + 30} textAnchor="middle" fontSize={15} fill="#2b332d">
+                <text
+                  x={cx + g.outward.x * 24} y={cy + g.outward.y * 24 + 6}
+                  textAnchor="middle" fontSize={15} fill="#2b332d"
+                >
                   わ
                 </text>
               )}
