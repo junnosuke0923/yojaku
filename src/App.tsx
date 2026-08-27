@@ -42,8 +42,28 @@ const HISTORY_MAX = 40
  * データ自体も、押したときにはじめて読み込む別ファイルにしてあるので、
  * ふだんの配信ファイルには混ざらない。
  */
-const DEV = typeof location !== 'undefined'
-  && (new URLSearchParams(location.search).has('dev') || location.hash === '#dev')
+const DEV_KEY = 'yojaku.dev'
+
+/**
+ * 一度 ?dev で開いたら、そのあとは付けなくても開発用の口が出るようにしてある。
+ *
+ * スマホでホーム画面に登録したり、「読み込み直す」を押したりすると
+ * ?dev が落ちてしまい、そのたびに URL を打ち直すことになるため。
+ * `?dev=0` で消せる。学生の URL には最初から出てこない
+ */
+const DEV = (() => {
+  if (typeof location === 'undefined') return false
+  const q = new URLSearchParams(location.search).get('dev')
+  if (q === '0' || q === 'off') {
+    localStorage.removeItem(DEV_KEY)
+    return false
+  }
+  if (q !== null || location.hash === '#dev') {
+    localStorage.setItem(DEV_KEY, '1')
+    return true
+  }
+  return localStorage.getItem(DEV_KEY) === '1'
+})()
 
 const loadSavedRuler = (): RulerId =>
   (localStorage.getItem(RULER_KEY) as RulerId | null) ?? 'r50'
@@ -293,6 +313,18 @@ export function App() {
     }
   }
 
+  /**
+   * 「はじめから」が消すのは、**いま出ている画面のぶんだけ**（依頼者の指示・2026-08-27）。
+   *
+   * 並べる画面で押したら、並べた場所だけを戻す。取り込んだパーツまで消えてしまうと、
+   * 置きなおしたいだけなのに撮るところからやり直しになる（実際にそうなった）。
+   * 生地幅・向き・折り方も、並べ方とは別の決めごとなので残す。
+   */
+  const resetLayout = () => {
+    updateParts({ ...parts, placements: [] })
+    setError(null)
+  }
+
   /** 貯めたものを全部捨てて、最初の状態に戻す */
   const clearAll = () => {
     updateParts(EMPTY)
@@ -304,8 +336,12 @@ export function App() {
     setStep('photo')
   }
 
+  /** いま押したら何が起きるか。画面によって変える */
+  const onLayout = step === 'layout'
   /** 消すものが何かあるか。まっさらのときに「はじめから」を出しても意味がない */
-  const hasWork = parts.parts.length > 0 || result !== null || image !== null
+  const hasWork = onLayout
+    ? parts.placements.length > 0
+    : parts.parts.length > 0 || result !== null || image !== null
 
   return (
     <div className="mx-auto flex min-h-full w-full max-w-xl flex-col">
@@ -352,7 +388,7 @@ export function App() {
             <button
               type="button"
               onClick={() => setAskReset(true)}
-              aria-label="ぜんぶ消して、はじめから"
+              aria-label={onLayout ? '並べたものを、ぜんぶ戻す' : 'ぜんぶ消して、はじめから'}
               className="flex h-9 w-10 items-center justify-center rounded-lg border border-ink-100 bg-white text-ink-500 active:bg-chalk"
             >
               <Icon name="trash" className="h-4 w-4 shrink-0" />
@@ -400,21 +436,36 @@ export function App() {
             <p className="flex gap-2 text-sm leading-relaxed text-ink-700">
               <Icon name="warn" className="mt-[0.2em] h-[1.15em] w-[1.15em] shrink-0 text-seam" />
               <span className="min-w-0 flex-1">
-                取り込んだパーツ
-                <span className="font-bold"> {parts.parts.length} 個</span>
-                と、生地の設定・並べた場所を
-                <span className="font-bold">ぜんぶ消して</span>、
-                写真を撮るところからやり直します。消したものは戻せません。
+                {onLayout ? (
+                  <>
+                    生地の上に並べた
+                    <span className="font-bold"> {parts.placements.length} 個</span>
+                    を、ぜんぶ<span className="font-bold">置く前に戻します</span>。
+                    取り込んだパーツと生地の設定は、そのまま残ります。
+                  </>
+                ) : (
+                  <>
+                    取り込んだパーツ
+                    <span className="font-bold"> {parts.parts.length} 個</span>
+                    と、生地の設定・並べた場所を
+                    <span className="font-bold">ぜんぶ消して</span>、
+                    写真を撮るところからやり直します。消したものは戻せません。
+                  </>
+                )}
               </span>
             </p>
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={() => { clearAll(); setAskReset(false) }}
+                onClick={() => {
+                  if (onLayout) resetLayout()
+                  else clearAll()
+                  setAskReset(false)
+                }}
                 className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-seam px-4 py-3 text-sm font-bold text-white"
               >
                 <Icon name="trash" className="h-4 w-4 shrink-0" />
-                消して、はじめから
+                {onLayout ? '並べたものを戻す' : '消して、はじめから'}
               </button>
               <button
                 type="button"

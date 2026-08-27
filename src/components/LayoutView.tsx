@@ -165,8 +165,6 @@ export function LayoutView({ state, onChange, onBack }: Props) {
         パーツの一覧へ
       </button>
 
-      <Totals report={report} widthMm={state.fabricWidthMm} />
-
       {report.problems.length > 0 && (
         <ul className="flex flex-col gap-1.5 rounded-xl border border-seam/40 bg-seam/5 px-4 py-3">
           {report.problems.map((pb, i) => (
@@ -239,6 +237,14 @@ export function LayoutView({ state, onChange, onBack }: Props) {
         onDropPart={dropPart}
       />
 
+      {/*
+        買ってくる長さは、この画面の**結び**として下に置く（依頼者の指示・2026-08-27）。
+        上にあると、まだ何も並べていないうちから結果が目に入って、
+        「並べる → 長さが出る」という順に読めない。
+        置くパーツのすぐ下なので、1つ置いて目を下ろせば、そのたびに変わるのが見える
+      */}
+      <Totals report={report} widthMm={state.fabricWidthMm} />
+
       {selected && (
         <Controls
           placement={selected}
@@ -295,7 +301,7 @@ function Totals({
           </Hint>
         </div>
       ) : (
-        <p className="pt-1 text-xs text-ink-500">下の「置く」から並べてください。</p>
+        <p className="pt-1 text-xs text-ink-500">上の「置く」から並べてください。</p>
       )}
       <p className="tnum flex items-center gap-1.5 pt-2 text-xs text-ink-300">
         <Icon name="clothWidth" className="h-3.5 w-3.5 shrink-0" />
