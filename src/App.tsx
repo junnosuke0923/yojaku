@@ -355,6 +355,20 @@ export function App() {
   }
 
   /** いま押したら何が起きるか。画面によって変える */
+  /**
+   * 上の帯を押して、その段階へ戻れるか。
+   * 戻った先に見せるものが揃っていない段階（写真も定規もまだ、など）は押せない
+   */
+  const canGoBack = (to: Step) => {
+    switch (to) {
+      case 'photo': return true
+      case 'ruler': return !!(image && quad)
+      case 'result': return !!(image && result)
+      case 'parts': return parts.parts.length > 0
+      default: return false
+    }
+  }
+
   const onLayout = step === 'layout'
   /** 消すものが何かあるか。まっさらのときに「はじめから」を出しても意味がない */
   const hasWork = onLayout
@@ -432,7 +446,7 @@ export function App() {
         </div>
       </header>
 
-      <StepBar step={step} />
+      <StepBar step={step} canGo={canGoBack} onGo={setStep} />
 
       <main className="safe-b flex flex-1 flex-col gap-4 px-4 py-4">
         {/*
@@ -834,23 +848,57 @@ const STEPS: Array<{ id: Step; label: string; icon: IconName }> = [
   { id: 'layout', label: '並べる', icon: 'layout' },
 ]
 
-function StepBar({ step }: { step: Step }) {
+/**
+ * 段階の帯。**戻れる段階は押せる**（依頼者の指示・2026-08-27）。
+ *
+ * 前の段階へ戻る道は、それぞれの画面の中にも置いてあるが、
+ * 2つ以上前へ戻ろうとすると、そのたびに1画面ずつ通ることになる。
+ * 「いまここ」と言っている帯がそのまま行き先になっていれば、一度で戻れる。
+ *
+ * 押せるのは前の段階だけ。先へ進むのは、それぞれの画面のボタンからで、
+ * ここから飛べてしまうと、まだ決めていないことを飛ばせてしまう
+ */
+function StepBar({ step, canGo, onGo }: {
+  step: Step
+  canGo: (id: Step) => boolean
+  onGo: (id: Step) => void
+}) {
   const index = STEPS.findIndex((s) => s.id === step)
   return (
     <ol data-tour="steps" className="flex gap-1 px-4">
-      {STEPS.map((s, i) => (
-        <li key={s.id} className="flex flex-1 flex-col gap-1.5">
-          <span className={`h-1 rounded-full ${i <= index ? 'bg-mat-500' : 'bg-ink-100'}`} />
-          <span
-            className={`flex items-center gap-1 text-xs ${
-              i === index ? 'font-bold text-mat-700' : 'text-ink-300'
-            }`}
-          >
-            <Icon name={s.icon} className="h-3.5 w-3.5 shrink-0" />
-            {s.label}
-          </span>
-        </li>
-      ))}
+      {STEPS.map((s, i) => {
+        const back = i < index && canGo(s.id)
+        const label = (
+          <>
+            <span className={`h-1 rounded-full ${i <= index ? 'bg-mat-500' : 'bg-ink-100'}`} />
+            <span
+              className={`flex items-center gap-1 text-xs ${
+                i === index ? 'font-bold text-mat-700'
+                  : back ? 'text-mat-700' : 'text-ink-300'
+              }`}
+            >
+              <Icon name={s.icon} className="h-3.5 w-3.5 shrink-0" />
+              {s.label}
+            </span>
+          </>
+        )
+        return (
+          <li key={s.id} className="flex flex-1 flex-col">
+            {back ? (
+              <button
+                type="button"
+                onClick={() => onGo(s.id)}
+                aria-label={`${s.label}へ戻る`}
+                className="flex flex-col gap-1.5 text-left active:opacity-60"
+              >
+                {label}
+              </button>
+            ) : (
+              <span className="flex flex-col gap-1.5">{label}</span>
+            )}
+          </li>
+        )
+      })}
     </ol>
   )
 }
