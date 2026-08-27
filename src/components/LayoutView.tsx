@@ -583,7 +583,8 @@ function SectionCanvas({
       {canHalfFold(section.fold) && (
         <div className="flex gap-1.5">
           <Chip on={half} onClick={() => onHalf(true)}>
-            <FoldGlyph kind="half" />半分に折る（基本）
+            <FoldGlyph kind="half" />
+            {section.fold === 'vBoth' ? '中央まで折る（基本）' : '半分に折る（基本）'}
           </Chip>
           <Chip on={!half} onClick={() => onHalf(false)}>
             <FoldGlyph kind="partial" />型紙に合わせて折る
@@ -602,7 +603,7 @@ function SectionCanvas({
       <svg
         ref={svgRef}
         viewBox={`${-PAD} ${-PAD} ${vbW} ${vbH}`}
-        className={`w-full select-none rounded-xl border-2 bg-chalk ${
+        className={`w-full select-none rounded-xl border-2 bg-table ${
           active ? 'border-mat-500' : 'border-ink-100'
         }`}
         style={{ aspectRatio: `${vbW} / ${vbH}`, touchAction: 'none' }}
@@ -1037,7 +1038,17 @@ function SectionCanvas({
       </svg>
 
       <Note icon="fold">
-        {half ? (
+        {half && section.fold === 'vBoth' ? (
+          <>
+            生地幅 {(report.foldDepth.left * 4 + SELVAGE_MM * 2) / 10} cm を、
+            <span className="font-bold text-mat-600">両側のみみが中央で出会う</span>まで
+            折っています。見えている面は
+            <span className="font-bold text-mat-600">ぜんぶ二重</span>で、
+            型紙を1つ置けばそのまま2枚とも裁てます。
+            <span className="font-bold text-mat-600">折り山は左右に1本ずつ</span>、
+            みみは真ん中で突き合わさっています。
+          </>
+        ) : half ? (
           <>
             生地幅 {(report.foldDepth.left * 2 + SELVAGE_MM * 2) / 10} cm を
             <span className="font-bold text-mat-600">きっちり半分</span>に折っています。

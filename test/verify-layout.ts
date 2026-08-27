@@ -18,6 +18,7 @@ import {
   computeYardage, newPlacement, toPurchaseLength,
   type Fabric, type Placement, type PlacedPart,
 } from '../src/lib/fabric'
+import { placedPartOf, planOf, toStored } from '../src/lib/store'
 
 let failures = 0
 
@@ -217,6 +218,60 @@ console.log('\n■ 半分に折っても、わに当てた型紙は1枚')
   near('型紙を置いても折りの深さは変わらない', r.sections[0].foldDepth.left, 530, 0)
 }
 
+console.log('\n■ ベルトを「わ」で開いて、幅を倍にして裁つ')
+{
+  // 依頼者の指示（2026-08-27）——ベルトは型紙が出来上がり幅でも、
+  // 裁つときは長い辺で折るぶんを見込んで幅を倍にすることがある
+  const beltW = 32
+  const beltH = 690
+  const stored = toStored(rect(beltW, beltH), beltW, beltH, 0)
+  // いちばん長い辺（＝ベルトの長い辺）を「わ」にする。ほかは縫い代 1cm
+  const plan = planOf(stored)
+  let longest = 0
+  plan.groups.forEach((g, i) => { if (g.lengthMm > plan.groups[longest].lengthMm) longest = i })
+  const belt = { ...stored, allowancesMm: plan.allowancesMm.map((_, i) => (i === longest ? 0 : 10)) }
+
+  const closed = placedPartOf(belt)!
+  const opened = placedPartOf({ ...belt, openFold: true })!
+  const size = (p: typeof closed) => {
+    const b = bounds(p.cutLineMm)
+    return { w: b.maxX - b.minX, h: b.maxY - b.minY }
+  }
+  const a = size(closed)
+  const o = size(opened)
+
+  /*
+    許容を 3mm 取ってある。
+    裁ち切り線は 1mm＝1画素の絵を経由して作っているので、辺ごとに 1mm 前後の丸めが乗る。
+    開くと左右にその丸めが出るぶん、閉じたときより誤差が増える。
+    ここで見たいのは「倍になっているか」であって、0.1mm の一致ではない。
+  */
+  // 折り山に当てるなら、わの側には縫い代が付かない
+  near('折り山に当てるときの裁ち切り幅', a.w, beltW + 10, 3)
+  // 開けば、出来上がり幅が倍になり、その両側に縫い代が付く
+  near('開いたときの裁ち切り幅', o.w, beltW * 2 + 20, 3)
+  near('長さは変わらない', o.h, a.h, 3)
+  ok('折り山に当てるほうは「わ」の辺を持つ', closed.hasFoldEdge, `${closed.hasFoldEdge}`)
+  ok('開いたほうは生地の折り山が要らない', !opened.hasFoldEdge, `${opened.hasFoldEdge}`)
+}
+
+console.log('\n■ 縦わ・両側 — 型紙を置かなくても、中央まで折れている')
+{
+  // 依頼者の指摘（2026-08-27）——「縦わの両側」を選んでも折れていなかった。
+  // 両側から折るときは、左右のみみが中央で出会うので、片側ずつは有効幅の4分の1
+  const f: Fabric = {
+    widthMm: 1100, hasNap: false,
+    sections: [{ id: 's1', fold: 'vBoth', halfFold: true }],
+  }
+  const r = run(f, [], [])
+  near('左の折り込み', r.sections[0].foldDepth.left, 265, 0)
+  near('右の折り込み', r.sections[0].foldDepth.right, 265, 0)
+  near('見えている面は有効幅の半分', r.sections[0].surfaceWidthMm, 530, 0)
+  const r2 = run(f, [newPlacement('a', 'p1', 's1', { xMm: 100, yMm: 0 })], [part('p1', 300, 400)])
+  ok('どこに置いても1つで2枚', r2.counts[0].count === 2, `×${r2.counts[0].count}`)
+  near('型紙を置いても折りの深さは変わらない', r2.sections[0].foldDepth.right, 265, 0)
+}
+
 console.log('\n■ 半分に折ると、幅の半分を超える型紙は入らない')
 {
   const f = halfFabric(1100)
@@ -298,10 +353,10 @@ console.log('  上パーツ丈 32cm・下パーツ丈 38cm・生地幅 110cm →
   near('区間1 左の折り込み', r.sections[0].foldDepth.left, 265, 0)
   near('区間1 右の折り込み', r.sections[0].foldDepth.right, 265, 0)
   near('区間1 描く面の幅', r.sections[0].surfaceWidthMm, 530, 0)
-  ok('区間1 で二重の帯が中央で接する',
-    r.sections[0].doubled.length === 2 &&
-    Math.abs(r.sections[0].doubled[0].w + r.sections[0].doubled[1].w - 530) < 1,
-    `${r.sections[0].doubled.map((d) => `${d.w}mm`).join(' + ')} = 530mm`)
+  // 左右の帯が中央で出会うので、面は丸ごと二重。1本の帯として扱う
+  ok('区間1 は面が丸ごと二重',
+    r.sections[0].doubled.length === 1 && Math.abs(r.sections[0].doubled[0].w - 530) < 1,
+    `${r.sections[0].doubled.map((d) => `${d.w}mm`).join(' + ')} ／ 面の幅 530mm`)
 
   ok('4枚とも わ（開いて左右対称の1枚）',
     r.counts.every((c) => c.onFold && c.count === 1), r.counts.map((c) => `×${c.count}`).join(' '))

@@ -44,12 +44,18 @@ export function FoldDiagram({ fold, nearMm, farMm, spanMm }: Props) {
   // 折り返しが極端に浅くても、絵としては見える太さを残す。
   // 両側から折るときだけは、互いに乗り上げないよう半分で止める
   const both = nearMm > 0 && farMm > 0
-  const cap = both ? W * 0.46 : W
+  // 両側から折るときは、みみが中央で出会うところまで（＝半分ずつ）がいちばん深い
+  const cap = both ? W * 0.5 : W
   const arm = (mm: number) => (mm <= 0 ? 0 : Math.min(Math.max(toX(mm), 90), cap))
   const near = arm(nearMm)
   const far = arm(farMm)
-  /** 見えている面が丸ごと二重（生地幅を半分に折った状態） */
-  const allDoubled = !both && (near >= W - 0.5 || far >= W - 0.5)
+  /**
+   * 見えている面が丸ごと二重。
+   * 片側から折るなら端まで届いたとき、両側から折るなら中央で出会ったとき
+   */
+  const allDoubled = near + far >= W - 0.5
+  /** 両側から折って、左右のみみが中央で突き合わさっている */
+  const metInMiddle = both && allDoubled
   const folded = near > 0 || far > 0
   /**
    * 折り方は選んであるけれど、まだ何も「わに当てて」いない状態。
@@ -120,8 +126,11 @@ export function FoldDiagram({ fold, nearMm, farMm, spanMm }: Props) {
             <text x={near / 2} y={UPPER - 26} fontSize={30} fontWeight={700} fill={CREASE}
               textAnchor="middle">二重</text>
             <text x={4} y={LOWER + 52} fontSize={30} fontWeight={700} fill={CREASE}>わ</text>
-            <text x={near} y={UPPER - 26} fontSize={22} fill={FAINT} textAnchor="middle"
-              dx={allDoubled ? -34 : 30}>みみ</text>
+            {/* 中央で出会っているときは、みみの名前をひとつだけ、その場所に置く */}
+            {!metInMiddle && (
+              <text x={near} y={UPPER - 26} fontSize={22} fill={FAINT} textAnchor="middle"
+                dx={allDoubled ? -34 : 30}>みみ</text>
+            )}
           </>
         )}
         {far > 0 && (
@@ -130,8 +139,21 @@ export function FoldDiagram({ fold, nearMm, farMm, spanMm }: Props) {
               textAnchor="middle">二重</text>
             <text x={W - 4} y={LOWER + 52} fontSize={30} fontWeight={700} fill={CREASE}
               textAnchor="end">わ</text>
-            <text x={W - far} y={UPPER - 26} fontSize={22} fill={FAINT} textAnchor="middle"
-              dx={-30}>みみ</text>
+            {!metInMiddle && (
+              <text x={W - far} y={UPPER - 26} fontSize={22} fill={FAINT} textAnchor="middle"
+                dx={-30}>みみ</text>
+            )}
+          </>
+        )}
+
+        {/* 突き合わさったみみ。ここで生地の端どうしが出会っている */}
+        {metInMiddle && (
+          <>
+            <path d={`M${W * 0.5} ${UPPER - 12} v${THICK + 24}`} stroke={FAINT}
+              strokeWidth={4} strokeDasharray="9 8" />
+            <text x={W * 0.5} y={UPPER - 26} fontSize={22} fill={FAINT} textAnchor="middle">
+              みみ
+            </text>
           </>
         )}
         {W - near - far > W * 0.16 && (
@@ -144,7 +166,15 @@ export function FoldDiagram({ fold, nearMm, farMm, spanMm }: Props) {
         <Icon name={allDoubled || folded ? 'fold' : 'hint'}
           className="mt-[0.15em] h-[1.15em] w-[1.15em] shrink-0 opacity-70" />
         <span className="min-w-0 flex-1">
-        {allDoubled ? (
+        {metInMiddle ? (
+          <>
+            両側のみみを<span className="font-bold text-mat-600">中央で突き合わせる</span>まで
+            折っているので、見えている面は
+            <span className="font-bold text-mat-600">すべて二重</span>です。
+            折り山が<span className="font-bold text-mat-600">左右に1本ずつ</span>あるので、
+            「わ」の辺を持つ型紙を、左右どちらにも当てられます。
+          </>
+        ) : allDoubled ? (
           <>
             きっちり半分に折っているので、見えている面は
             <span className="font-bold text-mat-600">すべて二重</span>です。

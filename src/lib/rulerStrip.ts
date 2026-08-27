@@ -27,9 +27,15 @@
  *   ベルトのように「定規より長く、定規より細い」パーツはこれで正しく出る。
  *   両端が測れないとき（型紙が定規より短い）は、この推定はしない。
  *
+ *   このとき、帯の中は**推定した縁のとおりに塗り直す**（2026-08-27）。
+ *   消すだけにしていたころは、縁の外に残った定規の目盛りの線がそのまま拾われ、
+ *   ベルトの辺が数mm刻みでギザギザになっていた（依頼者の指摘）。
+ *   定規の下は見えないのだから、両端から引いたまっすぐな線がいちばん確からしい。
+ *   ギザギザは情報ではなく、ただの取りこぼしだった。
+ *
  * 迷ったら残す、を通している。消しすぎて寸法が小さく出るほうが
  * 「買う生地が足りない」に直結して危ないため。
- * 推定した縁からも、さらに数mmの余裕を残してから消している。
+ * 推定した縁からも、少しだけ余裕を残した位置で切っている。
  */
 
 import { applyH } from './homography'
@@ -47,8 +53,14 @@ const STEP_MM = 1
 const PROBE_MM = 10
 /** 幅を測るとき、帯の外側まで何mm見るか */
 const PROBE_REACH_MM = 60
-/** 推定した縁から、これだけ余裕を残してから消す（mm） */
-const KEEP_MARGIN_MM = 3
+/**
+ * 推定した縁から、これだけ外側で切る（mm）。
+ *
+ * 迷ったら残す側に倒すための余裕。
+ * もとは 3mm だったが、そのぶんの帯に定規の目盛りが残ってギザギザの元になっていた。
+ * 塗り直す方式にして取りこぼしが消えたので、余裕そのものは小さくしてある。
+ */
+const KEEP_MARGIN_MM = 1.5
 /** 両端で測った縁の位置がこれ以上ちがえば、まっすぐではないとみて諦める（mm） */
 const PROBE_AGREE_MM = 15
 
@@ -194,16 +206,30 @@ export function removeRulerOverhang(
   for (let y = minY; y <= maxY; y++) {
     const row = y * width
     for (let x = minX; x <= maxX; x++) {
-      if (out[row + x] === 0) continue
       const m = applyH(scale.imageToMm, { x, y })
       if (!m) continue
       if (m.x < -PAD_MM || m.x > w + PAD_MM) continue
       if (m.y < v0 || m.y > l + PAD_MM) continue
       const s = slices[Math.round((m.y - v0) / STEP_MM)]
       if (!s || s.kind === 'keep') continue
-      if (s.kind === 'clip' && m.x >= s.uMin && m.x <= s.uMax) continue
-      out[row + x] = 0
-      removedPx++
+
+      if (s.kind === 'clip') {
+        // 縁が分かっているところは、そのとおりに塗り直す。
+        // 消すだけだと、縁のすぐ外に残った定規の目盛りがギザギザとして残る
+        const inside = m.x >= s.uMin && m.x <= s.uMax
+        if (inside) {
+          out[row + x] = 1
+        } else if (out[row + x] === 1) {
+          out[row + x] = 0
+          removedPx++
+        }
+        continue
+      }
+
+      if (out[row + x] === 1) {
+        out[row + x] = 0
+        removedPx++
+      }
     }
   }
 

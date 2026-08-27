@@ -86,20 +86,24 @@ export type Section = {
   id: string
   fold: FoldMode
   /**
-   * 生地幅を**きっちり半分に折る**か。
+   * 生地幅を**きっちり折る**か。折り方によって意味が変わる。
    *
-   * 学校で最初に習う、いちばん多い基本のたたみ方（依頼者の指示）。
-   * このとき見えている面は**すべて二重**になり、置ける幅は有効幅の半分。
+   *   縦わ・片側  みみからみみへ、きっちり半分に折る。
+   *               学校で最初に習う、いちばん多い基本のたたみ方（依頼者の指示）
+   *   縦わ・両側  両側のみみを、中央で突き合わせるまで折る。
+   *               折り山が左右に1本ずつでき、みみは真ん中で出会う
+   *
+   * どちらも見えている面は**すべて二重**になり、置ける幅は有効幅の半分。
    *
    * false なら従来どおり、折り山に当てた型紙の大きさから深さが決まる（判断7）。
-   * 縦わ・片側のときだけ意味を持つ。横わは、半分の元になる長さそのものを
-   * これから求めるところなので、半分には折れない。
+   * 横わは、半分の元になる長さそのものをこれから求めるところなので、
+   * きっちり折ることができない。
    */
   halfFold?: boolean
 }
 
-/** 半分に折るやり方がある折り方かどうか */
-export const canHalfFold = (f: FoldMode) => f === 'vLeft'
+/** きっちり折るやり方がある折り方かどうか */
+export const canHalfFold = (f: FoldMode) => f === 'vLeft' || f === 'vBoth'
 
 /** この区間は、生地幅を半分に折って使うのか */
 export const isHalfFold = (section: Section) =>
@@ -269,8 +273,14 @@ export function computeYardage(
     // 1. 折り込む深さ。折り山に当てたパーツの、折り山と直角の向きの大きさ
     const depth: Record<Side, number> = { left: 0, right: 0, top: 0, bottom: 0 }
     if (isHalfFold(section)) {
-      // 生地幅をきっちり半分。置いた型紙には左右されない
-      depth.left = usable / 2
+      // きっちり折る。置いた型紙には左右されない。
+      // 両側から折るときは、左右のみみが中央で出会うので、片側ずつは4分の1
+      if (section.fold === 'vBoth') {
+        depth.left = usable / 4
+        depth.right = usable / 4
+      } else {
+        depth.left = usable / 2
+      }
     } else {
       for (const it of items) {
         const s = snapOf(it.p)
@@ -319,15 +329,27 @@ export function computeYardage(
       })
     }
 
-    // 4. 二重になっている帯。ここに丸ごと入ったパーツは2枚取れる
+    // 4. 二重になっている帯。ここに丸ごと入ったパーツは2枚取れる。
+    //    両側から折って左右（上下）の帯が中央で出会っているときは、面が丸ごと二重。
+    //    そこを2本の帯のままにしておくと、中央をまたいで置いたパーツが
+    //    「どちらの帯にも収まっていない＝1枚」と数えられてしまう（依頼者の指摘）
     const doubled: Box[] = []
-    if (depth.left > 0) doubled.push({ x: 0, y: 0, w: depth.left, h: surfaceLength })
-    if (depth.right > 0) {
-      doubled.push({ x: surfaceWidth - depth.right, y: 0, w: depth.right, h: surfaceLength })
+    if (depth.left + depth.right >= surfaceWidth - 0.5 && depth.left > 0 && depth.right > 0) {
+      doubled.push({ x: 0, y: 0, w: surfaceWidth, h: surfaceLength })
+    } else {
+      if (depth.left > 0) doubled.push({ x: 0, y: 0, w: depth.left, h: surfaceLength })
+      if (depth.right > 0) {
+        doubled.push({ x: surfaceWidth - depth.right, y: 0, w: depth.right, h: surfaceLength })
+      }
     }
-    if (depth.top > 0) doubled.push({ x: 0, y: 0, w: surfaceWidth, h: depth.top })
-    if (depth.bottom > 0) {
-      doubled.push({ x: 0, y: surfaceLength - depth.bottom, w: surfaceWidth, h: depth.bottom })
+    if (surfaceLength > 0 && depth.top + depth.bottom >= surfaceLength - 0.5
+      && depth.top > 0 && depth.bottom > 0) {
+      doubled.push({ x: 0, y: 0, w: surfaceWidth, h: surfaceLength })
+    } else {
+      if (depth.top > 0) doubled.push({ x: 0, y: 0, w: surfaceWidth, h: depth.top })
+      if (depth.bottom > 0) {
+        doubled.push({ x: 0, y: surfaceLength - depth.bottom, w: surfaceWidth, h: depth.bottom })
+      }
     }
 
     // 5. パーツごとの枚数と、置き方の問題

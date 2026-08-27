@@ -98,7 +98,7 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded }: Props
       */}
       <svg
         viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
-        className="w-full rounded-xl border border-ink-100 bg-white"
+        className="w-full rounded-xl border border-ink-100 bg-table"
         style={{ aspectRatio: `${view.w} / ${view.h}`, maxHeight: '44vh' }}
         role="img"
         aria-label="型紙と縫い代"

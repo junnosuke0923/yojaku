@@ -7,10 +7,11 @@
  */
 
 import { useMemo, useState } from 'react'
+import type { PlacedPart } from '../lib/fabric'
 import { bounds } from '../lib/geom'
-import { buildSeam, type SeamResult } from '../lib/seam'
 import {
-  isReserve, NAME_CHOICES, outlineOf, planOf, type PartsState, type StoredPart,
+  canOpenFold, cutSizeOf, isReserve, NAME_CHOICES, outlineOf, placedPartOf, planOf,
+  type PartsState, type StoredPart,
 } from '../lib/store'
 import { FabricSetup } from './FabricSetup'
 import { Heading, Icon, Note } from './Icon'
@@ -85,6 +86,8 @@ export function PartsView({ state, onChange, onAddMore, onLayout }: Props) {
           seamIncluded={part.seamIncluded}
           onChange={(plan) => patch(part.id, { allowancesMm: plan.allowancesMm })}
         />
+
+        <OpenFoldOption part={part} onPatch={(over) => patch(part.id, over)} />
       </section>
     )
   }
@@ -183,6 +186,141 @@ export function PartsView({ state, onChange, onAddMore, onLayout }: Props) {
   )
 }
 
+/** 置く形の、外まわりの大きさ(mm) */
+const sizeOf = (placed: PlacedPart) => {
+  const b = bounds(placed.cutLineMm)
+  return { widthMm: b.maxX - b.minX, heightMm: b.maxY - b.minY }
+}
+
+/**
+ * 「わ」の辺を、生地の折り山に当てるか、開いて幅を倍にして裁つか（依頼者の指示）。
+ *
+ * ベルトでよく起きる。型紙は出来上がり幅で描いてあるが、
+ * 裁つときは長い辺で折るぶんを見込んで幅を倍にすることがある。
+ * どちらも同じ布になるので、選べるようにしてある。
+ *
+ * 「わ」の辺が無いパーツには関係がないので、そのときは何も出さない。
+ * 使わない設定を並べても、画面が重くなるだけ。
+ */
+function OpenFoldOption({
+  part, onPatch,
+}: {
+  part: StoredPart
+  onPatch: (over: Partial<StoredPart>) => void
+}) {
+  const open = part.openFold === true
+  // 選んでいないほうの大きさも要る。「開くとどうなるか」を先に見せたいので
+  const opened = useMemo(() => placedPartOf({ ...part, openFold: true }), [part])
+  const plain = useMemo(() => cutSizeOf({ ...part, openFold: false }), [part])
+
+  if (!canOpenFold(part)) return null
+
+  const size = opened ? sizeOf(opened) : null
+  // 幅が伸びたのか長さが伸びたのかは、開いてみれば分かる。決めつけずに測る
+  const along = size && plain
+    ? (size.widthMm - plain.widthMm > size.heightMm - plain.heightMm ? '幅' : '長さ')
+    : '幅'
+
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border border-ink-100 bg-white px-4 py-3">
+      <span className="flex items-center gap-1.5 text-sm font-bold text-ink-700">
+        <Icon name="fold" className="h-4 w-4 shrink-0 text-mat-600" />
+        「わ」の辺を、どう裁ちますか
+      </span>
+
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => onPatch({ openFold: false })}
+          className={`rounded-lg px-2 py-3 text-sm font-bold leading-snug ${
+            !open ? 'bg-mat-500 text-white' : 'border border-ink-100 text-ink-700'
+          }`}
+        >
+          生地の折り山に
+          <br />
+          当てて裁つ
+        </button>
+        <button
+          type="button"
+          onClick={() => onPatch({ openFold: true })}
+          className={`rounded-lg px-2 py-3 text-sm font-bold leading-snug ${
+            open ? 'bg-mat-500 text-white' : 'border border-ink-100 text-ink-700'
+          }`}
+        >
+          開いて{along}を倍にし、
+          <br />
+          一重の生地に裁つ
+        </button>
+      </div>
+
+      {open && opened && <OpenedPreview placed={opened} />}
+
+      <Note icon={open ? 'scissors' : 'fold'}>
+        {open ? (
+          <>
+            型紙を「わ」の辺で
+            <span className="font-bold text-ink-700">左右に開いた形</span>で置きます。
+            {size && (
+              <>
+                {' '}裁ち切りは{' '}
+                <span className="tnum font-bold text-ink-900">
+                  {(size.widthMm / 10).toFixed(1)} × {(size.heightMm / 10).toFixed(1)} cm
+                </span>
+                {plain && (
+                  <span className="tnum text-ink-300">
+                    {' '}（折り山に当てるなら {(plain.widthMm / 10).toFixed(1)} ×{' '}
+                    {(plain.heightMm / 10).toFixed(1)} cm）
+                  </span>
+                )}
+                。
+              </>
+            )}
+            <br />
+            折り山は型紙の中にあるので、
+            <span className="font-bold text-ink-700">生地は折らなくてかまいません</span>。
+            ベルトのように、一重のところへ長く取るときはこちらです。
+          </>
+        ) : (
+          <>
+            「わ」の辺を<span className="font-bold text-ink-700">生地の折り山に当てて</span>、
+            二重のまま裁ちます。学校で最初に習うやり方です。
+            <br />
+            布としては、開いて裁つのと同じものが取れます。
+          </>
+        )}
+      </Note>
+    </div>
+  )
+}
+
+/** 開いたあとの形。数字だけでは、どちらに倍になったのか分からない */
+function OpenedPreview({ placed }: { placed: PlacedPart }) {
+  const b = bounds(placed.cutLineMm)
+  const w = b.maxX - b.minX
+  const h = b.maxY - b.minY
+  const pad = Math.max(w, h) * 0.05
+  const line = Math.max(w, h) * 0.008
+
+  return (
+    <svg
+      viewBox={`${b.minX - pad} ${b.minY - pad} ${w + pad * 2} ${h + pad * 2}`}
+      className="max-h-40 w-full rounded-lg bg-table"
+      preserveAspectRatio="xMidYMid meet"
+      role="img"
+      aria-label="開いたあとの形"
+    >
+      <polygon
+        points={placed.cutLineMm.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')}
+        fill="#3F6FA8" fillOpacity={0.22} stroke="#3F6FA8" strokeWidth={line}
+      />
+      <polygon
+        points={placed.finishedLineMm.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')}
+        fill="#FAF7F0" stroke="#2b332d" strokeWidth={line * 1.4}
+      />
+    </svg>
+  )
+}
+
 function PartRow({
   part, hasNap, onOpen, onPatch, onRemove,
 }: {
@@ -192,13 +330,19 @@ function PartRow({
   onPatch: (over: Partial<StoredPart>) => void
   onRemove: () => void
 }) {
-  const seam = useMemo(() => buildSeam(planOf(part)), [part])
+  /*
+    一覧に出すのは「生地の上で実際に置く形」。
+    「わ」で開いて裁つ設定なら、そのぶん倍になった形でないと絵も数字も合わない
+  */
+  const placed = useMemo(() => placedPartOf(part), [part])
+  const size = placed ? sizeOf(placed) : null
   const folds = part.allowancesMm.filter((a) => a === 0).length
+  const opened = part.openFold === true && folds > 0
 
   return (
     <li className="flex gap-3 rounded-xl border border-ink-100 bg-white p-3">
       <button type="button" onClick={onOpen} className="shrink-0" aria-label={`${part.name}の縫い代`}>
-        <Thumb part={part} hasNap={hasNap} seam={seam} />
+        <Thumb part={part} hasNap={hasNap} placed={placed} />
       </button>
 
       <div className="flex min-w-0 flex-1 flex-col gap-2">
@@ -250,14 +394,14 @@ function PartRow({
           <span className="tnum flex items-center gap-1 text-xs text-ink-500">
             <Icon name="scissors" className="h-3.5 w-3.5 shrink-0" />
             裁ち切り{' '}
-            {seam
-              ? `${(seam.widthMm / 10).toFixed(1)} × ${(seam.heightMm / 10).toFixed(1)} cm`
+            {size
+              ? `${(size.widthMm / 10).toFixed(1)} × ${(size.heightMm / 10).toFixed(1)} cm`
               : '—'}
           </span>
           {folds > 0 && (
             <span className="flex items-center gap-1 text-xs font-bold text-seam">
               <Icon name="fold" className="h-3.5 w-3.5 shrink-0" />
-              わ {folds}本
+              {opened ? 'わで開いて裁つ' : `わ ${folds}本`}
             </span>
           )}
           {part.seamIncluded && (
@@ -278,14 +422,14 @@ function PartRow({
  * 座標の原点が違うので図が横にずれる。
  */
 function Thumb({
-  part, hasNap, seam,
+  part, hasNap, placed,
 }: {
   part: StoredPart
   hasNap: boolean
-  seam: SeamResult | null
+  placed: PlacedPart | null
 }) {
-  const cut = seam?.cutLineMm ?? null
-  const outline = seam?.finishedLineMm ?? outlineOf(part)
+  const cut = placed?.cutLineMm ?? null
+  const outline = placed?.finishedLineMm ?? outlineOf(part)
   const b = bounds(cut ?? outline)
   const w = b.maxX - b.minX
   const h = b.maxY - b.minY
@@ -295,7 +439,7 @@ function Thumb({
   return (
     <svg
       viewBox={`${b.minX - pad} ${b.minY - pad} ${w + pad * 2} ${h + pad * 2}`}
-      className="h-24 w-24 rounded-lg bg-chalk"
+      className="h-24 w-24 rounded-lg bg-table"
       role="img"
       aria-hidden="true"
     >

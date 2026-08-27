@@ -9,8 +9,10 @@
  * 写真も型紙の形も、この端末から出ない作りにしてある。
  */
 
-import { bounds, type Polygon } from './geom'
+import type { EdgeGroup } from './edges'
+import { bounds, centroid, type Polygon } from './geom'
 import { rotate180 } from './marks'
+import { unionWithMirror } from './openFold'
 import { buildSeam, DEFAULT_SEAM_MM, initialPlan, SEAM_INCLUDED_MM, type SeamPlan } from './seam'
 import type { PlacedPart, Placement, Section } from './fabric'
 
@@ -49,6 +51,17 @@ export type StoredPart = {
   seamIncluded: boolean
   /** 辺のまとまりごとの縫い代(mm)。0 は「ここは折り山」、負は「もう付いている」 */
   allowancesMm: number[]
+  /**
+   * 「わ」の辺で開いた形で裁つか（依頼者の指示・2026-08-27）。
+   *
+   * ベルトは、型紙が出来上がり幅で描いてあっても、
+   * 裁つときは長い辺で折るぶんを見込んで幅を倍にすることがある。
+   *
+   * 切ってあるのは同じ布なので、生地の折り山に当てて二重のまま裁っても、
+   * 一重の生地に開いた形を描いて裁ってもよい。ここを入にすると後者になる。
+   * 開けば型紙の中に折り山があるだけなので、生地の折り山はもう要らない。
+   */
+  openFold?: boolean
   /** 必要な枚数。2枚必要なパーツを1枚と数えると要尺が丸ごと狂う（判断2） */
   needed: number
   /**
@@ -93,7 +106,7 @@ export function load(): PartsState {
       parts: Array.isArray(parsed.parts)
         ? parsed.parts.map((p) => ({
             ...p, flipped: p.flipped ?? false, seamIncluded: p.seamIncluded ?? false,
-            kind: p.kind ?? 'pattern',
+            kind: p.kind ?? 'pattern', openFold: p.openFold ?? false,
           }))
         : [],
       fabricWidthMm: parsed.fabricWidthMm ?? EMPTY.fabricWidthMm,
@@ -200,6 +213,12 @@ export function planOf(part: StoredPart): SeamPlan {
   return plan
 }
 
+/** 外まわりの長方形の面積(mm²)。開いて本当に倍になったかを見るのに使う */
+function boxAreaOf(poly: Polygon): number {
+  const b = bounds(poly)
+  return (b.maxX - b.minX) * (b.maxY - b.minY)
+}
+
 /**
  * 生地の上に置くための形。縫い代を足したあとの裁ち切り線を、左上へ寄せて渡す。
  *
@@ -207,15 +226,70 @@ export function planOf(part: StoredPart): SeamPlan {
  * その辺は折り山に当てないと実物ではありえない図になるので、計算側で見張っている。
  */
 export function placedPartOf(part: StoredPart): PlacedPart | null {
-  const seam = buildSeam(planOf(part))
+  const plan = planOf(part)
+  const seam = buildSeam(plan)
   if (!seam) return null
-  const b = bounds(seam.cutLineMm)
+
+  let cutLineMm = seam.cutLineMm
+  let finishedLineMm = seam.finishedLineMm
+  // 0 は「ここは折り山」。負（縫い代つき）は折り山ではない
+  let hasFoldEdge = plan.allowancesMm.some((a) => a === 0)
+
+  if (part.openFold && hasFoldEdge) {
+    // いちばん長い「わ」の辺を鏡にして、左右に開く。
+    // 短いほうを選ぶと、ベルトで長さの向きに開いてしまう
+    let mirror: EdgeGroup | null = null
+    for (let i = 0; i < plan.groups.length; i++) {
+      if (plan.allowancesMm[i] !== 0) continue
+      const g = plan.groups[i]
+      if (!mirror || g.lengthMm > mirror.lengthMm) mirror = g
+    }
+    if (mirror) {
+      /*
+        鏡にするのは、「わ」の辺の**端どうしを結んだ直線**。
+        写真から取った辺は、まっすぐに見えても1〜2mmは波打っている。
+        折り山は本来まっすぐな線なので、その波は形ではなく写真のゆらぎと見て、
+        直線に均してから開く。
+
+        出来上がり線の点は、辺の切り分けと同じ並び順のまま返ってくるので、
+        まとまりの番号からそのまま端の点が引ける。
+      */
+      const n = plan.path.points.length
+      const a = seam.finishedLineMm[mirror.start % n]
+      const b = seam.finishedLineMm[mirror.end % n]
+      const inside = centroid(seam.finishedLineMm)
+      const cut = unionWithMirror(seam.cutLineMm, a, b, inside)
+      const finished = unionWithMirror(seam.finishedLineMm, a, b, inside)
+      // 開いたのに小さくなるのは、鏡の線の取り方をどこかで間違えている。
+      // そのまま出すと学生が短い生地を買うので、黙って開かないほうを選ぶ
+      const grew = cut !== null && boxAreaOf(cut) > boxAreaOf(seam.cutLineMm) * 1.5
+      if (cut && finished && grew) {
+        cutLineMm = cut
+        finishedLineMm = finished
+        // 開いてしまえば、生地の折り山に当てる必要はない。一重の上に置ける
+        hasFoldEdge = false
+      }
+    }
+  }
+
+  const b = bounds(cutLineMm)
   const move = (poly: Polygon) => poly.map((q) => ({ x: q.x - b.minX, y: q.y - b.minY }))
   return {
     id: part.id,
-    cutLineMm: move(seam.cutLineMm),
-    finishedLineMm: move(seam.finishedLineMm),
-    // 0 は「ここは折り山」。負（縫い代つき）は折り山ではない
-    hasFoldEdge: part.allowancesMm.some((a) => a === 0),
+    cutLineMm: move(cutLineMm),
+    finishedLineMm: move(finishedLineMm),
+    hasFoldEdge,
   }
+}
+
+/** 「わ」で開いて裁つ設定が使えるか（＝縫い代 0 の辺があるか） */
+export const canOpenFold = (part: StoredPart): boolean =>
+  !isReserve(part) && part.allowancesMm.some((a) => a === 0)
+
+/** 実際に生地の上で場所を取る大きさ(mm)。「わ」で開いてあればその倍の幅 */
+export function cutSizeOf(part: StoredPart): { widthMm: number; heightMm: number } | null {
+  const placed = placedPartOf(part)
+  if (!placed) return null
+  const b = bounds(placed.cutLineMm)
+  return { widthMm: b.maxX - b.minX, heightMm: b.maxY - b.minY }
 }
