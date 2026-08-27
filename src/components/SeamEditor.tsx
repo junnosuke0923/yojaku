@@ -210,11 +210,11 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded }: Props
             全部に付ける
           </button>
         </div>
-        <div className="pt-2">
-          <Note icon={note ? 'check' : 'hint'} tone={note ? 'good' : 'plain'}>
-            {note ?? '先にまとめて付けてから、裾だけ広げるのが早いです。わ（縫い代 0）の辺は上書きしません。'}
-          </Note>
-        </div>
+        {note && (
+          <div className="pt-2">
+            <Note icon="check" tone="good">{note}</Note>
+          </div>
+        )}
       </div>
       )}
 

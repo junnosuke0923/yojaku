@@ -127,15 +127,45 @@ export function buildSeam(plan: SeamPlan): SeamResult | null {
     for (let i = start; i < end; i++) perPoint[i % n] = mm
   }
 
-  // 各線分の、外向きの単位法線。輪郭は正の回り方にそろえてあるので (dy, -dx) が外を向く
+  /*
+    線分の向きは、**その線分が属する辺の中だけ**を見て決める。
+
+    輪郭は3mm間隔で取り直してあるので、角のちょうど上に点が乗るとはかぎらない。
+    角をまたぐ線分が1本できて、その向きは両側の辺の中間になる。
+    そのまま法線を取ると、裾のような広い縫い代のとき、
+    角のところだけ斜めに大きく張り出したり、逆に角が斜めに削げたりする
+    （依頼者の指摘・2026-08-27。裾を4cmにすると実際にそうなった）。
+
+    辺の内側の点だけで向きを測れば、角をまたぐ線分にも
+    その辺そのものの向きが入るので、角は実物どおり四角く決まる。
+  */
+  const lo = new Int32Array(n)
+  const hi = new Int32Array(n)
+  for (let g = 0; g < plan.groups.length; g++) {
+    const { start, end } = plan.groups[g]
+    for (let i = start; i < end; i++) {
+      // 先頭の1点は角そのもの（＝両方の辺に半分ずつ乗っている）ので、向きの測定からは外す
+      lo[i % n] = Math.min(start + 1, end - 1)
+      hi[i % n] = end - 1
+    }
+  }
+
+  // 各線分の、外向きの単位法線と進む向き。
+  // 輪郭は正の回り方にそろえてあるので (dy, -dx) が外を向く
   const nx = new Float64Array(n)
   const ny = new Float64Array(n)
+  const ux = new Float64Array(n)
+  const uy = new Float64Array(n)
   for (let i = 0; i < n; i++) {
-    const a = gridPts[i]
-    const b = gridPts[(i + 1) % n]
+    const from = Math.max(lo[i], i - 1)
+    const to = Math.min(hi[i], i + 2)
+    const a = to > from ? gridPts[from] : gridPts[i]
+    const b = to > from ? gridPts[to] : gridPts[(i + 1) % n]
     const dx = b.x - a.x
     const dy = b.y - a.y
     const len = Math.hypot(dx, dy) || 1
+    ux[i] = dx / len
+    uy[i] = dy / len
     nx[i] = dy / len
     ny[i] = -dx / len
   }
@@ -149,11 +179,8 @@ export function buildSeam(plan: SeamPlan): SeamResult | null {
     const a = gridPts[i]
     const b = gridPts[(i + 1) % n]
     // 隣の帯とのあいだに髪の毛ほどの隙間が残らないよう、進む向きにわずかに伸ばす
-    const dx = b.x - a.x
-    const dy = b.y - a.y
-    const len = Math.hypot(dx, dy) || 1
-    const ex = (dx / len) * 0.5
-    const ey = (dy / len) * 0.5
+    const ex = ux[i] * 0.5
+    const ey = uy[i] * 0.5
     const ox = nx[i] * mm
     const oy = ny[i] * mm
     fillPolygon(grid, [
@@ -172,11 +199,12 @@ export function buildSeam(plan: SeamPlan): SeamResult | null {
     const a2 = perPoint[j]
     if (a1 <= 0 && a2 <= 0) continue
 
+    // 向きは、角をまたぐ線分そのものではなく、両側の辺のものを使う（上の注記）
     const p = gridPts[j]
-    const d1x = p.x - gridPts[i].x
-    const d1y = p.y - gridPts[i].y
-    const d2x = gridPts[(j + 1) % n].x - p.x
-    const d2y = gridPts[(j + 1) % n].y - p.y
+    const d1x = ux[i]
+    const d1y = uy[i]
+    const d2x = ux[j]
+    const d2y = uy[j]
 
     // 外へ張り出す角だけ。へこむ角では帯どうしがもともと重なっているので隙間は出ない
     if (d1x * d2y - d1y * d2x <= 0) continue

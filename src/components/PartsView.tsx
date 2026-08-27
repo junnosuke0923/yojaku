@@ -41,6 +41,10 @@ export function PartsView({ state, onChange, onAddMore, onLayout, openSeamFor }:
     onChange({ ...state, parts: state.parts.map((p) => (p.id === id ? { ...p, ...over } : p)) })
 
   const part = state.parts.find((p) => p.id === editing)
+  /** 縫い代の画面で、隣の型紙へ移るための前後 */
+  const at = state.parts.findIndex((p) => p.id === editing)
+  const prev = at > 0 ? state.parts[at - 1] : null
+  const next = at >= 0 && at < state.parts.length - 1 ? state.parts[at + 1] : null
 
   if (part) {
     return (
@@ -62,24 +66,18 @@ export function PartsView({ state, onChange, onAddMore, onLayout, openSeamFor }:
           </span>
         </div>
 
-        <p className="text-sm leading-relaxed text-ink-500">
-          {part.seamIncluded ? (
-            <>
-              この型紙には<span className="font-bold text-ink-700">もう縫い代が付いている</span>
-              ので、足す量は聞きません。
-              <br />
-              折り山に当てる辺（<span className="font-bold text-seam">わ</span>）だけ選んでください。
-            </>
-          ) : (
-            <>
-              型紙は<span className="font-bold text-ink-700">出来上がり線</span>で切ってあるので、
-              ここで縫い代を足します。足したぶんだけが
-              <span className="font-bold text-cut">青</span>で出ます。
-            </>
-          )}
-          <br />
-          <span className="font-bold text-ink-700">辺をそのまま指で押して</span>選べます。
-        </p>
+        {/* 説明はひと言だけ。続きは「？」の中（依頼者の指示・2026-08-27） */}
+        {part.seamIncluded ? (
+          <Hint icon="fold" summary={<>辺を押して、<b className="text-seam">わ</b>の辺だけ選びます</>}>
+            この型紙にはもう縫い代が付いているので、足す量は聞きません。
+            折り山に当てる辺だけ教えてください。
+          </Hint>
+        ) : (
+          <Hint icon="seam" summary={<>辺を押して、<b className="text-ink-700">縫い代</b>を決めます</>}>
+            型紙は出来上がり線で切ってあるので、ここで縫い代を足します。
+            足したぶんだけが青で出ます。縫い代 0 は「ここは折り山（わ）」の意味です。
+          </Hint>
+        )}
 
         <SeamEditor
           plan={planOf(part)}
@@ -90,6 +88,43 @@ export function PartsView({ state, onChange, onAddMore, onLayout, openSeamFor }:
         />
 
         <OpenFoldOption part={part} onPatch={(over) => patch(part.id, over)} />
+
+        {/*
+          型紙が何枚もあるとき、1枚ごとに一覧へ戻るのは手間（依頼者の指示・2026-08-27）。
+          ここから隣の型紙へ直接移れるようにしてある。
+          最後の1枚まで来たら、そのまま並べるところへ進める
+        */}
+        <div className="flex gap-2 pt-1">
+          {prev && (
+            <button
+              type="button"
+              onClick={() => setEditing(prev.id)}
+              className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl border-2 border-ink-100 px-3 py-3 text-sm font-bold text-ink-700"
+            >
+              <Icon name="back" className="h-4 w-4 shrink-0" />
+              <span className="truncate">{prev.name}</span>
+            </button>
+          )}
+          {next ? (
+            <button
+              type="button"
+              onClick={() => setEditing(next.id)}
+              className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl bg-mat-500 px-3 py-3 text-sm font-bold text-white active:bg-mat-600"
+            >
+              <span className="truncate">{next.name}</span>
+              <Icon name="back" className="h-4 w-4 shrink-0 rotate-180" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onLayout}
+              className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl bg-mat-500 px-3 py-3 text-sm font-bold text-white active:bg-mat-600"
+            >
+              <Icon name="layout" className="h-4 w-4 shrink-0" />
+              生地に並べる
+            </button>
+          )}
+        </div>
       </section>
     )
   }
