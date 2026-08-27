@@ -488,7 +488,7 @@ function SectionCanvas({
     紙を2枚わずかにずらして重ねたときのように、角がのぞいていれば、
     そこに布が2枚あることが言葉なしで分かる
   */
-  const UNDER_SHIFT = RIM * 0.75
+  const UNDER_SHIFT = RIM * 1.15
   if (hasUnder) {
     if (isHorizontalFold(section.fold)) under.x1 += UNDER_SHIFT
     else under.y1 += UNDER_SHIFT
@@ -567,36 +567,45 @@ function SectionCanvas({
 
   const topPath = sheet(-ext.left, -ext.top, W + ext.right, L + ext.bottom, cutTop, cutBottom)
   /**
-   * 下になっている一枚の輪郭。
+   * 折り山まわりの形。
    *
-   * 上の一枚と同じ形を、みみの側と裁ち端の側へ少しずらして描く。
+   * 下の一枚は、上の一枚と同じ形を、みみの側と裁ち端の側へ少しずらして描く。
    * ただし**折り山に近いところでは、ずらす量を 0 に戻す**（依頼者の指摘・2026-08-27）。
    * 折り山では2枚が地続きなので、端まで同じ量ずらしたままだと、
    * そこに切り込みが入っているように見えてしまう。
-   * 0 に戻すと、折り山のところで布が U 字に折り返っているように読める。
+   * 0 に戻すと2枚の裁ち端がそこで1本に合わさり、布が回り込んで見える。
+   *
+   * その回り込みを、折り山の緑の線でもなぞる（依頼者の指示・2026-08-27）。
+   * 線が角で向こうへ曲がっていくのが、断面図のカールと同じ意味になる。
+   * 曲がりきったところで線は消えるので、裁ち端を折り山と言い張ることにはならない。
    *
    * 折り山に沿う向きを u、折り山から離れる向きを v として組み立て、
    * 最後に画面の向きへ移している。折り山が左でも上でも下でも、同じ式で書けるため
    */
-  const underOutline = () => {
+  const foldShape = (() => {
     const foldSide = flaps.find((f) => f.full)?.side
-    if (!foldSide) return ''
+    if (!foldSide) return null
     const vertical = foldSide === 'left' || foldSide === 'right'
     /** u は折り山に沿う向き。その向こうの端が、ずらす側 */
     const uMax = vertical ? L : W
     /** v は折り山から離れる向き。その先にみみが2枚重なっている */
     const vMax = vertical ? W : L
     const r = SP * 1.7
+    /** 回り込みきるまでの長さ。短いほど、角の曲がりがきつく見える */
+    const RAMP = r * 1.25
     const amp = W * 0.005
 
+    const xy = (u: number, v: number) => ({
+      x: foldSide === 'left' ? v : foldSide === 'right' ? W - v : u,
+      y: foldSide === 'top' ? v : foldSide === 'bottom' ? L - v : u,
+    })
     const at = (u: number, v: number) => {
-      const x = foldSide === 'left' ? v : foldSide === 'right' ? W - v : u
-      const y = foldSide === 'top' ? v : foldSide === 'bottom' ? L - v : u
-      return `${x.toFixed(1)} ${y.toFixed(1)}`
+      const p = xy(u, v)
+      return `${p.x.toFixed(1)} ${p.y.toFixed(1)}`
     }
     /** 折り山からどれだけ離れたか。0 なら折り山と地続き、1 でずらしきる */
     const away = (v: number) => {
-      const t = Math.min(1, Math.max(0, (v + SP - r) / (r * 2)))
+      const t = Math.min(1, Math.max(0, (v + SP - r) / RAMP))
       return t * t * (3 - 2 * t)
     }
     /** 向こうの端の位置。折り山へ近づくほど、上の一枚の端まで戻る */
@@ -609,18 +618,36 @@ function SectionCanvas({
     const v0 = -SP + r
     const v1 = vMax + RIM
     const steps = 40
-    let d = `M${at(0, v0)} L${at(0, v1)} L${at(far(v1), v1)}`
+    /** 回り込みをなぞる線。v0 から、ずらしきるところまで */
+    const turn = (from: number, to: number) => {
+      let d = ''
+      for (let i = 1; i <= 16; i++) {
+        const v = from + (to - from) * (i / 16)
+        d += ` L${at(far(v), v)}`
+      }
+      return d
+    }
+
+    let under = `M${at(0, v0)} L${at(0, v1)} L${at(far(v1), v1)}`
     for (let i = steps - 1; i >= 0; i--) {
       const v = v0 + ((v1 - v0) * i) / steps
-      d += ` L${at(far(v), v)}`
+      under += ` L${at(far(v), v)}`
     }
     // 折り山。角のまるみは上の一枚とそろえる
-    d += ` Q${at(uMax, -SP)} ${at(uMax - r, -SP)}`
-    d += ` L${at(r, -SP)}`
-    d += ` Q${at(0, -SP)} ${at(0, v0)} Z`
-    return d
-  }
-  const underPath = underOutline()
+    under += ` Q${at(uMax, -SP)} ${at(uMax - r, -SP)}`
+    under += ` L${at(r, -SP)}`
+    under += ` Q${at(0, -SP)} ${at(0, v0)} Z`
+
+    const crease = `M${at(uMax - r, -SP)} Q${at(uMax, -SP)} ${at(far(v0), v0)}`
+      + turn(v0, Math.min(v1, v0 + RAMP * 1.15))
+    const g0 = xy(uMax, -SP)
+    const g1 = xy(uMax, v0 + RAMP * 1.15)
+
+    return { under, crease, fade: { x1: g0.x, y1: g0.y, x2: g1.x, y2: g1.y } }
+  })()
+  const underPath = foldShape?.under ?? ''
+  /** 回り込みが見えるのは、折り返しが面を丸ごと覆っている側だけ */
+  const curlSide = flaps.find((f) => f.full)?.side
 
   /**
    * みみ。実物のみみには、織るときの機械のピン穴が点々と並んでいる。
@@ -856,6 +883,20 @@ function SectionCanvas({
                 </linearGradient>
               )
             })}
+
+            {/*
+              回り込みをなぞる緑の線は、曲がりきったところで消す。
+              そのまま裁ち端まで引いてしまうと、裁ち端も折り山だと言うことになる
+            */}
+            {foldShape && (
+              <linearGradient id={`${gid}-curl`} gradientUnits="userSpaceOnUse"
+                x1={foldShape.fade.x1} y1={foldShape.fade.y1}
+                x2={foldShape.fade.x2} y2={foldShape.fade.y2}>
+                <stop offset="0" stopColor={CREASE} />
+                <stop offset="0.4" stopColor={CREASE} />
+                <stop offset="1" stopColor={CREASE} stopOpacity="0" />
+              </linearGradient>
+            )}
 
             {/* 生地が台に落とす影。紙が机の上に置いてあるように見せる */}
             <filter id={`${gid}-drop`} x="-25%" y="-25%" width="160%" height="160%">
@@ -1212,6 +1253,11 @@ function SectionCanvas({
               <g key={side}>
                 <line x1={apex[0]} y1={apex[1]} x2={apex[2]} y2={apex[3]}
                   stroke={CREASE} strokeWidth={W * 0.007} strokeLinecap="round" />
+                {/* 裁ち端の側では、山がそのまま向こうへ回り込む。そこまで線でなぞる */}
+                {foldShape && side === curlSide && (
+                  <path d={foldShape.crease} fill="none" stroke={`url(#${gid}-curl)`}
+                    strokeWidth={W * 0.007} strokeLinecap="round" />
+                )}
                 {horiz ? (
                   <g>
                     {iconFold(lx, ly - W * 0.105, W * 0.056, side, CREASE)}
