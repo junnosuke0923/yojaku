@@ -14,7 +14,7 @@ import { bounds, centroid, type Polygon } from './geom'
 import { rotate180 } from './marks'
 import { unionWithMirror } from './openFold'
 import { buildSeam, DEFAULT_SEAM_MM, initialPlan, SEAM_INCLUDED_MM, type SeamPlan } from './seam'
-import type { PlacedPart, Placement, Section } from './fabric'
+import { FOLD_MARK_REF_MM, type FoldMark, type PlacedPart, type Placement, type Section } from './fabric'
 
 const KEY = 'yojaku.parts.v1'
 
@@ -272,13 +272,51 @@ export function placedPartOf(part: StoredPart): PlacedPart | null {
     }
   }
 
+  /*
+    「わ」の辺に付ける作図の記号の置き場所（依頼者の指示・2026-08-27）。
+
+    縫い代の画面だけでなく、生地に並べた図にも出す。
+    裁ち合わせ図では、どの辺を折り山に当てているのかが図の要になるので、
+    むしろこちらのほうが本番、と依頼者から言われている。
+
+    向きは「辺に沿う向き」と「型紙の内側」の2つが分かればよいので、
+    真ん中の点から左右へ伸ばした2点と、内側へ寄せた1点で表す。
+    開いて裁つ設定にしたときは、生地の折り山に当てないので記号も出さない。
+  */
+  const foldMarksMm: FoldMark[] = []
+  if (hasFoldEdge) {
+    // 辺の切り分けは出来上がり線のもとの座標で出ているので、そのぶんずらす
+    const sx = seam.finishedLineMm[0].x - plan.path.points[0].x
+    const sy = seam.finishedLineMm[0].y - plan.path.points[0].y
+    const R = FOLD_MARK_REF_MM
+    for (let i = 0; i < plan.groups.length; i++) {
+      if (plan.allowancesMm[i] !== 0) continue
+      const g = plan.groups[i]
+      const cx = g.midpoint.x + sx
+      const cy = g.midpoint.y + sy
+      // 辺に沿う向き。外向きの法線を 90 度まわしたもの
+      const tx = g.outward.y
+      const ty = -g.outward.x
+      foldMarksMm.push({
+        a: { x: cx - tx * R, y: cy - ty * R },
+        b: { x: cx + tx * R, y: cy + ty * R },
+        inn: { x: cx - g.outward.x * R, y: cy - g.outward.y * R },
+        lengthMm: g.lengthMm,
+      })
+    }
+  }
+
   const b = bounds(cutLineMm)
-  const move = (poly: Polygon) => poly.map((q) => ({ x: q.x - b.minX, y: q.y - b.minY }))
+  const mv = (q: { x: number; y: number }) => ({ x: q.x - b.minX, y: q.y - b.minY })
+  const move = (poly: Polygon) => poly.map(mv)
   return {
     id: part.id,
     cutLineMm: move(cutLineMm),
     finishedLineMm: move(finishedLineMm),
     hasFoldEdge,
+    foldMarksMm: foldMarksMm.map((m) => ({
+      a: mv(m.a), b: mv(m.b), inn: mv(m.inn), lengthMm: m.lengthMm,
+    })),
   }
 }
 

@@ -15,7 +15,7 @@ import { initialPlan, applyToAll, buildSeam, foldGroups } from '../src/lib/seam'
 import { splitEdges } from '../src/lib/edges'
 import { bounds, type Point } from '../src/lib/geom'
 import {
-  computeYardage, newPlacement, toPurchaseLength,
+  computeYardage, newPlacement, orientedPair, toPurchaseLength,
   type Fabric, type Placement, type PlacedPart,
 } from '../src/lib/fabric'
 import { placedPartOf, planOf, toStored } from '../src/lib/store'
@@ -143,7 +143,7 @@ console.log('\n■ へこんだ角 — 形が壊れないか')
 
 const part = (id: string, w: number, h: number, hasFoldEdge = false): PlacedPart => ({
   // 実際の型紙と同じく、出来上がり線は裁ち切り線の内側にある
-  id, hasFoldEdge, cutLineMm: rect(w, h), finishedLineMm: rect(w, h),
+  id, hasFoldEdge, cutLineMm: rect(w, h), finishedLineMm: rect(w, h), foldMarksMm: [],
 })
 
 const fabric = (widthMm: number, folds: Fabric['sections'][number]['fold'][], hasNap = false): Fabric => ({
@@ -253,6 +253,38 @@ console.log('\n■ ベルトを「わ」で開いて、幅を倍にして裁つ'
   near('長さは変わらない', o.h, a.h, 3)
   ok('折り山に当てるほうは「わ」の辺を持つ', closed.hasFoldEdge, `${closed.hasFoldEdge}`)
   ok('開いたほうは生地の折り山が要らない', !opened.hasFoldEdge, `${opened.hasFoldEdge}`)
+
+  /*
+    「わ」の辺に付ける作図の記号（依頼者の指示・2026-08-27）。
+
+    記号は3つの点で持たせてあり、生地の上では裁ち切り線と同じ計算に通す。
+    見たいのは「どう置いても、まるいほうが型紙の内側を向いているか」。
+    向きを角度で持つとここが裏返しのときに反転するので、点で持たせてある。
+    内側の点のほうが、外まわりの真ん中に近ければ内向き。
+  */
+  ok('折り山に当てるほうは「わ」の記号を持つ',
+    closed.foldMarksMm.length === 1, `${closed.foldMarksMm.length} 本`)
+  ok('開いたほうは「わ」の記号を出さない',
+    opened.foldMarksMm.length === 0, `${opened.foldMarksMm.length} 本`)
+  {
+    const facing = (name: string, pl: Placement) => {
+      const { cut, marks } = orientedPair(closed, pl)
+      const b = bounds(cut)
+      const gx = (b.minX + b.maxX) / 2
+      const gy = (b.minY + b.maxY) / 2
+      const m = marks[0]
+      const mx = (m.a.x + m.b.x) / 2
+      const my = (m.a.y + m.b.y) / 2
+      const onEdge = Math.hypot(mx - gx, my - gy)
+      const inside = Math.hypot(m.inn.x - gx, m.inn.y - gy)
+      ok(`${name}でも内側を向く`, inside < onEdge - 1,
+        `内 ${inside.toFixed(0)} < 辺 ${onEdge.toFixed(0)}`)
+    }
+    facing('そのまま', newPlacement('m1', belt.id, 's1'))
+    facing('裏返し', newPlacement('m2', belt.id, 's1', { mirrored: true }))
+    facing('180度', newPlacement('m3', belt.id, 's1', { rot180: true }))
+    facing('地の目を90度', newPlacement('m4', belt.id, 's1', { rot90: true }))
+  }
 }
 
 console.log('\n■ 縦わ・両側 — 型紙を置かなくても、中央まで折れている')

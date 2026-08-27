@@ -354,17 +354,25 @@ export function App() {
     setStep('photo')
   }
 
-  /** いま押したら何が起きるか。画面によって変える */
   /**
-   * 上の帯を押して、その段階へ戻れるか。
-   * 戻った先に見せるものが揃っていない段階（写真も定規もまだ、など）は押せない
+   * 上の帯を押して、その段階へ行けるか。**前へも後ろへも同じ決まりで見る**
+   * （依頼者の指示・2026-08-27）。
+   *
+   * 見るのは「その段階で見せるものが、もう揃っているか」だけ。
+   * 揃っていれば行ったり来たりできる。縫い代を一本だけ直して、
+   * 並べる画面の続きへ戻る——という往復ができないと、
+   * 直すたびに前の画面をひとつずつたどり直すことになる。
+   *
+   * 取り込んだものも並べたものも端末に残してあるので、
+   * 往復しても、直したところは直ったまま戻ってくる
    */
-  const canGoBack = (to: Step) => {
+  const canGo = (to: Step) => {
     switch (to) {
       case 'photo': return true
       case 'ruler': return !!(image && quad)
       case 'result': return !!(image && result)
       case 'parts': return parts.parts.length > 0
+      case 'layout': return parts.parts.length > 0
       default: return false
     }
   }
@@ -446,7 +454,7 @@ export function App() {
         </div>
       </header>
 
-      <StepBar step={step} canGo={canGoBack} onGo={setStep} />
+      <StepBar step={step} canGo={canGo} onGo={setStep} />
 
       <main className="safe-b flex flex-1 flex-col gap-4 px-4 py-4">
         {/*
@@ -849,14 +857,18 @@ const STEPS: Array<{ id: Step; label: string; icon: IconName }> = [
 ]
 
 /**
- * 段階の帯。**戻れる段階は押せる**（依頼者の指示・2026-08-27）。
+ * 段階の帯。**用意ができている段階は、前へも後ろへも押して行ける**
+ * （依頼者の指示・2026-08-27）。
  *
  * 前の段階へ戻る道は、それぞれの画面の中にも置いてあるが、
- * 2つ以上前へ戻ろうとすると、そのたびに1画面ずつ通ることになる。
- * 「いまここ」と言っている帯がそのまま行き先になっていれば、一度で戻れる。
+ * 2つ以上動こうとすると、そのたびに1画面ずつ通ることになる。
+ * 「いまここ」と言っている帯がそのまま行き先になっていれば、一度で行ける。
  *
- * 押せるのは前の段階だけ。先へ進むのは、それぞれの画面のボタンからで、
- * ここから飛べてしまうと、まだ決めていないことを飛ばせてしまう
+ * まだ用意ができていない段階（写真も定規もまだ、など）は押せないままにしてある。
+ * そこへ飛べてしまうと、何も無い画面が出るため。
+ *
+ * 上の細い線は3通りに塗り分ける。
+ * 濃い緑＝ここまで来た、薄い緑＝押せば行ける、灰色＝まだ行けない
  */
 function StepBar({ step, canGo, onGo }: {
   step: Step
@@ -867,14 +879,21 @@ function StepBar({ step, canGo, onGo }: {
   return (
     <ol data-tour="steps" className="flex gap-1 px-4">
       {STEPS.map((s, i) => {
-        const back = i < index && canGo(s.id)
+        const here = i === index
+        const ready = canGo(s.id)
+        /** いまいるところ以外で、用意ができているところ＝押して行ける */
+        const jump = !here && ready
         const label = (
           <>
-            <span className={`h-1 rounded-full ${i <= index ? 'bg-mat-500' : 'bg-ink-100'}`} />
+            <span
+              className={`h-1 rounded-full ${
+                i <= index ? 'bg-mat-500' : ready ? 'bg-mat-300' : 'bg-ink-100'
+              }`}
+            />
             <span
               className={`flex items-center gap-1 text-xs ${
-                i === index ? 'font-bold text-mat-700'
-                  : back ? 'text-mat-700' : 'text-ink-300'
+                here ? 'font-bold text-mat-700'
+                  : jump ? 'text-mat-700' : 'text-ink-300'
               }`}
             >
               <Icon name={s.icon} className="h-3.5 w-3.5 shrink-0" />
@@ -884,11 +903,11 @@ function StepBar({ step, canGo, onGo }: {
         )
         return (
           <li key={s.id} className="flex flex-1 flex-col">
-            {back ? (
+            {jump ? (
               <button
                 type="button"
                 onClick={() => onGo(s.id)}
-                aria-label={`${s.label}へ戻る`}
+                aria-label={`${s.label}へ${i < index ? '戻る' : '進む'}`}
                 className="flex flex-col gap-1.5 text-left active:opacity-60"
               >
                 {label}

@@ -17,7 +17,7 @@
  * それを `snapTo` として持てば堂々めぐりは起きない。
  */
 
-import type { Polygon } from './geom'
+import type { Point, Polygon } from './geom'
 import { bounds } from './geom'
 
 /** 耳の幅(mm)。片側2cm。有効幅 ＝ 生地幅 − 4cm */
@@ -129,6 +129,28 @@ export type Placement = {
   rot90: boolean
 }
 
+/**
+ * 「わ」の辺に付ける作図の記号（◎の半分）を、どこにどの向きで描くか。
+ *
+ * 向きを角度や法線で持たず、**3つの点**で持たせてある。
+ * 生地の上ではパーツを回したり裏返したりするが、点にしておけば
+ * 裁ち切り線とまったく同じ計算に通せて、裏返したときの弧の向きも自然に付いてくる。
+ *
+ * a と b は辺に沿った直径の両端、inn は型紙の内側にある点。
+ * a と b の間は `FOLD_MARK_REF_MM` に固定してあり、実際に描く大きさは
+ * 描く側が決める（縫い代の画面と生地の画面では、見やすい大きさが違うため）。
+ */
+export type FoldMark = {
+  a: Point
+  b: Point
+  inn: Point
+  /** もとの辺の長さ(mm)。短い辺に大きく描くとはみ出すので、大きさの上限に使う */
+  lengthMm: number
+}
+
+/** 「わ」の記号の 3 点を作るときの、a–b 間の長さ(mm)。向きを取り出すためだけの目安 */
+export const FOLD_MARK_REF_MM = 10
+
 /** 配置に使うパーツ。縫い代を足したあとの形と、もとの出来上がり線の両方を持つ */
 export type PlacedPart = {
   id: string
@@ -143,6 +165,8 @@ export type PlacedPart = {
   finishedLineMm: Polygon
   /** 縫い代 0 の辺（＝折り山に当てる辺）を持つか */
   hasFoldEdge: boolean
+  /** 「わ」の辺に付ける作図の記号の置き場所。辺ごとに1つ */
+  foldMarksMm: FoldMark[]
 }
 
 export const usableWidthMm = (fabric: Fabric) => Math.max(0, fabric.widthMm - SELVAGE_MM * 2)
@@ -163,7 +187,9 @@ export const newPlacement = (
  * 位置合わせの基準は**必ず裁ち切り線の枠**にする。
  * 出来上がり線を自分の枠で正規化すると、2本が別々にずれてしまう。
  */
-export function orientedPair(part: PlacedPart, p: Placement): { cut: Polygon; finished: Polygon } {
+export function orientedPair(
+  part: PlacedPart, p: Placement,
+): { cut: Polygon; finished: Polygon; marks: FoldMark[] } {
   const swap = (poly: Polygon) => (p.rot90 ? poly.map((q) => ({ x: q.y, y: q.x })) : poly)
   const cut = swap(part.cutLineMm)
   const finished = swap(part.finishedLineMm)
@@ -180,7 +206,13 @@ export function orientedPair(part: PlacedPart, p: Placement): { cut: Polygon; fi
       return { x, y }
     })
 
-  return { cut: move(cut), finished: move(finished) }
+  // 「わ」の記号も、裁ち切り線とまったく同じ計算に通す
+  const marks = part.foldMarksMm.map((m) => {
+    const [a, bb, inn] = move(swap([m.a, m.b, m.inn]))
+    return { a, b: bb, inn, lengthMm: m.lengthMm }
+  })
+
+  return { cut: move(cut), finished: move(finished), marks }
 }
 
 /** パーツを、置いた向きのとおりに変換した裁ち切り線 */

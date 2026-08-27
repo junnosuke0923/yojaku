@@ -36,6 +36,8 @@ const LABEL_PUSH_MM = 22
 export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded }: Props) {
   const [selected, setSelected] = useState(0)
   const [bulkCm, setBulkCm] = useState(1)
+  /** 一覧に無い幅を、自分で入れる欄。cm。空なら「まだ入れていない」 */
+  const [freeCm, setFreeCm] = useState('')
   const [note, setNote] = useState<string | null>(null)
 
   const seam = useMemo(() => buildSeam(plan), [plan])
@@ -52,6 +54,17 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded }: Props
       dy: seam ? seam.finishedLineMm[0].y - plan.path.points[0].y : 0,
     }
   }, [seam, plan])
+
+  /**
+   * 辺を選び直す。自分で入れた数字は、そのつど空にする。
+   * 別の辺を選んだのに前の辺の数字が残っていると、
+   * いま出ている幅と欄の数字が食い違って見えるため
+   */
+  const pick = (groupIndex: number) => {
+    setSelected(groupIndex)
+    setNote(null)
+    setFreeCm('')
+  }
 
   const setAllowance = (groupIndex: number, mm: number) => {
     const allowancesMm = [...plan.allowancesMm]
@@ -89,6 +102,26 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded }: Props
   }
 
   const currentMm = plan.allowancesMm[selected] ?? 0
+  /** いまの幅が、決まった札のどれでもない＝自分で決めた辺 */
+  const isCustom =
+    currentMm > 0 && !SEAM_STEPS_CM.some((c) => Math.abs(currentMm - c * 10) < 0.01)
+
+  /**
+   * 一覧に無い幅を、選んでいる辺だけに付ける（依頼者の指示・2026-08-27）。
+   *
+   * 決まった札だけだと、1.8 cm のような指定が出たときに入れる場所が無い。
+   * かといって札を増やすと、いつも使う 1 cm や 1.5 cm が探しにくくなる。
+   * めったに使わない数値は、この欄へ逃がしてある。
+   *
+   * 1 mm 刻みに丸める。それより細かい指定は、裁つときに意味を持たない。
+   * 0 と入れたら「わ」になる。札の「わ 0」と同じ扱い
+   */
+  const applyFree = () => {
+    const cm = Number(freeCm)
+    if (freeCm.trim() === '' || !Number.isFinite(cm)) return
+    setAllowance(selected, Math.round(Math.min(20, Math.max(0, cm)) * 10))
+    setFreeCm('')
+  }
 
   /**
    * 「わ」の辺に付ける、作図の記号（依頼者の指示・2026-08-27）。
@@ -137,7 +170,11 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded }: Props
         viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
         data-tour="seam-figure"
         className="w-full rounded-xl border border-ink-100 bg-table"
-        style={{ aspectRatio: `${view.w} / ${view.h}`, maxHeight: 'max(140px, min(34vh, calc(100dvh - 33rem)))' }}
+        style={{
+          aspectRatio: `${view.w} / ${view.h}`,
+          // 下に置く操作のぶんを引いた残り。自分で決める欄がある画面は、そのぶん深く引く
+          maxHeight: `max(140px, min(34vh, calc(100dvh - ${seamIncluded ? '33rem' : '35.5rem'})))`,
+        }}
         role="img"
         aria-label="型紙と縫い代"
       >
@@ -193,7 +230,7 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded }: Props
             strokeWidth={26}
             strokeLinecap="round"
             style={{ cursor: 'pointer' }}
-            onPointerDown={() => { setSelected(gi); setNote(null) }}
+            onPointerDown={() => pick(gi)}
           />
         ))}
 
@@ -208,7 +245,7 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded }: Props
             <g
               key={`no-${g.no}`}
               style={{ cursor: 'pointer' }}
-              onPointerDown={() => { setSelected(gi); setNote(null) }}
+              onPointerDown={() => pick(gi)}
             >
               <circle cx={cx} cy={cy} r={14} fill={on ? '#b4433a' : '#ffffff'}
                 stroke={on ? '#b4433a' : '#9aa69e'} strokeWidth={1.6} />
@@ -344,6 +381,39 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded }: Props
                 )
               })}
             </div>
+
+            {/*
+              札に無い幅は、ここに直接入れる（依頼者の指示・2026-08-27）。
+              いま入っている幅が札のどれでもないときは、この欄を縫い代の色にして、
+              「その数字はここから来ている」と分かるようにしてある
+            */}
+            <form
+              onSubmit={(e) => { e.preventDefault(); applyFree() }}
+              className="mt-2 flex items-center gap-2 border-t border-ink-100 pt-2"
+            >
+              <span className="shrink-0 text-xs font-bold text-ink-500">自分で決める</span>
+              <input
+                type="number"
+                inputMode="decimal"
+                step={0.1}
+                min={0}
+                max={20}
+                value={freeCm}
+                onChange={(e) => setFreeCm(e.target.value)}
+                placeholder={isCustom ? (currentMm / 10).toFixed(1) : '1.8'}
+                aria-label="縫い代の幅（cm）"
+                className={`tnum w-16 rounded-lg border px-2 py-1.5 text-center text-base ${
+                  isCustom ? 'border-seam font-bold text-seam' : 'border-ink-100'
+                }`}
+              />
+              <span className="text-sm text-ink-500">cm</span>
+              <button
+                type="submit"
+                className="ml-auto shrink-0 rounded-lg border border-mat-500 px-3 py-1.5 text-sm font-bold text-mat-700 active:bg-mat-50"
+              >
+                この辺に付ける
+              </button>
+            </form>
           </>
         )}
       </div>

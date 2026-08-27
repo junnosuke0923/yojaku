@@ -17,9 +17,10 @@
 import { useMemo, useRef, useState, type PointerEvent, type ReactNode } from 'react'
 import { isReserve, RESERVE_CHOICES, toReserve } from '../lib/store'
 import {
-  canHalfFold, computeYardage, FOLD_LABELS, foldSidesOf, isHalfFold, isHorizontalFold,
-  newPlacement, orientedPair, PURCHASE_MARGIN_MM, SELVAGE_MM, SNAP_MM,
-  type Fabric, type FoldMode, type PlacedPart, type Placement, type Section, type Side,
+  canHalfFold, computeYardage, FOLD_LABELS, FOLD_MARK_REF_MM, foldSidesOf, isHalfFold,
+  isHorizontalFold, newPlacement, orientedPair, PURCHASE_MARGIN_MM, SELVAGE_MM, SNAP_MM,
+  type Fabric, type FoldMark, type FoldMode, type PlacedPart, type Placement,
+  type Section, type Side,
 } from '../lib/fabric'
 import { placedPartOf, type PartsState, type StoredPart } from '../lib/store'
 import { FoldDiagram } from './FoldDiagram'
@@ -722,6 +723,42 @@ function SectionCanvas({
     )
   }
 
+  /**
+   * 「わ」の辺に付ける作図の記号（依頼者の指示・2026-08-27）。
+   *
+   * ◎ を半分にした形——同じ中心の半円を二重に、辺の上へ伏せて描く。
+   * 縫い代の画面に出しているものと同じ形で、学校の作図の決まりごと。
+   * **裁ち合わせ図では、どの辺を折り山に当てているかが図の要**なので、
+   * こちらにも同じ印を出す。
+   *
+   * ふくらむ向きは、型紙の内側の点との向きから決める。
+   * こうしておくと、回して置いても裏返して置いても、いつも内側へふくらむ。
+   */
+  const foldMarks = (marks: FoldMark[]) =>
+    marks.map((m, i) => {
+      const cx = (m.a.x + m.b.x) * 0.5
+      const cy = (m.a.y + m.b.y) * 0.5
+      // 短い辺に大きく描くとはみ出して別の形に見えるので、辺の長さでも抑える
+      const R = Math.min(W * 0.032, m.lengthMm * 0.3)
+      if (R < W * 0.008) return null
+      const ux = (m.b.x - m.a.x) / (FOLD_MARK_REF_MM * 2)
+      const uy = (m.b.y - m.a.y) / (FOLD_MARK_REF_MM * 2)
+      // 外積の向きが、そのまま SVG の弧のまわり方（sweep）になる
+      const cross =
+        (m.b.x - m.a.x) * (m.inn.y - m.a.y) - (m.b.y - m.a.y) * (m.inn.x - m.a.x)
+      const sweep = cross < 0 ? 1 : 0
+      const half = (rr: number) =>
+        `M${(cx - ux * rr).toFixed(1)} ${(cy - uy * rr).toFixed(1)}`
+        + ` A${rr.toFixed(1)} ${rr.toFixed(1)} 0 0 ${sweep}`
+        + ` ${(cx + ux * rr).toFixed(1)} ${(cy + uy * rr).toFixed(1)}`
+      return (
+        <g key={`wa-${i}`} fill="none" stroke="#2b332d" strokeWidth={W * 0.005}>
+          <path d={half(R)} />
+          <path d={half(R * 0.48)} />
+        </g>
+      )
+    })
+
   /* ---- ピクトグラム。断面図と同じ「横から見た布」の言葉で統一する ---- */
 
   /** 折り山：ヘアピン形。断面図の折り返しをそのまま小さくしたもの */
@@ -1088,7 +1125,7 @@ function SectionCanvas({
             const part = p ? partMap.get(p.partId) : null
             if (!p || !part) return null
             // 縫い代の画面と同じ描き分け。縫い代の重なり具合を見ながら置けるように
-            const { cut, finished } = orientedPair(part, p)
+            const { cut, finished, marks } = orientedPair(part, p)
             const bad = badPlacements.has(p.id)
             const on = selectedId === p.id
             const twice = countOf(p.id) === 2
@@ -1193,6 +1230,8 @@ function SectionCanvas({
                   fontScale={0.1}
                   paper={p.mirrored ? '#e9e7e0' : undefined}
                 />
+                {/* 「わ」の辺の印。地の目線より後に描いて、隠れないようにする */}
+                {foldMarks(marks)}
                 {/* 裏返してあることを、絵と言葉の両方で言う。形だけでは気づけない */}
                 {p.mirrored && box.w > W * 0.22 && box.h > W * 0.12 && (
                   <g>
