@@ -52,29 +52,38 @@ type Props = {
 }
 
 /*
-  図の座標。生地のまわりの余白は、押す口を広く取るためだけのものではない。
+  図の座標。1目盛り＝画面の1px にしてある。
 
-  **どの辺で折っても、折り返す一枚は向かい側の生地端まで行く**
-  （依頼者の指摘・2026-08-28。縦わも横わも同じ）。
-  その一枚は折る前、生地の外側に開いて寝ている。
-  つまり折れる動きの始まりには、生地の幅・丈ぶんの余白が外側に要る。
+  余白は、生地のまわりに置くものだけを置く大きさにしてある。
+  折り山のふくらみ（10）と「わ」の字（14）で、四方とも 26。それ以上は取らない。
 
-  **幅の向きにはその余白を取ってある**（46 > 40）。
-  左右の端はみみ＝布の実在の端なので、そこから先に布は無い。
-  無いはずのものが図の外へ続いているように見えてはいけない。
+  いちど、折れる動きの始まり——開いた一枚が生地の外に寝ている姿——が
+  丸ごと入る余白（生地の幅ぶん）を取ったことがあるが、
+  そうすると 156x142 の箱に 47x66 の絵しか入らず、
+  空きばかりの札になってしまった（依頼者の指摘・2026-08-28）。
 
-  **丈の向きには取っていない**（32 < 56）。横わで折り始めるとき、
-  開いた一枚は図の上下からはみ出して切れる。布は長く続くものなので、
-  その向きに図が足りていないのは嘘ではない。
-  ここまで余白を取ると図が小さくなりすぎ、余白ばかりの札になってしまう。
-  大事なのは**どこへ着地するか**で、そこは必ず図の中にある。
+  いまは逆にしてある。**箱を絵に合わせ、動きのほうを箱に合わせる。**
+  開いた一枚は、図に収まるところまでしか開かない（`flipFrames` の `k`）。
+  **着地する先は変えていない**ので、「向かい側の生地端まで折る」ことは
+  そのまま見て取れる。大事なのはどこへ着くかで、どこから始まるかではない。
+
+  高さ（110）は、となりに並ぶ文字の段の高さに合わせてある。
+  どちらかが高いと、低いほうの下に空きが出る。
+
+  生地そのものは縦長（50x58）にしてある。実物の反物は幅より丈のほうが長いので、
+  正方形に近い形だと布に見えない。
 */
-const VW = 132
-const VH = 120
-const X0 = 46
-const X1 = 86
-const Y0 = 32
-const Y1 = 88
+const VW = 102
+const VH = 110
+const X0 = 26
+const X1 = 76
+const Y0 = 26
+const Y1 = 84
+
+/** その辺の外側に残っている余白。開いた一枚を、ここまでしか開かせない */
+const MARGIN: Record<Side, number> = {
+  left: X0, right: VW - X1, top: Y0, bottom: VH - Y1,
+}
 
 /** 折り山が外へふくらむ量 */
 const SP = 5
@@ -110,10 +119,10 @@ const OUT: Record<Side, [number, number]> = {
  * 角では隣どうしがぶつかるので、辺に沿う向きは中ほどだけにして重ならないようにした。
  */
 const HIT: Record<Side, [number, number, number, number]> = {
-  left: [8, 26, 40, 68],
-  right: [86, 26, 40, 68],
-  top: [50, 0, 34, 38],
-  bottom: [50, 82, 34, 38],
+  left: [0, 12, 30, 86],
+  right: [72, 12, 30, 86],
+  top: [33, 0, 36, 42],
+  bottom: [33, 68, 36, 42],
 }
 
 /** その辺から向かい側までの長さ。引きずれる幅でもある */
@@ -173,6 +182,11 @@ function wavyPath(ax: number, ay: number, bx: number, by: number) {
  *
  * 3つとも**同じ並びの変形**で書いてある。並びが違うと、ブラウザは行列に
  * 直してから間を埋めるので、途中の姿が思ったとおりにならない。
+ *
+ * 始まりの開き具合（`k`）は、外側に残っている余白で決まる。
+ * 目いっぱい開くと図からはみ出して切れるので、収まるところまでにしてある。
+ * **着地する先は k に左右されない。**「向かい側の生地端まで折る」ことは、
+ * どれだけ開いた姿から始めても同じように見て取れる。
  */
 type FlipFrames = { from: string; mid: string; to: string }
 
@@ -180,13 +194,15 @@ const xf = (ax: number, ay: number, sx: number, sy: number, ly = 0) =>
   `translate(0,${ly}px) translate(${ax}px,${ay}px) scale(${sx},${sy})`
   + ` translate(${-ax}px,${-ay}px)`
 
-function flipFrames(s: Side): FlipFrames {
+function flipFrames(s: Side, depth: number): FlipFrames {
   const [ax, ay] = ENDS[s]
   const cx = (X0 + X1) / 2
   const cy = (Y0 + Y1) / 2
+  // 2 は影のぶん。ここを詰めると、浮いた一枚の影が箱の縁で切れる
+  const k = Math.min(1, Math.max(0.25, (MARGIN[s] - 2) / Math.max(depth, 1)))
   return isVerticalSide(s)
-    ? { from: xf(ax, cy, -1, 1), mid: xf(ax, cy, 0.06, 1.14, -3), to: xf(ax, cy, 1, 1) }
-    : { from: xf(cx, ay, 1, -1), mid: xf(cx, ay, 1.14, 0.06, -3), to: xf(cx, ay, 1, 1) }
+    ? { from: xf(ax, cy, -k, 1), mid: xf(ax, cy, 0.06, 1.14, -3), to: xf(ax, cy, 1, 1) }
+    : { from: xf(cx, ay, 1, -k), mid: xf(cx, ay, 1.14, 0.06, -3), to: xf(cx, ay, 1, 1) }
 }
 
 /**
@@ -330,7 +346,7 @@ export function FoldPicker({ fold, half, onEdge, onHint }: Props) {
   const sheet = (s: Side, d: number, key: string, animate: boolean) => {
     const box = flapBox(s, d)
     if (box.width <= 0.5 || box.height <= 0.5) return null
-    const f = animate ? flipFrames(s) : null
+    const f = animate ? flipFrames(s, d) : null
     // 先頭の端＝折り山から遠いほう。ここに、めくれてきたみみが来る
     const lead = {
       left: [box.x + box.width, box.y, box.x + box.width, box.y + box.height],
@@ -369,7 +385,7 @@ export function FoldPicker({ fold, half, onEdge, onHint }: Props) {
     <svg
       ref={svgRef}
       viewBox={`0 0 ${VW} ${VH}`}
-      className="h-[142px] w-[156px] shrink-0 touch-none select-none"
+      className="h-[110px] w-[102px] shrink-0 touch-none select-none"
       role="group"
       aria-label="生地を上から見た図。辺を押すと「わ」になります"
     >
