@@ -19,7 +19,7 @@
  * さわり方は2通りある。**押す**と「わ」が付いたり外れたりする。
  * **辺をつまんで内側へ引きずる**と、引いた深さで折り方まで決まる
  * （浅ければ「型紙に合わせて」、きっちり折り切る位置まで引けばそこに吸い付く）。
- * 片わなら折り切る位置は向かい側の生地端で、両わなら真ん中になる。
+ * 片側だけ折るなら折り切る位置は向かい側の生地端で、両側から折るなら真ん中になる。
  * 引きずるほうは、押すことの上位互換ではなく、
  * 「半分に折る」の選択をひとつの動作にまとめるためのもの。
  *
@@ -52,30 +52,32 @@ type Props = {
 }
 
 /*
-  図の座標。押す口を辺の外側へ広く取れるよう、生地のまわりに余白を置いてある。
+  図の座標。生地のまわりの余白は、押す口を広く取るためだけのものではない。
 
-  左右の余白（46 と 44）が、生地の幅（42）より広いことには意味がある。
-  片わをきっちり折るとき、折り返す一枚は**向かい側の生地端まで**行く。
-  その一枚は折る前、生地の外側に開いて寝ている。つまり生地の幅ぶんの余白が
-  外側に要る。狭いと、折れる動きの始まりが図からはみ出して切れる。
+  **どの辺で折っても、折り返す一枚は向かい側の生地端まで行く**
+  （依頼者の指摘・2026-08-28。縦わも横わも同じ）。
+  その一枚は折る前、生地の外側に開いて寝ている。
+  つまり折れる動きの始まりには、生地の幅・丈ぶんの余白が外側に要る。
+
+  **幅の向きにはその余白を取ってある**（46 > 40）。
+  左右の端はみみ＝布の実在の端なので、そこから先に布は無い。
+  無いはずのものが図の外へ続いているように見えてはいけない。
+
+  **丈の向きには取っていない**（32 < 56）。横わで折り始めるとき、
+  開いた一枚は図の上下からはみ出して切れる。布は長く続くものなので、
+  その向きに図が足りていないのは嘘ではない。
+  ここまで余白を取ると図が小さくなりすぎ、余白ばかりの札になってしまう。
+  大事なのは**どこへ着地するか**で、そこは必ず図の中にある。
 */
 const VW = 132
-const VH = 118
+const VH = 120
 const X0 = 46
-const X1 = 88
-const Y0 = 27
-const Y1 = 91
+const X1 = 86
+const Y0 = 32
+const Y1 = 88
 
 /** 折り山が外へふくらむ量 */
 const SP = 5
-/**
- * 押しただけのときに、折り返して見せる深さ（辺から辺までのうちの割合）。
- * 「型紙に合わせて折る」＝深さがまだ決まっていないときの、仮の見せ方。
- *
- * 0.42 なのは、上下の辺で折るときの余白がそれしかないため。
- * 上下の外側の余白は 27 目盛りで、辺から辺までは 64 目盛り。
- */
-const TAP_DEPTH = 0.42
 
 /** これより浅く引いて離したら、折らなかったことにする */
 const OFF_UNDER = 0.12
@@ -108,10 +110,10 @@ const OUT: Record<Side, [number, number]> = {
  * 角では隣どうしがぶつかるので、辺に沿う向きは中ほどだけにして重ならないようにした。
  */
 const HIT: Record<Side, [number, number, number, number]> = {
-  left: [6, 34, 42, 50],
-  right: [86, 34, 42, 50],
-  top: [50, 2, 34, 38],
-  bottom: [50, 78, 34, 38],
+  left: [8, 26, 40, 68],
+  right: [86, 26, 40, 68],
+  top: [50, 0, 34, 38],
+  bottom: [50, 82, 34, 38],
 }
 
 /** その辺から向かい側までの長さ。引きずれる幅でもある */
@@ -137,8 +139,10 @@ function creasePath(s: Side) {
 }
 
 /** 裁ち端。はさみで切った端なので、うっすら波打たせる */
-function cutPath(s: Side) {
-  const [ax, ay, bx, by] = ENDS[s]
+const cutPath = (s: Side) => wavyPath(...ENDS[s])
+
+/** 好きな2点のあいだを、波打つ線でつなぐ */
+function wavyPath(ax: number, ay: number, bx: number, by: number) {
   const horizontal = ay === by
   const span = horizontal ? bx - ax : by - ay
   const step = span / 6
@@ -192,8 +196,11 @@ function flipFrames(s: Side): FlipFrames {
  * 長さそのものをこれから求めるところなので、きっちり折りようがない。
  * `canHalfFold` と同じことを、折り方ではなく辺について言っている。
  *
+ * これは「きっちり折る」を**選べるか**の話であって、折れる動きの見せ方とは別。
+ * 押して折るときは、横わも縦わと同じく向かい側の生地端まで倒れる（`snugDepth`）。
+ *
  * ここで「いまの折り方」を見てはいけない。まだ折っていない生地の辺を
- * 引きずり始めたときにも、半分の位置に吸い付いてほしいため
+ * 引きずり始めたときにも、折り切る位置に吸い付いてほしいため
  * （いちばん多いたたみ方がそれなので）。
  */
 const canHalfOn = (s: Side) => isVerticalSide(s)
@@ -202,17 +209,19 @@ export function FoldPicker({ fold, half, onEdge, onHint }: Props) {
   const sides = foldSidesOf(fold)
   const on = (s: Side) => sides.includes(s)
 
-  /** その辺と向かい合う、もう1本の縦の折り山があるか＝両わになるか */
-  const bothOn = (s: Side) => sides.some((t) => isVerticalSide(t) && t !== s)
+  /** その辺と向かい合う、もう1本の折り山があるか＝両側から折るか */
+  const bothOn = (s: Side) =>
+    sides.some((t) => isVerticalSide(t) === isVerticalSide(s) && t !== s)
 
   /**
-   * その辺をきっちり折ったとき、折り返した一枚の先頭がどこまで来るか。
+   * その辺で折り切ったとき、折り返した一枚の先頭がどこまで来るか。
    *
-   * **片わなら、向かい側の生地端まで行く**（依頼者の指摘・2026-08-28）。
-   * みみからみみへ折るのだから、動いたみみは向かい側のみみの上に重なる。
-   * 途中で止まるのは、折りかけて手を離した形であって、半分に折った形ではない。
+   * **向かい側の生地端まで行く**（依頼者の指摘・2026-08-28）。
+   * 縦わなら、みみからみみへ折るのだから、動いたみみは向かい側のみみの上に重なる。
+   * 横わも同じで、動いた裁ち端が向かい側の裁ち端の上に重なる。
+   * 途中で止まるのは、折りかけて手を離した形であって、折った形ではない。
    *
-   * 両わなら真ん中まで。左右のみみが中央で出会う形になる。
+   * 両側から折るときだけ真ん中まで。左右（上下）の端が中央で出会う形になる。
    *
    * この図は**折りたたんだあとの面**を描いている（折り山が辺に来ているのがその印）。
    * だから「半分」は図の真ん中ではなく、図の端である。
@@ -340,8 +349,18 @@ export function FoldPicker({ fold, half, onEdge, onHint }: Props) {
           : undefined}
       >
         <rect {...box} fill={CLOTH} stroke={EDGE} strokeWidth={1} filter="url(#fp-lift)" />
-        <line x1={lead[0]} y1={lead[1]} x2={lead[2]} y2={lead[3]}
-          stroke={EDGE} strokeWidth={2.4} strokeLinecap="round" strokeDasharray="1 5" />
+        {/*
+          先頭の端は、動いている当のものを描く。
+          縦に折るなら動くのはみみ（点々）、横に折るなら動くのは裁ち端（波）。
+          落ち着いたあとの辺の描き方と揃っていないと、同じ端に見えない
+        */}
+        {isVerticalSide(s) ? (
+          <line x1={lead[0]} y1={lead[1]} x2={lead[2]} y2={lead[3]}
+            stroke={EDGE} strokeWidth={2.4} strokeLinecap="round" strokeDasharray="1 5" />
+        ) : (
+          <path d={wavyPath(lead[0], lead[1], lead[2], lead[3])}
+            stroke={EDGE} strokeWidth={1.8} fill="none" />
+        )}
       </g>
     )
   }
@@ -350,7 +369,7 @@ export function FoldPicker({ fold, half, onEdge, onHint }: Props) {
     <svg
       ref={svgRef}
       viewBox={`0 0 ${VW} ${VH}`}
-      className="h-[140px] w-[156px] shrink-0 touch-none select-none"
+      className="h-[142px] w-[156px] shrink-0 touch-none select-none"
       role="group"
       aria-label="生地を上から見た図。辺を押すと「わ」になります"
     >
@@ -402,14 +421,13 @@ export function FoldPicker({ fold, half, onEdge, onHint }: Props) {
       {live && sheet(live.side, live.d, `live-${live.side}`, false)}
 
       {/* 押して付いたときの、パタンと折れる一枚 */}
+      {/*
+        押して「わ」を付けるのは「この線で生地を折る」という動作そのものなので、
+        倒れ切った先は折り切った位置＝向かい側の生地端になる（`snugDepth`）。
+        どれだけ折ったままにしておくかは、そのあと型紙を置くか引きずるかで決まる
+      */}
       {flip && !live && sheet(
-        flip.side,
-        // きっちり折るときは、倒れ切った先が実物どおりの位置になる。
-        // 片わなら向かい側の生地端まで、両わなら真ん中まで（`snugDepth`）
-        half && canHalfOn(flip.side)
-          ? snugDepth(flip.side)
-          : spanOf(flip.side) * TAP_DEPTH,
-        `flip-${flip.side}-${flip.seq}`, true)}
+        flip.side, snugDepth(flip.side), `flip-${flip.side}-${flip.seq}`, true)}
 
       {/* 辺。「わ」なら太い緑の山、そうでなければ、みみ（点々）か裁ち端（波） */}
       {(['left', 'right', 'top', 'bottom'] as Side[]).map((s) => {
