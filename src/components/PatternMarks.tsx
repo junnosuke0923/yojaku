@@ -31,6 +31,12 @@ type Props = {
    * 生地の上で90度回して置いたパーツだけ横になる（地の目を変えたということ）。
    */
   direction?: 'v' | 'h'
+  /**
+   * 名前を下へどける量。裁ち合わせ図では、型紙の左上に
+   * 「地の目が横」「裏返し」の印が積まれることがあり、
+   * 名前がそこへ重なると両方とも読めなくなる
+   */
+  labelShift?: number
   /** 印しの色。生地の上では白っぽい下地に載るので、変えたいことがある */
   color?: string
   /**
@@ -51,7 +57,7 @@ type Props = {
 
 export function PatternMarks({
   poly, hasNap, name, fontScale = 0.075, direction = 'v', color = INK, paper = PAPER,
-  shift = 0,
+  shift = 0, labelShift = 0,
 }: Props) {
   const b = bounds(poly)
   const s = Math.max(b.maxX - b.minX, b.maxY - b.minY)
@@ -68,7 +74,7 @@ export function PatternMarks({
   const label = spot && name && (
     <text
       x={spot.x}
-      y={spot.y}
+      y={spot.y + labelShift}
       textAnchor="middle"
       dominantBaseline="middle"
       fontSize={fs}

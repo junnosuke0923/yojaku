@@ -208,18 +208,16 @@ function flipFrames(s: Side, depth: number): FlipFrames {
 /**
  * その辺は「きっちり半分に折る」ができるか。
  *
- * 縦の折り（みみからみみへ折る）だけができる。横わは、半分の元になる
- * 長さそのものをこれから求めるところなので、きっちり折りようがない。
+ * どの辺でもできる（依頼者の指示・2026-08-30）。縦わならみみからみみへ、
+ * 横わなら裁ち端から裁ち端へ、きっちり半分に折る。
+ * 横わをきっちり折ると、置いた型紙が届く長さの倍だけ生地を使うことになる。
  * `canHalfFold` と同じことを、折り方ではなく辺について言っている。
- *
- * これは「きっちり折る」を**選べるか**の話であって、折れる動きの見せ方とは別。
- * 押して折るときは、横わも縦わと同じく向かい側の生地端まで倒れる（`snugDepth`）。
  *
  * ここで「いまの折り方」を見てはいけない。まだ折っていない生地の辺を
  * 引きずり始めたときにも、折り切る位置に吸い付いてほしいため
  * （いちばん多いたたみ方がそれなので）。
  */
-const canHalfOn = (s: Side) => isVerticalSide(s)
+const canHalfOn = (_s: Side) => true
 
 export function FoldPicker({ fold, half, onEdge, onHint }: Props) {
   const sides = foldSidesOf(fold)
@@ -291,7 +289,7 @@ export function FoldPicker({ fold, half, onEdge, onHint }: Props) {
   const hintOf = (s: Side, d: number, snap: boolean) => {
     if (d < spanOf(s) * OFF_UNDER) return `${SIDE_NAMES[s]}は折らない`
     // 言い方は、下のプルダウンと揃えてある
-    if (snap) return bothOn(s) ? '中央まで折る' : '半分に折る'
+    if (snap) return bothOn(s) ? '両端が出会うまで折る' : '半分に折る'
     return '型紙に合わせて折る'
   }
 

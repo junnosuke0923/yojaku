@@ -55,3 +55,21 @@ body {
 .safe-b { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
 
 input[type="range"] { accent-color: var(--color-mat-500); }
+
+/*
+  選んだ型紙の操作メニュー（依頼者の指摘・2026-08-30）。
+
+  白い枠が画面の下にただ出るだけだと、出たことに気づけない。
+  下からすっと立ち上がる動きを付けて、出たことを目で分かるようにする。
+  動きを減らす設定にしている人には出さない。
+*/
+@keyframes panel-up {
+  from { transform: translateY(1.75rem) scale(.985); opacity: 0; }
+  60%  { transform: translateY(-0.12rem) scale(1);   opacity: 1; }
+  to   { transform: translateY(0)        scale(1);   opacity: 1; }
+}
+.panel-up { animation: panel-up .34s cubic-bezier(.22, 1, .36, 1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-up { animation: none; }
+}

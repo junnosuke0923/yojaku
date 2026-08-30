@@ -141,19 +141,21 @@ export type Section = {
    *               学校で最初に習う、いちばん多い基本のたたみ方（依頼者の指示）
    *   縦わ・両側  両側のみみを、中央で突き合わせるまで折る。
    *               折り山が左右に1本ずつでき、みみは真ん中で出会う
+   *   横わ・片側  上（下）の裁ち端を、面の長さのぶんだけ折り返す。
+   *               置いた型紙が届く長さの、ちょうど倍の生地を使うことになる
+   *   横わ・両側  上下の裁ち端を、中央で突き合わせるまで折る
    *
-   * どちらも見えている面は**すべて二重**になり、置ける幅は有効幅の半分。
+   * どれも見えている面は**すべて二重**になる。
+   * 縦わなら置ける幅が有効幅の半分になり、
+   * 横わなら必要な長さが面の長さの倍になる。
    *
    * false なら従来どおり、折り山に当てた型紙の大きさから深さが決まる（判断7）。
-   * 横わは、半分の元になる長さそのものをこれから求めるところなので、
-   * きっちり折ることができない。
    */
   halfFold?: boolean
 }
 
 /** きっちり折るやり方がある折り方かどうか */
-export const canHalfFold = (f: FoldMode) =>
-  f === 'vLeft' || f === 'vRight' || f === 'vBoth'
+export const canHalfFold = (f: FoldMode) => f !== 'none'
 
 /** この区間は、生地幅を半分に折って使うのか */
 export const isHalfFold = (section: Section) =>
@@ -289,7 +291,7 @@ export function sizeOf(part: PlacedPart, p: Placement): { w: number; h: number }
 }
 
 export type Problem = {
-  kind: 'tooWide' | 'tooDeep' | 'overlap' | 'offFold' | 'noSuchFold' | 'napLocked'
+  kind: 'tooWide' | 'tooDeep' | 'overlap' | 'offFold' | 'noSuchFold' | 'napLocked' | 'acrossMeet'
   message: string
   placementId?: string
 }
@@ -311,6 +313,16 @@ export type SectionReport = {
   doubled: Box[]
   /** 折り山に当てたパーツを含む、実際に置かれた場所 */
   boxes: Array<Box & { placementId: string }>
+  /**
+   * 両側から折って端どうしが出会うところ（出会い目）の座標(mm)。出会っていなければ null。
+   *
+   * 面としては丈ごと二重でも、**上になっている一枚はここで切れている**ので、
+   * ここをまたいで型紙は置けない。画面側は、引きずっているあいだから
+   * ここを越えられないようにする（依頼者の指示・2026-08-30
+   * 「隙間が空いている部分の上には乗せられないようにしてください」）
+   */
+  meetXMm: number | null
+  meetYMm: number | null
   problems: Problem[]
 }
 
@@ -366,40 +378,96 @@ export function computeYardage(
     const snapOf = (p: Placement): Side | null =>
       p.snapTo && sides.includes(p.snapTo) ? p.snapTo : null
 
-    // 1. 折り込む深さ。折り山に当てたパーツの、折り山と直角の向きの大きさ
+    // 1. 面の長さ。下端の折り山に当てたパーツは、面の長さが決まってから位置が決まるので、
+    //    まず「それ以外のパーツがどこまで下がっているか」と「下端パーツの高さ」で決める。
+    //    横わをきっちり折るときは、この長さがそのまま折り込む深さになるので、深さより先に出す
+    let surfaceLength = 0
+    /**
+     * 上下の両方から折って端が出会うとき、折り山に当てたパーツは
+     * **その側の折り返し1枚のなかに収まっていなければならない**。
+     *
+     * 上から折り返した一枚は面の半分までしか来ておらず、その先にあるのは
+     * 下から折り返してきた別の一枚。はみ出すと、上になっている一枚が
+     * 途中で切れているところをまたぐことになり、裁てない
+     * （依頼者の指摘・2026-08-30）。したがって面の長さは、
+     * 折り山に当てたパーツの**倍**が要る。折り方としては不利になるが、
+     * 実物でできないことを数字の上でできることにしてはいけない。
+     */
+    /** 折り山に当てたパーツの、折り山と直角の向きの大きさ。いちばん深いもの */
+    const snapped: Record<Side, number> = { left: 0, right: 0, top: 0, bottom: 0 }
+    for (const it of items) {
+      const sd = snapOf(it.p)
+      if (sd === 'left' || sd === 'right') {
+        snapped[sd] = Math.max(snapped[sd], it.w)
+        // 左右の折り山に当てても、長さの方向には自由に置ける。丈は面の長さに効く
+        surfaceLength = Math.max(surfaceLength, it.p.yMm + it.h)
+      } else if (sd) snapped[sd] = Math.max(snapped[sd], it.h)
+      else surfaceLength = Math.max(surfaceLength, it.p.yMm + it.h)
+    }
+    // 上下の両方から折るなら、面には**2つぶん**が要る。
+    // 上から折り返した一枚と下から折り返した一枚は、重ねられないため
+    surfaceLength = sides.includes('top') && sides.includes('bottom')
+      ? Math.max(surfaceLength, snapped.top + snapped.bottom)
+      : Math.max(surfaceLength, snapped.top, snapped.bottom)
+
+    // 2. 折り込む深さ。折り山に当てたパーツの、折り山と直角の向きの大きさ
     const depth: Record<Side, number> = { left: 0, right: 0, top: 0, bottom: 0 }
     if (isHalfFold(section)) {
-      // きっちり折る。置いた型紙には左右されない。
-      // 両側から折るときは、左右のみみが中央で出会うので、片側ずつは4分の1
-      if (section.fold === 'vBoth') {
-        depth.left = usable / 4
-        depth.right = usable / 4
-      } else if (section.fold === 'vRight') {
-        depth.right = usable / 2
-      } else {
-        depth.left = usable / 2
+      /**
+       * 両端が出会うまで折る。
+       *
+       * 出会うのに要る深さの合計は決まっている（縦なら有効幅の半分、
+       * 横なら面の長さ）。**その内訳までは決め打ちにしない**
+       * （依頼者の指示・2026-08-30「マイスカート分が入るところまでは
+       * 上側が輪にならないといけない……折り返ってきて2枚が重なっている幅を
+       * 自動で調整できるようにしなければならない」）。
+       *
+       * 実物の手つきがそうなっている。人は「まず半分に折ってから型紙を置く」
+       * のではなく、「この型紙が入るところまで折る」という順に手を動かす。
+       * だから深さは結果であって、前提ではない。
+       * 折り山に何も当てていないときだけ、半分ずつに分ける。
+       */
+      const share = (a: Side, b: Side, total: number) => {
+        if (snapped[a] === 0 && snapped[b] === 0) {
+          depth[a] = total / 2
+          depth[b] = total / 2
+          return
+        }
+        depth[a] = snapped[a] > 0 ? snapped[a] : Math.max(total - snapped[b], 0)
+        depth[b] = Math.max(snapped[b], total - depth[a])
       }
+      if (section.fold === 'vBoth') share('left', 'right', usable / 2)
+      else if (section.fold === 'vRight') depth.right = usable / 2
+      else if (section.fold === 'vLeft') depth.left = usable / 2
+      else if (section.fold === 'hBoth') share('top', 'bottom', surfaceLength)
+      // 横わは「面の長さ」を折り返す。折る前の生地は、その倍の長さになる
+      else if (section.fold === 'hBottom') depth.bottom = surfaceLength
+      else depth.top = surfaceLength
     } else {
-      for (const it of items) {
-        const s = snapOf(it.p)
-        if (s === 'left') depth.left = Math.max(depth.left, it.w)
-        else if (s === 'right') depth.right = Math.max(depth.right, it.w)
-        else if (s === 'top') depth.top = Math.max(depth.top, it.h)
-        else if (s === 'bottom') depth.bottom = Math.max(depth.bottom, it.h)
-      }
+      for (const sd of sides) depth[sd] = snapped[sd]
     }
 
     const surfaceWidth = usable - depth.left - depth.right
 
-    // 2. 面の長さ。下端の折り山に当てたパーツは、面の長さが決まってから位置が決まるので、
-    //    まず「それ以外のパーツがどこまで下がっているか」と「下端パーツの高さ」で決める
-    let surfaceLength = 0
-    for (const it of items) {
-      const s = snapOf(it.p)
-      if (s === 'bottom') surfaceLength = Math.max(surfaceLength, it.h)
-      else if (s === 'top') surfaceLength = Math.max(surfaceLength, it.h)
-      else surfaceLength = Math.max(surfaceLength, it.p.yMm + it.h)
-    }
+    /**
+     * 両側から折って端どうしが出会っているときの、その出会い目。
+     *
+     * ここは面としては丸ごと二重だが、**上になっている一枚はここで切れている**。
+     * 折り返してきた左の一枚と右の一枚は別々の布で、突き合わせているだけ。
+     * だからここをまたいで型紙を置くと、下の一枚からは1枚とれるものの、
+     * 上の一枚は2つに割れて使えなくなる。実物では成り立たない置き方なので、
+     * 画面では**引きずっているあいだから越えられないようにする**
+     * （依頼者の指示・2026-08-30
+     * 「隙間が空いている部分の上には乗せられないようにしてください」）。
+     * ここに残す知らせは、古い状態を読み込んだときなどの受け皿である。
+     *
+     * 出会い目は真ん中とはかぎらない。折り山に当てた型紙に合わせて深さが動くので、
+     * 大きいほうの型紙を当てた側へ寄る。
+     */
+    const meetX = depth.left > 0 && depth.right > 0
+      && depth.left + depth.right >= surfaceWidth - 0.5 ? depth.left : null
+    const meetY = surfaceLength > 0 && depth.top > 0 && depth.bottom > 0
+      && depth.top + depth.bottom >= surfaceLength - 0.5 ? depth.top : null
 
     // 3. 実際に置かれた場所。折り山に当てた向きは、折り山から決まる
     const boxes = items.map((it) => {
@@ -455,6 +523,29 @@ export function computeYardage(
       const { p, part } = items[i]
       const box = boxes[i]
       const onFold = snapOf(p) !== null
+      const acrossMeet =
+        (meetX !== null && box.x < meetX - 0.5 && box.x + box.w > meetX + 0.5)
+        || (meetY !== null && box.y < meetY - 0.5 && box.y + box.h > meetY + 0.5)
+      if (acrossMeet) {
+        // 片側に寄せれば済むのか、そもそも折り返し一枚に入らないのかで、
+        // 学生がすることが変わる。「寄せてください」と言われても
+        // どこにも寄せられない、という行き止まりを作らない
+        const across = meetX !== null && box.x < meetX && box.x + box.w > meetX
+        const room = across
+          ? Math.max(depth.left, depth.right) >= box.w - 0.5
+          : Math.max(depth.top, depth.bottom) >= box.h - 0.5
+        problems.push({
+          kind: 'acrossMeet',
+          placementId: p.id,
+          message: `${across ? '左右' : '上下'}から折った端どうしが出会うところをまたいでいます。`
+            + '上になっている一枚はここで切れているので、またぐと裁てません。'
+            + (room
+              ? 'どちらか片側へ寄せてください。'
+              : 'この型紙は折り返し一枚に収まらないので、折り山に当てるか'
+                + '（当てた側の折り返しが、その型紙に合わせて深くなります）、'
+                + '折り方を変えてください。'),
+        })
+      }
 
       if (box.x < -0.5 || box.x + box.w > surfaceWidth + 0.5) {
         // 「そもそも入らない」と「置き場所が悪いだけ」では、することが違う
@@ -488,8 +579,9 @@ export function computeYardage(
         placementId: p.id,
         onFold,
         // 折り山に当てていれば、開いて左右対称の1枚。
-        // 二重の帯に丸ごと入っていれば2枚。またいでいるなら1枚（安全側に倒す）
-        count: onFold ? 1 : insideAny(box, doubled) ? 2 : 1,
+        // 二重の帯に丸ごと入っていれば2枚。またいでいるなら1枚（安全側に倒す）。
+        // 端どうしの出会い目をまたいでいるときも、上の一枚が割れるので1枚
+        count: onFold || acrossMeet ? 1 : insideAny(box, doubled) ? 2 : 1,
       })
     }
 
@@ -515,6 +607,8 @@ export function computeYardage(
       yardageMm: surfaceLength + depth.top + depth.bottom,
       doubled,
       boxes,
+      meetXMm: meetX,
+      meetYMm: meetY,
       problems,
     })
   }

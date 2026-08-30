@@ -15,7 +15,7 @@ import { initialPlan, applyToAll, buildSeam, foldGroups } from '../src/lib/seam'
 import { splitEdges } from '../src/lib/edges'
 import { bounds, type Point } from '../src/lib/geom'
 import {
-  computeYardage, foldOfSides, foldSidesOf, newPlacement, orientedPair,
+  canHalfFold, computeYardage, foldOfSides, foldSidesOf, newPlacement, orientedPair,
   toggleFoldSide, toPurchaseLength,
   type Fabric, type FoldMode, type Placement, type PlacedPart, type Side,
 } from '../src/lib/fabric'
@@ -318,8 +318,16 @@ console.log('\n■ 縦わ・両側 — 型紙を置かなくても、中央ま�
   near('左の折り込み', r.sections[0].foldDepth.left, 265, 0)
   near('右の折り込み', r.sections[0].foldDepth.right, 265, 0)
   near('見えている面は有効幅の半分', r.sections[0].surfaceWidthMm, 530, 0)
-  const r2 = run(f, [newPlacement('a', 'p1', 's1', { xMm: 100, yMm: 0 })], [part('p1', 300, 400)])
-  ok('どこに置いても1つで2枚', r2.counts[0].count === 2, `×${r2.counts[0].count}`)
+  // 出会い目（x=265）の左側に丸ごと収まっていれば、1つで2枚とれる
+  const r2 = run(f, [newPlacement('a', 'p1', 's1', { xMm: 0, yMm: 0 })], [part('p1', 260, 400)])
+  ok('出会い目の片側に収まれば1つで2枚', r2.counts[0].count === 2, `×${r2.counts[0].count}`)
+  // 依頼者の指摘（2026-08-30）——出会い目の上に型紙は載せられない。
+  // 上になっている一枚はそこで切れているので、またぐと2つに割れてしまう
+  const r3 = run(f, [newPlacement('a', 'p1', 's1', { xMm: 100, yMm: 0 })], [part('p1', 300, 400)])
+  ok('出会い目をまたぐと知らせが出る',
+    r3.sections[0].problems.some((q) => q.kind === 'acrossMeet'),
+    r3.sections[0].problems.map((q) => q.kind).join(' / ') || '（なし）')
+  ok('出会い目をまたいだら1枚どまり', r3.counts[0].count === 1, `×${r3.counts[0].count}`)
   near('型紙を置いても折りの深さは変わらない', r2.sections[0].foldDepth.right, 265, 0)
 }
 
@@ -468,6 +476,91 @@ console.log('\n■ 右の「わ」で、きっちり半分に折る')
   near('右で折ったときの面の幅', r.sections[0].surfaceWidthMm, 530, 0)
   near('右で折ると折り込みは右に出る', r.sections[0].foldDepth.right, 530, 0)
   near('右で折ると左には出ない', r.sections[0].foldDepth.left, 0, 0)
+}
+
+console.log('\n■ 横わで、きっちり半分に折る（依頼者の指示・2026-08-30）')
+{
+  const fabricOf = (fold: FoldMode): Fabric => ({
+    widthMm: 1100, hasNap: false, sections: [{ id: 's1', fold, halfFold: true }],
+  })
+  // 上の「わ」に、丈 400mm の型紙を当てる。折り返した面の長さがそのまま 400mm
+  const p = newPlacement('a', 'p1', 's1', { snapTo: 'top' })
+  const t = run(fabricOf('hTop'), [p], [part('p1', 300, 400, true)])
+  near('面の長さ', t.sections[0].surfaceLengthMm, 400, 0)
+  near('折り込みは上に出る', t.sections[0].foldDepth.top, 400, 0)
+  near('下には出ない', t.sections[0].foldDepth.bottom, 0, 0)
+  near('要尺は面の長さの倍', t.totalMm, 800, 0)
+  near('折っても幅は減らない', t.sections[0].surfaceWidthMm, 1060, 0)
+  ok('面は丸ごと二重',
+    t.sections[0].doubled.length === 1
+    && Math.abs(t.sections[0].doubled[0].h - 400) < 1
+    && Math.abs(t.sections[0].doubled[0].w - 1060) < 1,
+    t.sections[0].doubled.map((d) => `${d.w}×${d.h}mm`).join(' + '))
+  ok('問題なし', t.problems.length === 0, t.problems.map((x) => x.message).join(' / ') || 'なし')
+
+  // 下の「わ」でも同じことが起きる
+  const pb = newPlacement('b', 'p1', 's1', { snapTo: 'bottom' })
+  const b = run(fabricOf('hBottom'), [pb], [part('p1', 300, 400, true)])
+  near('下で折ると折り込みは下に出る', b.sections[0].foldDepth.bottom, 400, 0)
+  near('下で折っても要尺は倍', b.totalMm, 800, 0)
+
+  // 上下から折ると、裁ち端が中央で出会う。上から折り返した一枚は面の半分までしか
+  // 来ないので、そこに丈 400mm の型紙を当てるには面が 800mm 要る
+  // （依頼者の指摘・2026-08-30。以前は面 400mm・要尺 800mm としていたが、
+  //   それだと折り返し1枚に収まらない型紙を「裁てる」ことにしてしまっていた）
+  const pbo = newPlacement('c', 'p1', 's1', { snapTo: 'top' })
+  const bo = run(fabricOf('hBoth'), [pbo], [part('p1', 300, 400, true)])
+  near('折り返しは型紙と同じ深さになる', bo.sections[0].foldDepth.top, 400, 0)
+  near('下は何も当てていないので折り返さない', bo.sections[0].foldDepth.bottom, 0, 0)
+  near('面は型紙どおり', bo.sections[0].surfaceLengthMm, 400, 0)
+  near('要尺は面の倍', bo.totalMm, 800, 0)
+  ok('面は丸ごと二重（帯1本）',
+    bo.sections[0].doubled.length === 1 && Math.abs(bo.sections[0].doubled[0].h - 400) < 1,
+    bo.sections[0].doubled.map((d) => `${d.w}×${d.h}mm`).join(' + '))
+  ok('折り山の型紙は出会い目をまたがない', bo.sections[0].problems.length === 0,
+    bo.sections[0].problems.map((q) => q.kind).join(' / ') || '（なし）')
+  ok('下の折り山が効いていない', bo.sections[0].meetYMm === null, `${bo.sections[0].meetYMm}`)
+
+  // 上下それぞれに「わ」で裁つ型紙を当てると、出会い目は真ん中ではなく
+  // 大きいほうへ寄る（依頼者の指示・2026-08-30「折り返ってきて2枚が
+  // 重なっている幅を自動で調整できるようにしなければならない」）
+  const two = run(fabricOf('hBoth'), [
+    newPlacement('c', 'p1', 's1', { snapTo: 'top' }),
+    newPlacement('f', 'p3', 's1', { snapTo: 'bottom' }),
+  ], [part('p1', 300, 400, true), part('p3', 300, 200, true)])
+  near('上の折り返しは上の型紙に合う', two.sections[0].foldDepth.top, 400, 0)
+  near('下の折り返しは下の型紙に合う', two.sections[0].foldDepth.bottom, 200, 0)
+  near('面は2つぶん', two.sections[0].surfaceLengthMm, 600, 0)
+  near('要尺は面の倍', two.totalMm, 1200, 0)
+  ok('出会い目は真ん中ではなく 400mm のところ',
+    two.sections[0].meetYMm !== null && Math.abs(two.sections[0].meetYMm - 400) < 1,
+    `${two.sections[0].meetYMm}`)
+  ok('どちらの型紙もまたいでいない', two.sections[0].problems.length === 0,
+    two.sections[0].problems.map((q) => q.kind).join(' / ') || '（なし）')
+
+  // 依頼者の指摘（2026-08-30）——上下から折ったときも、裁ち端どうしが出会う
+  // ところ（y=200）の上には型紙を載せられない。上の一枚がそこで切れているため
+  // 面の長さは上の型紙で決まって 800mm、出会い目は y=400 に来る
+  const withSide = (yMm: number, h: number) => run(fabricOf('hBoth'), [
+    newPlacement('c', 'p1', 's1', { snapTo: 'top' }),
+    newPlacement('d', 'p2', 's1', { xMm: 400, yMm }),
+  ], [part('p1', 300, 400, true), part('p2', 300, h)])
+  const across = withSide(300, 250)
+  ok('横わ・上下でも出会い目をまたぐと知らせが出る',
+    across.sections[0].problems.some((q) => q.kind === 'acrossMeet'),
+    across.sections[0].problems.map((q) => q.kind).join(' / ') || '（なし）')
+  const beside = withSide(0, 190)
+  ok('片側に収まれば知らせは出ない', beside.sections[0].problems.length === 0,
+    beside.sections[0].problems.map((q) => q.kind).join(' / ') || '（なし）')
+  ok('片側に収まれば1つで2枚',
+    beside.counts.find((c) => c.placementId === 'd')?.count === 2,
+    `×${beside.counts.find((c) => c.placementId === 'd')?.count}`)
+
+  // どの折り方でも「きっちり折る」を選べる（＝プルダウンが出る）
+  ok('きっちり折れないのは「折らない」だけ',
+    (['vLeft', 'vRight', 'vBoth', 'hTop', 'hBottom', 'hBoth'] as FoldMode[]).every(canHalfFold)
+    && !canHalfFold('none'),
+    'none 以外はすべて可')
 }
 
 console.log(failures === 0 ? '\nすべて通りました。' : `\n${failures} 件、期待どおりになりませんでした。`)
