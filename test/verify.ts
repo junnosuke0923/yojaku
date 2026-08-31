@@ -668,5 +668,56 @@ function quadError(a: Quad, b: Quad): number {
 
 sweepFind()
 
+
+/**
+ * 斜めから撮ったとき、自動あてはめが「すぼまり」で気づいて
+ * ゆがみに合わせる計算へ切り替えられているか。
+ *
+ * ここで見るのは四隅の px ではなく、**最後に出てくる寸法**。
+ * 四隅が少しずれていても寸法が合っていればよく、逆もまた真なので。
+ */
+function sweepTilt() {
+  console.log('')
+  console.log('■ 斜めから撮ったとき（自動あてはめ → 寸法まで）')
+  for (const tiltDeg of [0, 5, 10, 15, 20]) {
+    const scene = buildScene({ rulerId: 'r50', tiltDeg, opaqueRuler: false, tintedRuler: true })
+    const image = scene.image as unknown as ImageData
+    const hue = estimateHueCenter(image.data)
+    const found = findRulerQuad(image, { ...DEFAULT_GREEN, hueCenter: hue })
+    if (!found) {
+      report(`傾き${tiltDeg}度`, false, '見つけられなかった')
+      continue
+    }
+    /*
+      真上なら長方形のまま、10度も傾いていれば台形へ。
+      その間（5度あたり）は、どちらでも寸法が合うので決めつけない。
+      すぼまりの出方は画角にもよる（同じ5度でも、望遠ぎみなら 1.029、標準なら 1.054）
+    */
+    const wanted = tiltDeg === 0 ? false : tiltDeg >= 10 ? true : found.tilted
+    report(
+      `傾き${tiltDeg}度 の見立て`,
+      found.tilted === wanted,
+      `すぼまり ${found.taper.toFixed(3)}（${found.tilted ? 'ゆがみに合わせる' : '長方形のまま'}）`,
+    )
+    const out = analyze({
+      imageData: image,
+      rulerQuad: found.quad,
+      ruler: RULERS.r50,
+      green: { ...DEFAULT_GREEN, hueCenter: hue },
+      perspective: found.tilted,
+    })
+    if ('error' in out || out.parts.length === 0) {
+      report(`傾き${tiltDeg}度 の寸法`, false, '解析に失敗')
+      continue
+    }
+    // 手で四隅を置いたときは、傾き20度で幅が +13.9% ずれていた。
+    // すぼまりで気づいてゆがみに合わせると、ここまで下がる
+    check(`傾き${tiltDeg}度 最大幅 (mm)`, out.parts[0].widthMm, TRUE_WIDTH_MM, 2)
+    check(`傾き${tiltDeg}度 最大丈 (mm)`, out.parts[0].heightMm, TRUE_HEIGHT_MM, 2)
+  }
+}
+
+sweepTilt()
+
 console.log(failures === 0 ? '\nすべて通りました。' : `\n${failures} 件、期待どおりになりませんでした。`)
 process.exit(failures === 0 ? 0 : 1)

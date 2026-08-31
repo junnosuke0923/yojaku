@@ -87,6 +87,15 @@ export function App() {
    * こちらが当てたという話は用済みになる
    */
   const [rulerAuto, setRulerAuto] = useState(false)
+  /**
+   * こちらで当てたときの、すぼまりを均した長方形。
+   *
+   * 斜めから撮られていると四隅は台形になる。台形をそのまま
+   * `guessRuler` に渡すと「斜めなので形からは分からない」と言われてしまうが、
+   * 縦横比そのものは傾き35度でも 10.0 から 0.25 しかずれない（合成画像で実測）。
+   * そこで、解析には台形を渡しつつ、**種類の見分けだけは長方形で**する
+   */
+  const [autoRect, setAutoRect] = useState<Quad | null>(null)
   const [rulerId, setRulerId] = useState<RulerId>(loadSavedRuler)
   const [rulerChosenByHand, setRulerChosenByHand] = useState(false)
   /**
@@ -246,8 +255,14 @@ export function App() {
       setQuad(found ? found.quad : defaultRulerQuad(loaded.width, loaded.height))
       setQuadAdjusted(!!found)
       setRulerAuto(!!found)
+      setAutoRect(found ? found.rect : null)
       setRulerChosenByHand(false)
-      setPerspective(false)
+      /*
+        斜めから撮られていたら、こちらで「ゆがみに合わせる」に切り替える。
+        合成画像では、傾き20度で型紙の幅のずれが +11.7% から +2.5% へ下がった。
+        真上から撮れているときは長方形＋相似のほうが正確なので、切り替えない
+      */
+      setPerspective(!!found?.tilted)
       setResult(null)
       setStep('ruler')
     } catch {
@@ -258,14 +273,19 @@ export function App() {
   }
 
   const guess = useMemo(
-    () => (quad && quadAdjusted ? guessRuler(quad) : null),
-    [quad, quadAdjusted],
+    () => {
+      // こちらで当てたときは、台形ではなく、均した長方形で見分ける
+      const target = autoRect ?? (quadAdjusted ? quad : null)
+      return target ? guessRuler(target) : null
+    },
+    [autoRect, quad, quadAdjusted],
   )
 
   const adjustQuad = (next: Quad) => {
     setQuad(next)
     setQuadAdjusted(true)
     setRulerAuto(false)
+    setAutoRect(null)
   }
 
   /*
@@ -964,7 +984,10 @@ export function App() {
               <p className="flex gap-2 text-sm leading-relaxed text-mat-700">
                 <Icon name="ruler" className="mt-[0.2em] h-[1.15em] w-[1.15em] shrink-0" />
                 <span className="min-w-0 flex-1">
-                  <span className="font-bold">定規をさがして、枠を当てておきました。</span>
+                  <span className="font-bold">
+                    定規をさがして、枠を当てておきました。
+                    {perspective && '斜めから撮られているので、ゆがみに合わせてあります。'}
+                  </span>
                   合っているか確かめてください。ずれていたら、角をつまんで直せます。
                 </span>
               </p>
@@ -1009,10 +1032,25 @@ export function App() {
               <Icon name={perspective ? 'back' : 'hint'} className="h-4 w-4 shrink-0" />
               {perspective ? '長方形のまま合わせる（おすすめ）' : '斜めから撮ってしまった（ゆがみに合わせる）'}
             </button>
+            {/*
+              「ゆがみに合わせる」ときの注意。こちらで切り替えたときと、
+              学生が自分で押したときとで、言うべきことが違う。
+              自分で押した人には四隅の置き方の話をし、
+              こちらで切り替えたぶんには、撮り方そのものの話をする
+            */}
             {perspective && (
               <Note icon="warn" tone="warn">
-                <span className="font-bold">数画素のずれが、離れた型紙を大きく歪ませます。</span>
-                真上から撮り直すほうが確実です。
+                {rulerAuto ? (
+                  <>
+                    <span className="font-bold">斜めのぶんは計算で戻していますが、完全ではありません。</span>
+                    真上から撮り直すほうが確実です。
+                  </>
+                ) : (
+                  <>
+                    <span className="font-bold">数画素のずれが、離れた型紙を大きく歪ませます。</span>
+                    真上から撮り直すほうが確実です。
+                  </>
+                )}
               </Note>
             )}
 

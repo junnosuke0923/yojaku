@@ -3,6 +3,7 @@
  *
  *   「サンプルのような写真の場合、手動で定規の位置を指定しなくても、
  *     自動で判定して枠を定規に自動で当ててもらうことは可能ですか？」
+ *   「これは多少角度がついて撮影されていた写真からも判断出来そうでしょうか？」
  *
  * できる。ただし**当てるのは提案であって、決定ではない**。
  * 見つからなかったときは黙って今までどおり（まん中に細長い枠）に戻し、
@@ -30,15 +31,29 @@
  * 1 と 2 を通ったものが2つ以上あって、しかも 3 で差が付かないときは、
  * 取り違える危険があるので**あきらめる**。
  *
+ * ## 斜めから撮られていたら、すぼまりで気づく
+ *
+ * 斜めから撮ると、定規の遠い側が近い側より細く写る。この**すぼまり**は
+ * 傾きに対してきれいに増える（合成画像で 5度→1.054、10度→1.114、
+ * 15度→1.178、20度→1.248、25度→1.329）。角を1点ずつ見つけるのではなく、
+ * 長辺にそって細く割り、両側のふち全体を直線に当てはめて出すので、
+ * ざらつきにも欠けにも強い。
+ *
+ * すぼまりが 1.03（傾き3度ほど）を超えたら、長方形ではなく**台形**を返し、
+ * アプリ側は「ゆがみに合わせる」計算に切り替える。効き目は大きい——
+ * 傾き20度で、型紙の幅のずれが **+11.7% から +2.5% へ**下がった。
+ * 逆に真上から撮れているときは、長方形＋相似のほうが正確なので（+0.1% 対 +1.8%）、
+ * すぼまっていないうちは長方形のまま渡す。
+ *
  * ## 確かめた範囲
  *
- * 見本の写真1枚（緑の台・白い型紙3枚・50cm方眼定規1本）でしか確かめていない。
+ * 実写は見本の写真1枚（緑の台・白い型紙3枚・50cm方眼定規1本）でしか確かめていない。
  * 茶色のハトロン紙、木の机、定規が2本写っている、といった写真では
  * どうなるか分かっていない。だから外したときに困らない作りにしてある。
  */
 
 import { traceOuterContour } from './contour'
-import { minAreaRect, normalizeWinding, orderQuad, type Quad } from './geom'
+import { minAreaRect, normalizeWinding, orderQuad, type Point, type Polygon, type Quad } from './geom'
 import { hueDistance, rgbToHsv, type GreenParams } from './hsv'
 import { buildObjectMask, closing, connectedComponents, opening, type Component } from './mask'
 
@@ -61,10 +76,29 @@ const LONG_MIN_RATIO = 0.2
 /** 候補が2つ以上あるとき、勝ったほうがこれだけ透けていれば選ぶ。届かなければあきらめる */
 const LEAD = 1.4
 
+/**
+ * これ以上すぼまっていたら「斜めから撮られた」とみなし、台形で渡す。
+ * 1.03 は傾き3度ほど。ここより手前では、長方形＋相似のほうが正確だった
+ */
+export const TAPER_ON = 1.03
+
+/** 長辺にそって何段に割って、ふちを測るか */
+const SLICES = 40
+
 export type RulerFound = {
+  /** 解析に渡す四隅。斜めから撮られていれば台形、そうでなければ長方形 */
   quad: Quad
-  /** 写真から測った 長辺÷短辺。学生には出さない（種類の判別は guessRuler がする） */
-  ratio: number
+  /**
+   * すぼまりを均した長方形。
+   * 定規の種類（50cm か 30cm か）は、こちらの縦横比で見分ける。
+   * 台形のまま見ると「斜めだから分からない」と言われてしまうが、
+   * 縦横比そのものは傾き35度でも 10.0 から 0.25 しかずれない
+   */
+  rect: Quad
+  /** 遠い側と近い側の、幅の比。1.00 なら真上から撮れている */
+  taper: number
+  /** 斜めから撮られているので、ゆがみに合わせる計算に切り替えるべきか */
+  tilted: boolean
 }
 
 /** かたまり1つぶんの、色の平均。透けているかどうかを見るのに使う */
@@ -88,6 +122,82 @@ function tintOf(c: Component, image: ImageData, hueCenter: number): number {
   return (sat / n) * (0.5 + near / n)
 }
 
+/** 最小二乗で直線を当てはめる。返すのは「位置 t（0〜1）を渡すと値が返る関数」 */
+function fitLine(values: Float64Array, from: number, to: number): ((t: number) => number) | null {
+  let n = 0, sx = 0, sy = 0, sxx = 0, sxy = 0
+  for (let k = from; k < to; k++) {
+    if (!Number.isFinite(values[k])) continue
+    const x = (k + 0.5) / values.length
+    n++; sx += x; sy += values[k]; sxx += x * x; sxy += x * values[k]
+  }
+  if (n < 4) return null
+  const d = n * sxx - sx * sx
+  if (Math.abs(d) < 1e-9) return null
+  const a = (n * sxy - sx * sy) / d
+  const b = (sy - a * sx) / n
+  return (t: number) => a * t + b
+}
+
+/**
+ * 輪郭を「長辺にそって細く割り、両側のふちを直線に当てはめる」やり方で台形にする。
+ *
+ * 角を1点ずつ見つけようとすると、ざらつきや角の丸みに引きずられて外れる
+ * （実際に、輪郭を4点まで間引くやり方では 50px も外した）。
+ * ふち全体の点を使えば、1点ずつの誤差はならされる。
+ */
+function trapezoidOf(points: Polygon, angle: number): { quad: Quad; taper: number } | null {
+  const cos = Math.cos(-angle)
+  const sin = Math.sin(-angle)
+  const rot = points.map((p) => ({ u: p.x * cos - p.y * sin, v: p.x * sin + p.y * cos }))
+
+  let u0 = Infinity
+  let u1 = -Infinity
+  for (const p of rot) {
+    if (p.u < u0) u0 = p.u
+    if (p.u > u1) u1 = p.u
+  }
+  const len = u1 - u0
+  if (len <= 0) return null
+
+  const lo = new Float64Array(SLICES).fill(Infinity)
+  const hi = new Float64Array(SLICES).fill(-Infinity)
+  for (const p of rot) {
+    const k = Math.min(SLICES - 1, Math.max(0, Math.floor(((p.u - u0) / len) * SLICES)))
+    if (p.v < lo[k]) lo[k] = p.v
+    if (p.v > hi[k]) hi[k] = p.v
+  }
+
+  // 端の1割は、角の丸みや切れ際の影響が出るので使わない
+  const from = Math.round(SLICES * 0.1)
+  const to = Math.round(SLICES * 0.9)
+  const fLo = fitLine(lo, from, to)
+  const fHi = fitLine(hi, from, to)
+  if (!fLo || !fHi) return null
+
+  const wA = fHi(0) - fLo(0)
+  const wB = fHi(1) - fLo(1)
+  if (wA <= 0 || wB <= 0) return null
+
+  const back = (u: number, v: number): Point => ({
+    x: u * Math.cos(angle) - v * Math.sin(angle),
+    y: u * Math.sin(angle) + v * Math.cos(angle),
+  })
+  const quad = [back(u0, fLo(0)), back(u1, fLo(1)), back(u1, fHi(1)), back(u0, fHi(0))] as Quad
+  return {
+    quad: normalizeWinding(orderQuad(quad)),
+    taper: Math.max(wA, wB) / Math.min(wA, wB),
+  }
+}
+
+/** 最小外接長方形の「長辺の向き」。minAreaRect の angle は最初の辺の向きなので取り直す */
+function longAxisOf(quad: Quad): number {
+  const e0 = Math.hypot(quad[1].x - quad[0].x, quad[1].y - quad[0].y)
+  const e1 = Math.hypot(quad[2].x - quad[1].x, quad[2].y - quad[1].y)
+  return e0 >= e1
+    ? Math.atan2(quad[1].y - quad[0].y, quad[1].x - quad[0].x)
+    : Math.atan2(quad[2].y - quad[1].y, quad[2].x - quad[1].x)
+}
+
 /**
  * 写真から定規らしい長方形をさがす。見つからなければ null。
  *
@@ -105,7 +215,7 @@ export function findRulerQuad(image: ImageData, green: GreenParams): RulerFound 
   const { components } = connectedComponents(mask, Math.round(width * height * MIN_AREA_RATIO))
   const longMin = Math.max(width, height) * LONG_MIN_RATIO
 
-  const candidates: { quad: Quad; ratio: number; tint: number }[] = []
+  const candidates: (RulerFound & { tint: number })[] = []
   for (const c of components) {
     const poly = traceOuterContour(c.mask)
     if (!poly) continue
@@ -113,23 +223,27 @@ export function findRulerQuad(image: ImageData, green: GreenParams): RulerFound 
     const rect = minAreaRect(abs)
     if (!rect || rect.short <= 0) continue
 
-    const ratio = rect.long / rect.short
-    if (ratio < RATIO_MIN || ratio > RATIO_MAX) continue
+    if (rect.long / rect.short < RATIO_MIN || rect.long / rect.short > RATIO_MAX) continue
     if (rect.long < longMin) continue
     if (c.area / (rect.long * rect.short) < FILL_MIN) continue
 
+    const square = normalizeWinding(orderQuad(rect.quad))
+    const trapezoid = trapezoidOf(abs, longAxisOf(rect.quad))
+    const taper = trapezoid?.taper ?? 1
+    const tilted = taper >= TAPER_ON
     candidates.push({
-      quad: normalizeWinding(orderQuad(rect.quad)),
-      ratio,
+      quad: tilted && trapezoid ? trapezoid.quad : square,
+      rect: square,
+      taper,
+      tilted,
       tint: tintOf(c, image, green.hueCenter),
     })
   }
 
   if (candidates.length === 0) return null
-  if (candidates.length === 1) return { quad: candidates[0].quad, ratio: candidates[0].ratio }
-
   // 2つ以上あるときは、いちばん透けているものを採る。差が小さければあきらめる
   const sorted = [...candidates].sort((a, b) => b.tint - a.tint)
-  if (sorted[0].tint < sorted[1].tint * LEAD) return null
-  return { quad: sorted[0].quad, ratio: sorted[0].ratio }
+  if (sorted.length > 1 && sorted[0].tint < sorted[1].tint * LEAD) return null
+  const { quad, rect, taper, tilted } = sorted[0]
+  return { quad, rect, taper, tilted }
 }
