@@ -11,7 +11,7 @@
  * 決めないまま先へ進んでしまう。
  */
 
-import { COMMON_WIDTHS_MM } from '../lib/fabric'
+import { COMMON_WIDTHS_MM, WIDTH_FABRICS } from '../lib/fabric'
 import { Hint, Icon } from './Icon'
 
 type Props = {
@@ -37,16 +37,24 @@ export function FabricSetup({ widthMm, hasNap, onWidth, onNap }: Props) {
       </div>
 
       <div className="flex flex-wrap gap-2">
+        {/*
+          数字の下に、その幅でよく見かける生地の名前を小さく添える
+          （依頼者の指示・2026-08-31）。数字だけでは、どれを選ぶのか決められない。
+          あくまで手がかりなので、色は薄く、字も小さくしてある
+        */}
         {COMMON_WIDTHS_MM.map((mm) => (
           <button
             key={mm}
             type="button"
             onClick={() => onWidth(mm)}
-            className={`tnum rounded-lg px-3 py-2 text-sm font-bold ${
+            className={`flex flex-col items-center rounded-lg px-2.5 py-1.5 leading-tight ${
               widthMm === mm ? 'bg-mat-500 text-white' : 'border border-ink-100 text-ink-700'
             }`}
           >
-            {mm / 10}
+            <span className="tnum text-sm font-bold">{mm / 10}</span>
+            <span className={`text-[10px] ${widthMm === mm ? 'text-white/80' : 'text-ink-300'}`}>
+              {WIDTH_FABRICS[mm]}
+            </span>
           </button>
         ))}
         <label className="flex items-center gap-1 rounded-lg border border-ink-100 px-2 py-2">
@@ -61,6 +69,18 @@ export function FabricSetup({ widthMm, hasNap, onWidth, onNap }: Props) {
           <span className="text-xs text-ink-300">cm</span>
         </label>
       </div>
+
+      <Hint
+        icon="clothWidth"
+        summary={<>数字の下は、その幅で<b className="text-ink-700">よく見かける生地</b>です</>}
+      >
+        目安です。同じ生地でも店や織り機によって幅は変わります。
+        90cm はシーチング（仮縫い用）のほか、薄手の裏地やパッチワーク用。
+        110cm は綿ブロードやシャツ地、麻など、洋裁店でいちばん多い幅。
+        140cm はウールやジャージーで、既製服はこの幅が標準です。
+        150cm はコート地などの厚手。裏地の中巾（120cm）のように並んでいない幅は、
+        「cm」と書いてある欄に数字を直接入れてください。
+      </Hint>
 
       <div className="border-t border-ink-100 pt-2.5">
         <Hint
