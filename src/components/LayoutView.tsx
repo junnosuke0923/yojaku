@@ -748,6 +748,26 @@ function SectionCanvas({
   const meetY = depth.top
   /** 出会い目より下にあるものを、図のうえで下へずらす量 */
   const openAt = (y: number) => (OPEN > 0 && y >= meetY - 0.5 ? OPEN : 0)
+  /**
+   * 左右から折って、みみとみみが中央で出会うときの、**横向きの開き**。
+   *
+   * 実物では2本のみみは突き合わせになるが、そのまま描くと帯が1本につながって見え、
+   * 「折り返して二重になっている」ことが伝わらない
+   * （依頼者の指示・2026-08-27、2026-08-31）。折り返した一枚は、みみの帯のぶんだけ
+   * 外へ伸ばして描いてあるので、2つの折り返しが近づくと**帯どうしが重なりさえする**。
+   *
+   * そこで、みみ2本と、そのあいだの隙間（`SEL_GAP`）が必ず入るだけの
+   * 場所を空ける。足りないぶんだけを、図のうえで右半分を右へずらして作る。
+   * 上下の出会い目（`OPEN`）と同じ考え方で、**買う長さにも幅にも入らない**。
+   */
+  const SEL_GAP = SEL_BW * 0.85
+  const OPENX = depth.left > 0 && depth.right > 0
+    ? Math.max(0, SEL_BW * 2 + SEL_GAP - (W - depth.left - depth.right))
+    : 0
+  /** みみとみみの出会い目 */
+  const meetX = depth.left
+  /** 出会い目より右にあるものを、図のうえで右へずらす量 */
+  const openAtX = (x: number) => (OPENX > 0 && x >= meetX - 0.5 ? OPENX : 0)
 
   /** 折り山ではない縦の端＝耳。二重なら耳も2枚ぶんある */
   const selvages: Side[] = (['left', 'right'] as Side[]).filter((s) => !foldSides.includes(s))
@@ -765,7 +785,7 @@ function SectionCanvas({
    * 折り山の側にみみは無いので、そちらへは足さない。
    */
   const bx0 = selvages.includes('left') ? -SEL_BW : 0
-  const bx1 = selvages.includes('right') ? W + SEL_BW : W
+  const bx1 = selvages.includes('right') ? W + SEL_BW : W + OPENX
   const bodyW = bx1 - bx0
   /** 生地の左右の真ん中。図の上の文字はここへそろえる */
   const bxMid = (bx0 + bx1) * 0.5
@@ -1060,15 +1080,14 @@ function SectionCanvas({
    * （依頼者のイラレの図・2026-08-30。実物は突き合わせでも、
    * 図としてはわずかに開けておくほうが、2本あることが分かる）
    */
-  const SEL_GAP = SEL_BW * 0.85
-  const MEET_V = SEL_BW * 2 + SEL_GAP
   if (depth.left > 0) {
-    const w = meetV ? depth.left - MEET_V * 0.5 : depth.left
-    flaps.push({ side: 'left', x: 0, y: 0, w, h: L, full: depth.left >= W - 0.5 })
+    flaps.push({ side: 'left', x: 0, y: 0, w: depth.left, h: L, full: depth.left >= W - 0.5 })
   }
   if (depth.right > 0) {
-    const w = meetV ? depth.right - MEET_V * 0.5 : depth.right
-    flaps.push({ side: 'right', x: W - w, y: 0, w, h: L, full: depth.right >= W - 0.5 })
+    flaps.push({
+      side: 'right', x: W - depth.right, y: 0, w: depth.right, h: L,
+      full: depth.right >= W - 0.5,
+    })
   }
   if (depth.top > 0) {
     flaps.push({ side: 'top', x: 0, y: 0, w: W, h: depth.top, full: depth.top >= L - 0.5 })
@@ -1335,7 +1354,7 @@ function SectionCanvas({
    */
   const crestBands = () => foldSides.map((s) => {
     const horiz = s === 'left' || s === 'right'
-    const x = s === 'left' ? 0 : W - CR
+    const x = s === 'left' ? 0 : W + OPENX - CR
     const y = s === 'top' ? 0 : L + OPEN - CR
     const over = RIM * 3
     return (
@@ -1374,13 +1393,6 @@ function SectionCanvas({
    * 「ここは向こうまで抜けている」ことの証になる。
    */
   const topPath = (() => {
-    if (meetV) {
-      // 縦わ。出会っているのは左右のみみなので、生地の端はみみの帯のぶんだけ内側
-      const eL = depth.left - MEET_V * 0.5 + SEL_BW
-      const eR = W - depth.right + MEET_V * 0.5 - SEL_BW
-      return `${sheet(bx0, by0, eL, by1, cutTop, cutBottom, leadApex, ['left'])} `
-        + sheet(eR, by0, bx1, by1, cutTop, cutBottom, leadApex, ['right'])
-    }
     if (meetH) {
       /*
         横わ。出会っているのは裁ち端どうし。割った側も波で描く。
@@ -1394,9 +1406,15 @@ function SectionCanvas({
       return `${sheet(bx0, by0, bx1, eT, cutTop, true, leadApex, ['top'])} `
         + sheet(bx0, eB, bx1, by1, true, cutBottom, leadApex, ['bottom'])
     }
-    // 折り返しが1つも無いときは、ここへ来ても描くものが無い。
-    // `flaps` が空のまま下の枝へ入ると、輪郭が空文字になって生地ごと消える
-    if (!allDoubled && flaps.length > 0) {
+    /*
+      折り返しが1つも無いときは、ここへ来ても描くものが無い。
+      `flaps` が空のまま下の枝へ入ると、輪郭が空文字になって生地ごと消える。
+
+      左右から折ってみみが出会うときも、この枝で描く。
+      2つの折り返しが近づいたぶんは `OPENX` で開けてあるので、
+      ふつうの折り返しとまったく同じ描き方で、帯2本と隙間が収まる
+    */
+    if (flaps.length > 0 && !flaps.some((f) => f.full)) {
       /*
         端だけ折り返したとき（依頼者のイラレの図・生地折り方_02 の5〜8ページ目）。
 
@@ -1417,7 +1435,7 @@ function SectionCanvas({
         f.side === 'left'
           ? sheet(bx0, by0, f.w + SEL_BW, by1, cutTop, cutBottom, leadApex, ['left'])
           : f.side === 'right'
-            ? sheet(W - f.w - SEL_BW, by0, bx1, by1, cutTop, cutBottom, leadApex, ['right'])
+            ? sheet(W - f.w - SEL_BW + OPENX, by0, bx1, by1, cutTop, cutBottom, leadApex, ['right'])
             : f.side === 'top'
               ? sheet(bx0, by0, bx1, f.h + EDGE_GAP, cutTop, true, leadApex, ['top'])
               : sheet(bx0, L - f.h - EDGE_GAP, bx1, by1, true, cutBottom, leadApex, ['bottom'])
@@ -1949,7 +1967,8 @@ function SectionCanvas({
           {flaps.filter((f) => !f.full).map((f) => {
             const horiz = f.side === 'left' || f.side === 'right'
             // 影は、折り返した生地の「端」から、下の一枚のほうへ伸びる
-            const sx = f.side === 'left' ? f.w : f.side === 'right' ? W - f.w - shade : 0
+            const sx = f.side === 'left' ? f.w
+              : f.side === 'right' ? W + OPENX - f.w - shade : 0
             // 横に折ったときの端は、余白のぶんだけ外に描いてある（`topPath` と同じ）
             const fe = allDoubled ? 0 : EDGE_GAP
             const sy = f.side === 'top' ? f.h + fe : f.side === 'bottom' ? L - f.h - fe - shade : 0
@@ -1989,7 +2008,7 @@ function SectionCanvas({
                   この端は「もとのみみ」が折り返って来たもの）
                 */}
                 {horiz && selvageStraight(
-                  f.side === 'left' ? f.w : W - f.w, f.side === 'left' ? 1 : -1,
+                  f.side === 'left' ? f.w : W + OPENX - f.w, f.side === 'left' ? 1 : -1,
                 )}
               </g>
             )
@@ -2019,7 +2038,7 @@ function SectionCanvas({
               return (
                 <g
                   key={p.id}
-                  transform={`translate(${box.x} ${box.y + openAt(box.y)})`}
+                  transform={`translate(${box.x + openAtX(box.x)} ${box.y + openAt(box.y)})`}
                   style={{ cursor: 'grab' }}
                   onPointerDown={(e) => startDrag(e, p)}
                   onPointerMove={moveDrag}
@@ -2064,7 +2083,7 @@ function SectionCanvas({
             return (
               <g
                 key={p.id}
-                transform={`translate(${box.x} ${box.y + openAt(box.y)})`}
+                transform={`translate(${box.x + openAtX(box.x)} ${box.y + openAt(box.y)})`}
                 style={{ cursor: 'grab' }}
                 onPointerDown={(e) => startDrag(e, p)}
                 onPointerMove={moveDrag}
@@ -2214,7 +2233,8 @@ function SectionCanvas({
               もとは横の帯だけ、そのまんなかに置いていた
             */
             const isz = W * 0.046
-            const mid = horiz ? (f.side === 'left' ? f.w / 2 : W - f.w / 2) : 0
+            const mid = horiz
+              ? (f.side === 'left' ? f.w / 2 : W + OPENX - f.w / 2) : 0
             /*
               横の帯では、上下も帯のまんなかから折り山ぎわへ寄せる。
               帯の高さは当てた型紙の丈そのものなので、帯のまんなか＝型紙のまんなかで、
@@ -2324,12 +2344,12 @@ function SectionCanvas({
             */
             const apex = {
               left: [0, TIP, 0, leadApex],
-              right: [W, TIP, W, leadApex],
+              right: [W + OPENX, TIP, W + OPENX, leadApex],
               top: [bx0 + TIP, 0, leadApex, 0],
               bottom: [bx0 + TIP, L + OPEN, leadApex, L + OPEN],
             }[side]
             const lx = {
-              left: -PAD * 0.42, right: W + PAD * 0.42,
+              left: -PAD * 0.42, right: W + OPENX + PAD * 0.42,
               top: bxMid, bottom: bxMid,
             }[side]
             const ly = {
