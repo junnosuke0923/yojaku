@@ -1096,10 +1096,36 @@ function SectionCanvas({
     両側わにも下の一枚が入っている。折り山が2本あるぶん耳の側へ広げる余地はないので、
     **折り山に沿ってずらすだけ**（縦わ・両側なら下へ、横わ・上下なら右へ）。
   */
-  const hasUnder = flaps.some((f) => f.full) || meetV || meetH
+  const allDoubled = flaps.some((f) => f.full) || meetV || meetH
+  /**
+   * 下の一枚を描くかどうか。**折ってあるなら、いつも描く**
+   * （依頼者のイラレの図・生地折り方_02 の5〜8ページ目・2026-08-31）。
+   *
+   * 以前は「面が丸ごと二重のときだけ」に絞っていた。端だけ折り返したときに
+   * 2枚目を描くと生地全体が二重に見えてしまう、と考えたためだが、
+   * いただいた図ではそうなっていない。**折り返した一枚のほうを明るく、
+   * その下から出ている一枚を暗く**描いてあるので、
+   * 「明るいところ＝上に一枚乗っている＝二重」と読める。
+   * 端だけ折り返したときに折り山の回り込み（U字）が出ていなかったのは、
+   * 下の一枚が無く、回り込む相手がいなかったからでもある。
+   */
+  const hasUnder = flaps.length > 0
   const foldVertical = foldSides.includes('left') || foldSides.includes('right')
   const under = { x0: bx0, y0: 0, x1: bx1, y1: L }
-  if (hasUnder) {
+  if (!allDoubled && hasUnder) {
+    /*
+      端だけ折り返したとき。下の一枚は**面ぜんぶを敷いたまま**にしておき、
+      折り返した一枚の先へ `UNDER_SHIFT` だけのぞかせる。
+
+      いただいた図では下の一枚のほうをずらしてあるが、そのとおりにすると
+      一重のところの端が面の外へ寄り、そこへ置いた型紙が生地からはみ出て見える。
+      型紙を置ける面は `[0, W] × [0, L]` のままでなければならないので、
+      ずらすのではなく、**のぞく側だけ伸ばす**。見た目は同じで、面は動かない
+    */
+    if (foldVertical) under.y1 += UNDER_SHIFT
+    else under.x1 += UNDER_SHIFT
+  }
+  if (allDoubled) {
     if (foldVertical) {
       under.y0 += UNDER_SHIFT
       under.y1 += UNDER_SHIFT
@@ -1316,6 +1342,28 @@ function SectionCanvas({
       const eB = L - depth.bottom + MEET_H * 0.5
       return `${sheet(bx0, 0, bx1, eT, cutTop, true, leadApex, ['top'])} `
         + sheet(bx0, eB, bx1, L, true, cutBottom, leadApex, ['bottom'])
+    }
+    if (!allDoubled) {
+      /*
+        端だけ折り返したとき（依頼者のイラレの図・生地折り方_02 の5〜8ページ目）。
+
+        上に来ているのは**折り返したぶんだけ**。ここを面ぜんぶで描いていたので、
+        折り山で回り込む相手がおらず、U字の折り返しが出ていなかった。
+        折り返した一枚を、その幅（高さ）ぶんの一枚として描けば、
+        折り山の端で下の一枚と同じ頂点に集まり、半円に回り込む。
+
+        みみの帯は面の外側にあるので、折り返した一枚の端も
+        `SEL_BW` ぶん外まで伸ばす。そうしないと帯が下の一枚の上に浮く
+      */
+      return flaps.map((f) => (
+        f.side === 'left'
+          ? sheet(bx0, 0, f.w + SEL_BW, L, cutTop, cutBottom, leadApex, ['left'])
+          : f.side === 'right'
+            ? sheet(W - f.w - SEL_BW, 0, bx1, L, cutTop, cutBottom, leadApex, ['right'])
+            : f.side === 'top'
+              ? sheet(bx0, 0, bx1, f.h, cutTop, true, leadApex, ['top'])
+              : sheet(bx0, L - f.h, bx1, L, true, cutBottom, leadApex, ['bottom'])
+      )).join(' ')
     }
     return sheet(bx0, 0, bx1, L, cutTop, cutBottom, leadApex)
   })()
@@ -1781,6 +1829,7 @@ function SectionCanvas({
             <>
               <path d={underPath} fill={CLOTH_FOLDED} filter={`url(#${gid}-drop2)`} />
               <path d={underPath} fill={`url(#${gid}-weave)`} />
+              <path d={underPath} fill="none" stroke="#b8b6a4" strokeWidth={W * 0.004} />
               <g clipPath={`url(#${gid}-clip-under)`}>
                 {crestBands()}
                 {/* 下の一枚のみみ。点々が2列あること＝布が2枚あること */}
@@ -1795,6 +1844,13 @@ function SectionCanvas({
           <path d={topPath} fill={CLOTH}
             filter={underPath ? `url(#${gid}-drop)` : `url(#${gid}-drop2)`} />
           <path d={topPath} fill={`url(#${gid}-weave)`} />
+          {/*
+            2枚の輪郭をうすく引く（依頼者のイラレの図・2026-08-31）。
+            折り返した一枚と下の一枚は色の差がわずかなので、線が無いと
+            境目——とくに折り山の回り込み——がどこにあるのか読めない。
+            折り返した端に引いていた線をここへまとめた
+          */}
+          <path d={topPath} fill="none" stroke="#b8b6a4" strokeWidth={W * 0.004} />
 
           {/*
             端の描き分け。折り山・耳・裁ち端は実物ではまったく別のものなので、
@@ -1843,7 +1899,13 @@ function SectionCanvas({
               他の折り方より濃く見える。隙間そのものが下の一枚の色で塗ってあるので、
               ここでは影は要らない（依頼者の指摘・2026-08-30）
             */
-            const shadeless = (meetV && horiz) || (meetH && !horiz)
+            /*
+              下の一枚が折り返しの先にのぞいているなら、影は要らない。
+              色の違いだけで「ここから先は一重」と分かるうえ、
+              影を重ねると同じ生地が折り方によって違う色に見えてしまう
+              （依頼者の指示・2026-08-27）
+            */
+            const shadeless = !allDoubled || (meetV && horiz) || (meetH && !horiz)
             return (
               <g key={f.side}>
                 {!shadeless && <rect
@@ -1862,28 +1924,12 @@ function SectionCanvas({
                 />}
                 {/*
                   折り返した生地の端。ここから先は一重に戻る。
-                  縦の折りならこの端は「もとのみみ」なのでピン穴で、
-                  横の折りなら「もとの裁ち端」なので波線で描く
+                  端そのものの線は上の一枚の輪郭で引いてあるので、
+                  ここではみみの帯だけを足す（縦の折りのとき、
+                  この端は「もとのみみ」が折り返って来たもの）
                 */}
-                {horiz ? (
-                  <g>
-                    {/*
-                      生地そのものの端は、みみの帯の**外側**にある。
-                      線をここに引かないと、隙間の縁がぼやけて抜けて見えない
-                      （イラレの図でも、隙間の両縁だけ太い線で引いてある）
-                    */}
-                    <line
-                      x1={f.side === 'left' ? f.w + SEL_BW : W - f.w - SEL_BW} y1={0}
-                      x2={f.side === 'left' ? f.w + SEL_BW : W - f.w - SEL_BW} y2={L}
-                      stroke="#b8b6a4" strokeWidth={W * 0.004} />
-                    {selvageStraight(f.side === 'left' ? f.w : W - f.w, f.side === 'left' ? 1 : -1)}
-                  </g>
-                ) : (
-                  <path
-                    d={`M${bx0.toFixed(1)} ${(f.side === 'top' ? f.h : L - f.h).toFixed(1)}`
-                      + waveSeg(bx0, bx1, f.side === 'top' ? f.h : L - f.h)}
-                    stroke="#b8b6a4" strokeWidth={W * 0.005} fill="none"
-                  />
+                {horiz && selvageStraight(
+                  f.side === 'left' ? f.w : W - f.w, f.side === 'left' ? 1 : -1,
                 )}
               </g>
             )
@@ -2188,7 +2234,7 @@ function SectionCanvas({
             // 押すとこちら側が「わ」になる。上の小さな図で押すのと同じこと
             return edgeTag(s, x, L * 0.5, W * 0.13, W * 0.32, (
               <>
-                {iconSelvageLayers(x, L * 0.5 - size * 2.1, W * 0.082, hasUnder ? 2 : 1, '#7f857d')}
+                {iconSelvageLayers(x, L * 0.5 - size * 2.1, W * 0.082, allDoubled ? 2 : 1, '#7f857d')}
                 <text x={x} y={L * 0.5 + size * 0.3} fontSize={size} fill="#8a9188"
                   textAnchor="middle">
                   <tspan x={x}>み</tspan>
@@ -2301,10 +2347,10 @@ function SectionCanvas({
         <div className="px-3 pb-1">
         <Hint
           icon="fold"
-          summary={hasUnder
+          summary={allDoubled
             ? <>見えている面は<b className="text-mat-600">ぜんぶ二重</b>。型紙1つで2枚とれます</>
             : flaps.length > 0
-              ? <>濃いところが<b className="text-mat-600">二重</b>、白いところが一重です</>
+              ? <>白いところが<b className="text-mat-600">二重</b>、濃いところが一重です</>
               : <>折らずに<b className="text-ink-700">一重</b>で使っています</>}
         >
           {half && section.fold === 'vBoth' ? (
