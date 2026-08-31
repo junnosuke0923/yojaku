@@ -18,7 +18,8 @@ import { useMemo, useRef, useState, type PointerEvent, type ReactNode } from 're
 import { cutSizeOf, isReserve, RESERVE_CHOICES, toReserve } from '../lib/store'
 import { cm } from '../lib/format'
 import {
-  canHalfFold, computeYardage, FOLD_LABELS, FOLD_MARK_REF_MM, foldOfSides, foldSidesOf,
+  canHalfFold, computeYardage, foldEdgeSides, FOLD_LABELS, FOLD_MARK_REF_MM, foldOfSides,
+  foldSidesOf,
   isHalfFold, isHorizontalFold, isVerticalSide, newPlacement, orientedPair,
   PURCHASE_MARGIN_MM, SELVAGE_MM, SNAP_MM, toggleFoldSide,
   type Fabric, type FoldMark, type FoldMode, type PlacedPart, type Placement,
@@ -163,9 +164,24 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
 
   const place = (partId: string) => {
     const id = `pl${state.placements.length}_${partId}`
+    /*
+      「わ」の辺を持つ型紙は、置いた瞬間から折り山に当てておく
+      （依頼者の指摘・2026-08-31）。置いただけの状態は左上（＝縦わなら折り山そのもの）
+      なので、見た目は当たっているのに「折り山に当ててください」と出ていた。
+      当てる先が無いとき（まだ折っていない、向きが合わない）は当てない。
+      そのときは、これまでどおり注意書きが出て、折り方を決める入口になる
+    */
+    const fresh = newPlacement(id, partId, activeSection)
+    const part = partMap.get(partId)
+    const sides = foldSidesOf(
+      state.sections.find((sc) => sc.id === activeSection)?.fold ?? 'none',
+    )
+    const snapTo = part
+      ? foldEdgeSides(part, fresh).find((sd) => sides.includes(sd)) ?? null
+      : null
     onChange({
       ...state,
-      placements: [...state.placements, newPlacement(id, partId, activeSection)],
+      placements: [...state.placements, { ...fresh, snapTo }],
     })
     setSelectedId(id)
   }
@@ -296,7 +312,21 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
               placements: state.placements.map((pl) => {
                 if (pl.sectionId !== section.id) return pl
                 const was = pl.snapTo
-                if (!was || to.includes(was)) return pl
+                if (was && to.includes(was)) return pl
+                /*
+                  まだどこにも当てていない「わ」つきの型紙は、
+                  折り山ができた時点で当てる（依頼者の指摘・2026-08-31）。
+                  「置く → 折り方を決める」の順で触ると、
+                  折り方を決めたのに「折り山に当ててください」が出たままになり、
+                  結局ボタンを押しに行くことになっていた
+                */
+                if (!was) {
+                  const part = partMap.get(pl.partId)
+                  const want = part
+                    ? foldEdgeSides(part, pl).find((sd) => to.includes(sd)) ?? null
+                    : null
+                  return want ? { ...pl, snapTo: want } : pl
+                }
                 const same = to.filter((t) => isVerticalSide(t) === isVerticalSide(was))
                 return { ...pl, snapTo: same.length === 1 ? same[0] : null }
               }),
@@ -581,6 +611,10 @@ function SectionCanvas({
     {
       id: string; x0: number; y0: number; px: number; py: number
       w: number; h: number; group: string
+      /** この型紙の「わ」の辺が向いていて、なおかつこの区間に実在する折り山 */
+      targets: Side[]
+      /** つかんだ時点での下端の折り山の位置(mm)。引きずっているあいだ動かさない */
+      bottomY: number
     } | null
   >(null)
   /** 辺を引きずっている最中に出す、いま何をしているのかのひと言 */
@@ -594,6 +628,14 @@ function SectionCanvas({
   const L = Math.max(used, MIN_VIEW_MM)
   const foldSides = foldSidesOf(section.fold)
   const half = isHalfFold(section)
+  /**
+   * 折り山へ吸い付く範囲(mm)。
+   *
+   * 指はきざみ（1cm）より太いので、置きたいところにぴったり止めるのは難しい。
+   * 生地幅にひもづけてあるのは、細い生地でも太い生地でも
+   * **画面の上で同じ幅**に見えるようにするため。1cm きざみの5つぶんほど。
+   */
+  const GRAB_MM = Math.max(SNAP_MM * 3, W * 0.05)
   /**
    * 折り込む深さ。ふだんは計算結果をそのまま使う。
    *
@@ -717,12 +759,22 @@ function SectionCanvas({
     onSelect(p.id)
     ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
     const box = report.boxes.find((b) => b.placementId === p.id)
+    const part = partMap.get(p.partId)
     // ひと続きの引きずりに、1つだけの合図を付ける。
     // 離してもう一度つかんだら別の合図になるので、戻るは1回ずつ効く
     dragSeq += 1
     drag.current = {
-      id: p.id, x0: p.xMm, y0: p.yMm, px: e.clientX, py: e.clientY,
+      id: p.id,
+      /*
+        つかんだ位置は、置いてある値ではなく**いま図に出ている位置**から取る。
+        折り山に当ててある向きは、位置を折り山から決めているので、
+        `xMm` には当てる前の古い値が残っていることがある。
+        そこから引きずると、指を置いた瞬間に型紙が飛ぶ
+      */
+      x0: box?.x ?? p.xMm, y0: box?.y ?? p.yMm, px: e.clientX, py: e.clientY,
       w: box?.w ?? 0, h: box?.h ?? 0, group: `drag${dragSeq}`,
+      targets: part ? foldEdgeSides(part, p).filter((sd) => foldSides.includes(sd)) : [],
+      bottomY: L,
     }
   }
 
@@ -744,13 +796,45 @@ function SectionCanvas({
     const maxX = Math.max(0, W - d.w)
     const x = Math.max(0, Math.min(maxX, snap(d.x0 + (e.clientX - d.px) * k)))
     const y = Math.max(0, snap(d.y0 + (e.clientY - d.py) * k))
+
+    /*
+      「わ」の辺を折り山のそばまで持っていったら、そのまま吸い付ける
+      （依頼者の指摘・2026-08-31。それまでは下のボタンを押さないと
+      「当てた」ことにならず、引きずって合わせただけでは当たっていなかった）。
+
+      当てる先は、その型紙の「わ」の辺が向いている側だけに絞る。
+      縦に走る「わ」の辺が上の折り山に当たることはないので、
+      近いというだけで吸い付かせると、ありえない当て方ができてしまう。
+
+      離すほうも同じ規則で決める。吸い付く範囲から出れば、そのまま当たっていない状態に戻る。
+      ボタンを押して外しに行かなくてよい。
+    */
+    let snapTo: Side | null = null
+    if (d.targets.length > 0) {
+      let near = Infinity
+      for (const sd of d.targets) {
+        const gap = sd === 'left' ? x
+          : sd === 'right' ? Math.abs(x - (W - d.w))
+          : sd === 'top' ? y
+          : Math.abs(y + d.h - d.bottomY)
+        if (gap <= GRAB_MM && gap < near) { near = gap; snapTo = sd }
+      }
+      setHint(snapTo
+        ? `「わ」を${SIDE_LABELS[snapTo]}の折り山に当てました`
+        : '折り山から離しました')
+    }
+
     onMove(d.id, {
       xMm: keepOffMeet(x, d.w, report.meetXMm, W),
       yMm: keepOffMeet(y, d.h, report.meetYMm, Infinity),
+      ...(d.targets.length > 0 ? { snapTo } : {}),
     }, d.group)
   }
 
-  const endDrag = () => { drag.current = null }
+  const endDrag = () => {
+    if (drag.current?.targets.length) setHint(null)
+    drag.current = null
+  }
 
 
   /**
@@ -2425,6 +2509,7 @@ function Chip({
     <button
       type="button"
       disabled={disabled}
+      aria-pressed={on}
       onClick={onClick}
       className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-bold ${
         disabled

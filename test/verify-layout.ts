@@ -15,7 +15,8 @@ import { initialPlan, applyToAll, buildSeam, foldGroups } from '../src/lib/seam'
 import { splitEdges } from '../src/lib/edges'
 import { bounds, type Point } from '../src/lib/geom'
 import {
-  canHalfFold, computeYardage, foldOfSides, foldSidesOf, newPlacement, orientedPair,
+  canHalfFold, computeYardage, foldEdgeSides, foldOfSides, foldSidesOf, newPlacement,
+  orientedPair,
   toggleFoldSide, toPurchaseLength,
   type Fabric, type FoldMode, type Placement, type PlacedPart, type Side,
 } from '../src/lib/fabric'
@@ -303,6 +304,34 @@ console.log('\n■ ベルトを「わ」で開いて、幅を倍にして裁つ'
     facing('裏返し', newPlacement('m2', belt.id, 's1', { mirrored: true }))
     facing('180度', newPlacement('m3', belt.id, 's1', { rot180: true }))
     facing('地の目を90度', newPlacement('m4', belt.id, 's1', { rot90: true }))
+  }
+
+  /*
+    「わ」の辺が向いている側（依頼者の指摘・2026-08-31）。
+
+    生地の上で引きずったときに折り山へ吸い付かせるので、
+    **どの折り山に当てられるのか**が置いた向きから正しく出ている必要がある。
+    ここを間違えると、縦に走る「わ」の辺が上の折り山に吸い付く、という
+    実物ではありえない当て方ができてしまう。
+
+    ベルトは長い辺（縦）を「わ」にしてあるので、ふだんは左右のどちらかを向く。
+    裏返しと180度で逆の側へ、地の目を90度回すと上下へ移る。
+  */
+  {
+    const sidesOf = (pl: Placement) => foldEdgeSides(closed, pl)
+    const vertical = (ss: Side[]) => ss.length === 1 && (ss[0] === 'left' || ss[0] === 'right')
+    const plain = sidesOf(newPlacement('e1', belt.id, 's1'))
+    ok('「わ」の辺は左右のどちらかを向く', vertical(plain), plain.join('・') || 'なし')
+    const mir = sidesOf(newPlacement('e2', belt.id, 's1', { mirrored: true }))
+    ok('裏返すと逆の側を向く', vertical(mir) && mir[0] !== plain[0], mir.join('・') || 'なし')
+    const half = sidesOf(newPlacement('e3', belt.id, 's1', { rot180: true }))
+    ok('180度回すと逆の側を向く', vertical(half) && half[0] !== plain[0], half.join('・') || 'なし')
+    const turned = sidesOf(newPlacement('e4', belt.id, 's1', { rot90: true }))
+    ok('地の目を90度回すと上下を向く',
+      turned.length === 1 && (turned[0] === 'top' || turned[0] === 'bottom'),
+      turned.join('・') || 'なし')
+    const none = foldEdgeSides(opened, newPlacement('e5', belt.id, 's1'))
+    ok('開いた型紙は当てる先を持たない', none.length === 0, none.join('・') || 'なし')
   }
 }
 

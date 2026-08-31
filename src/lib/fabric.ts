@@ -290,6 +290,35 @@ export function sizeOf(part: PlacedPart, p: Placement): { w: number; h: number }
   return { w: b.maxX - b.minX, h: b.maxY - b.minY }
 }
 
+/**
+ * 「わ」の辺が、いま置いている向きで**どちら側を向いているか**。
+ *
+ * 生地の上で引きずったときに、勝手に折り山へ吸い付かせるために要る
+ * （依頼者の指摘・2026-08-31「手動でわの折り方の部分に持っていった際は
+ * 自動で吸着して欲しい」）。どの折り山にでも吸い付いてよいわけではない。
+ * 「わ」の辺が縦に走っている型紙が、上の折り山に当たることはないためである。
+ *
+ * 向きは**型紙の本体が辺のどちら側にあるか**で決まる。
+ * 本体が辺より右にあるなら、その辺は左を向いている＝左の折り山に当てる。
+ * 「わ」の記号は辺に沿った2点（a・b）と内側の1点（inn）で持っているので、
+ * 回転や裏返しを通したあとでも、そのまま同じ判定ができる。
+ *
+ * 「わ」の辺を持たない型紙（開いて裁つ設定にしたものを含む）では空になる。
+ */
+export function foldEdgeSides(part: PlacedPart, p: Placement): Side[] {
+  if (!part.hasFoldEdge) return []
+  const out: Side[] = []
+  for (const m of orientedPair(part, p).marks) {
+    const dx = Math.abs(m.b.x - m.a.x)
+    const dy = Math.abs(m.b.y - m.a.y)
+    const side: Side = dy >= dx
+      ? (m.inn.x >= (m.a.x + m.b.x) / 2 ? 'left' : 'right')
+      : (m.inn.y >= (m.a.y + m.b.y) / 2 ? 'top' : 'bottom')
+    if (!out.includes(side)) out.push(side)
+  }
+  return out
+}
+
 export type Problem = {
   kind: 'tooWide' | 'tooDeep' | 'overlap' | 'offFold' | 'noSuchFold' | 'napLocked' | 'acrossMeet'
   message: string
