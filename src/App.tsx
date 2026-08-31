@@ -373,10 +373,10 @@ export function App() {
     setError(null)
     setBusy(true)
     try {
-      const res = await fetch(`${import.meta.env.BASE_URL}dev-sample.jpg`, { cache: 'no-store' })
+      const res = await fetch(`${import.meta.env.BASE_URL}sample-photo.jpg`, { cache: 'no-store' })
       if (!res.ok) throw new Error(String(res.status))
       const blob = await res.blob()
-      await pickFile(new File([blob], 'dev-sample.jpg', { type: 'image/jpeg' }))
+      await pickFile(new File([blob], 'sample-photo.jpg', { type: 'image/jpeg' }))
     } catch {
       setError('見本の写真を読み込めませんでした。読み込み直してから、もう一度試してください。')
       setBusy(false)
@@ -669,28 +669,48 @@ export function App() {
               </div>
             )}
 
-            <p className="flex items-center gap-2 text-sm text-ink-500">
-              <Icon name="camera" className="h-4 w-4 shrink-0 text-mat-600" />
-              <span className="min-w-0 flex-1">
-                無地で色のついた台に型紙と
-                <span className="font-bold text-ink-700">方眼定規</span>
-                を置いて、真上から
-              </span>
-            </p>
-
             {/*
-              「定規は1本でいい」「地の目はそろえる」は、
-              何枚も一度に撮るときにいちばん間違えやすいところ（依頼者の質問・2026-08-26）。
-              もとは2行に分けていたが、どちらもこの定規1本の話なので1行にまとめた
-              （説明を整理する、という依頼者の指示・2026-08-31）。
-              結論だけ出して、理由は「？」の中に畳んでおく
+              撮り方は、文で言うより見せたほうが早い（依頼者の指示・2026-09-01）。
+              置いてあるのは、開発モードで読み込むのとまったく同じ1枚。
+              つまりここに出ている見本は、この道を最後まで通ることが
+              確かめてある写真そのものになっている。
+              注意書きは、その絵と同じ枠の中に入れてある
             */}
-            <div data-tour="photo-hint">
-              <Hint icon="ruler" summary={<>定規は<b className="text-ink-700">1本</b>だけ、地の目と<b className="text-ink-700">平行に</b></>}>
-                写真の実寸も地の目の向きも、この定規1本から決めています。
-                1本あれば写っているパーツは全部測れます。
-                地の目の向きが違うものが混ざっていると斜めに読まれるので、分けて撮ってください。
-              </Hint>
+            <div className="flex flex-col gap-2.5 rounded-xl border border-ink-100 bg-white px-4 py-3.5">
+              <p className="flex items-center gap-2 text-sm text-ink-500">
+                <Icon name="camera" className="h-4 w-4 shrink-0 text-mat-600" />
+                <span className="min-w-0 flex-1">
+                  無地で色のついた台に型紙と
+                  <span className="font-bold text-ink-700">方眼定規</span>
+                  を置いて、真上から
+                </span>
+              </p>
+              <img
+                src={`${import.meta.env.BASE_URL}sample-photo.jpg`}
+                alt="緑の台の上に、スカートの後ろ・方眼定規・前・ベルトを、すべて縦向きにそろえて並べた見本の写真"
+                width={937}
+                height={751}
+                /*
+                  丈を抑えてあるのは、撮るボタンを画面の中に残すため。
+                  絵は横長なので、幅いっぱいに広げると縦を 280px 使ってしまい、
+                  小さい端末で「カメラで撮る」が下に押し出される
+                */
+                className="mx-auto h-[240px] w-auto rounded-lg border border-ink-100 bg-chalk"
+              />
+              {/*
+                「定規は1本でいい」「地の目はそろえる」は、
+                何枚も一度に撮るときにいちばん間違えやすいところ（依頼者の質問・2026-08-26）。
+                もとは2行に分けていたが、どちらもこの定規1本の話なので1行にまとめた
+                （説明を整理する、という依頼者の指示・2026-08-31）。
+                結論だけ出して、理由は「？」の中に畳んでおく
+              */}
+              <div data-tour="photo-hint">
+                <Hint icon="ruler" summary={<>定規は<b className="text-ink-700">1本</b>だけ、地の目と<b className="text-ink-700">平行に</b></>}>
+                  写真の実寸も地の目の向きも、この定規1本から決めています。
+                  1本あれば写っているパーツは全部測れます。
+                  地の目の向きが違うものが混ざっていると斜めに読まれるので、分けて撮ってください。
+                </Hint>
+              </div>
             </div>
 
             <input
@@ -825,7 +845,7 @@ export function App() {
                   開発用（?dev を付けて開いたときだけ出ます）
                 </p>
                 <p className="text-sm text-ink-500">
-                  見本の写真を、いま撮ったものとして読み込みます。定規から先は学生と同じ道です。
+                  上に出ている見本の写真を、いま撮ったものとして読み込みます。定規から先は学生と同じ道です。
                 </p>
                 <button
                   type="button"
