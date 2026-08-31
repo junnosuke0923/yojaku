@@ -10,8 +10,9 @@
 
 import { analyze } from '../src/lib/pipeline'
 import { guessRuler, RULERS } from '../src/lib/ruler'
+import { findRulerQuad } from '../src/lib/findRuler'
 import { DEFAULT_GREEN, estimateHueCenter } from '../src/lib/hsv'
-import type { Point, Quad } from '../src/lib/geom'
+import { dist, type Point, type Quad } from '../src/lib/geom'
 
 // Node には ImageData が無いので、必要な部分だけ用意する
 class NodeImageData {
@@ -574,6 +575,98 @@ console.log('\n■ 定規を取り違えたときの被害を確認（0.6倍に�
     check('誤選択時の最大丈 (mm)', out.parts[0].heightMm, TRUE_HEIGHT_MM * 0.6, 2)
   }
 }
+
+/**
+ * 定規の自動あてはめ（src/lib/findRuler.ts）。
+ *
+ * ここで守らせたい性質は、`sweepGuess` と同じ考えでいる。
+ * **当たることより、外れたまま通してしまわないこと。**
+ * 四隅が外れると、そのあとの寸法がぜんぶ狂う。
+ * 分からないときは黙って手で合わせてもらうほうが安い。
+ */
+function sweepFind() {
+  console.log('\n■ 定規の自動あてはめ（真上から撮ったとき）')
+  for (const rulerId of ['r50', 'r30'] as const) {
+    for (const tiltDeg of [0, 5, 10]) {
+      const scene = buildScene({ rulerId, tiltDeg, opaqueRuler: false, tintedRuler: true })
+      const image = scene.image as unknown as ImageData
+      const hue = estimateHueCenter(image.data)
+      const found = findRulerQuad(image, { ...DEFAULT_GREEN, hueCenter: hue })
+      if (!found) {
+        report(`${rulerId} 傾き${tiltDeg}度`, false, '見つけられなかった')
+        continue
+      }
+      const err = quadError(found.quad, scene.rulerQuad)
+      const long = Math.max(
+        dist(scene.rulerQuad[0], scene.rulerQuad[1]),
+        dist(scene.rulerQuad[1], scene.rulerQuad[2]),
+      )
+      report(
+        `${rulerId} 傾き${tiltDeg}度`,
+        err / long < 0.02,
+        `四隅のずれ 最大 ${err.toFixed(1)}px（長辺の ${((err / long) * 100).toFixed(1)}%）`,
+      )
+    }
+  }
+
+  console.log('\n■ 定規の自動あてはめ（当ててはいけないとき）')
+  {
+    // 定規が写っていない写真。黙って手で合わせてもらう
+    const scene = buildScene({ rulerId: 'r50', tiltDeg: 0, opaqueRuler: false })
+    const image = scene.image as unknown as ImageData
+    const hue = estimateHueCenter(image.data)
+    const found = findRulerQuad(image, { ...DEFAULT_GREEN, hueCenter: hue })
+    report('定規が写っていない', found === null, found ? '当ててしまった' : '当てなかった')
+  }
+  {
+    // 細長い型紙（ベルトなど）を、定規と取り違えないこと。
+    // 見本の写真では、ベルトの縦横比 20.6 のほうが定規の 9.72 より細長かった
+    const belt: Point[] = [
+      { x: 700, y: 20 }, { x: 760, y: 20 }, { x: 760, y: 640 }, { x: 700, y: 640 },
+    ]
+    const scene = buildScene({
+      rulerId: 'r50', tiltDeg: 0, opaqueRuler: false, tintedRuler: true,
+      patterns: [PATTERN_MM, belt],
+    })
+    const image = scene.image as unknown as ImageData
+    const hue = estimateHueCenter(image.data)
+    const found = findRulerQuad(image, { ...DEFAULT_GREEN, hueCenter: hue })
+    const err = found ? quadError(found.quad, scene.rulerQuad) : Infinity
+    report('細長い型紙が並んでいる', err < 8, found ? `四隅のずれ ${err.toFixed(1)}px` : '見つけられなかった')
+  }
+  {
+    // 定規とまったく同じ形の紙が並んでいる。透けているかどうかだけが手がかり
+    const strip: Point[] = [
+      { x: 700, y: 20 }, { x: 750, y: 20 }, { x: 750, y: 520 }, { x: 700, y: 520 },
+    ]
+    const scene = buildScene({
+      rulerId: 'r50', tiltDeg: 0, opaqueRuler: false, tintedRuler: true,
+      patterns: [PATTERN_MM, strip],
+    })
+    const image = scene.image as unknown as ImageData
+    const hue = estimateHueCenter(image.data)
+    const found = findRulerQuad(image, { ...DEFAULT_GREEN, hueCenter: hue })
+    const err = found ? quadError(found.quad, scene.rulerQuad) : Infinity
+    report(
+      '定規と同じ形の紙が並ぶ',
+      found === null || err < 8,
+      found ? `四隅のずれ ${err.toFixed(1)}px（紙のほうを選んだら NG）` : '当てなかった（手で合わせてもらう）',
+    )
+  }
+}
+
+/** 2つの四角形の、いちばん離れた角どうしの距離。角の順番は問わない */
+function quadError(a: Quad, b: Quad): number {
+  let worst = 0
+  for (const p of b) {
+    let near = Infinity
+    for (const q of a) near = Math.min(near, dist(p, q))
+    worst = Math.max(worst, near)
+  }
+  return worst
+}
+
+sweepFind()
 
 console.log(failures === 0 ? '\nすべて通りました。' : `\n${failures} 件、期待どおりになりませんでした。`)
 process.exit(failures === 0 ? 0 : 1)

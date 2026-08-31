@@ -22,6 +22,7 @@ import { loadImageFile, type LoadedImage } from './lib/image'
 import { analyze, DEFAULT_SMOOTH, previewGreenMask, resmooth, type AnalyzeResult } from './lib/pipeline'
 import type { SmoothLevel } from './lib/smooth'
 import { defaultRulerQuad, guessRuler, RULERS, type RulerId } from './lib/ruler'
+import { findRulerQuad } from './lib/findRuler'
 import { loadSaves, removeSave, whenOf, type Save } from './lib/saves'
 import { EMPTY, load as loadParts, save as saveParts, toStored, type PartsState } from './lib/store'
 import type { Quad } from './lib/geom'
@@ -77,6 +78,15 @@ export function App() {
   const [quad, setQuad] = useState<Quad | null>(null)
   // 四隅をまだ一度も動かしていないうちは、初期位置の形を測っても意味がない
   const [quadAdjusted, setQuadAdjusted] = useState(false)
+  /**
+   * 四隅を、こちらで当てたか（依頼者の質問・2026-09-01）。
+   *
+   * 当てられたときは、画面の言い方を「合わせてください」から
+   * 「合っているか確かめてください」に変える。
+   * 学生が四隅に触れたら下ろす——そこから先は本人が合わせた枠なので、
+   * こちらが当てたという話は用済みになる
+   */
+  const [rulerAuto, setRulerAuto] = useState(false)
   const [rulerId, setRulerId] = useState<RulerId>(loadSavedRuler)
   const [rulerChosenByHand, setRulerChosenByHand] = useState(false)
   /**
@@ -224,9 +234,18 @@ export function App() {
     try {
       const loaded = await loadImageFile(file)
       setImage(loaded)
-      setGreen({ ...DEFAULT_GREEN, hueCenter: estimateHueCenter(loaded.imageData.data) })
-      setQuad(defaultRulerQuad(loaded.width, loaded.height))
-      setQuadAdjusted(false)
+      const nextGreen = { ...DEFAULT_GREEN, hueCenter: estimateHueCenter(loaded.imageData.data) }
+      setGreen(nextGreen)
+      /*
+        定規をこちらでさがして、見つかったら四隅を当てておく（lib/findRuler.ts）。
+        見つからなければ今までどおり、まん中に細長い枠を置くだけ。
+        当てられたときは quadAdjusted も立てる——枠はもう意味のある場所に
+        あるので、定規の種類の判別（guessRuler）もその場で働いてよい
+      */
+      const found = findRulerQuad(loaded.imageData, nextGreen)
+      setQuad(found ? found.quad : defaultRulerQuad(loaded.width, loaded.height))
+      setQuadAdjusted(!!found)
+      setRulerAuto(!!found)
       setRulerChosenByHand(false)
       setPerspective(false)
       setResult(null)
@@ -246,6 +265,7 @@ export function App() {
   const adjustQuad = (next: Quad) => {
     setQuad(next)
     setQuadAdjusted(true)
+    setRulerAuto(false)
   }
 
   /*
@@ -934,7 +954,21 @@ export function App() {
 
         {step === 'ruler' && image && quad && (
           <section className="flex flex-col gap-5">
-            {perspective ? (
+            {/*
+              こちらで四隅を当てられたときは、頼むことが変わる（依頼者の質問・2026-09-01）。
+              「合わせてください」のままだと、もう合っている枠を
+              もう一度合わせに行くことになる。**確かめてほしい**とだけ言う。
+              角に触れた時点でこの行は下り、ふだんの言い方に戻る
+            */}
+            {rulerAuto ? (
+              <p className="flex gap-2 text-sm leading-relaxed text-mat-700">
+                <Icon name="ruler" className="mt-[0.2em] h-[1.15em] w-[1.15em] shrink-0" />
+                <span className="min-w-0 flex-1">
+                  <span className="font-bold">定規をさがして、枠を当てておきました。</span>
+                  合っているか確かめてください。ずれていたら、角をつまんで直せます。
+                </span>
+              </p>
+            ) : perspective ? (
               <p className="text-sm leading-relaxed text-ink-500">
                 <span className="font-bold text-ink-700">4つの丸を、定規の角に合わせてください。</span>
                 <br />
