@@ -13,10 +13,10 @@
 
 import { initialPlan, applyToAll, buildSeam, foldGroups } from '../src/lib/seam'
 import { splitEdges } from '../src/lib/edges'
-import { bounds, type Point } from '../src/lib/geom'
+import { bounds, signedArea, type Point } from '../src/lib/geom'
 import {
   canHalfFold, computeYardage, foldEdgeSides, foldOfSides, foldSidesOf, newPlacement,
-  orientedPair,
+  orientedOutline, orientedPair, turnBy, turnOf,
   toggleFoldSide, toPurchaseLength,
   type Fabric, type FoldMode, type Placement, type PlacedPart, type Side,
 } from '../src/lib/fabric'
@@ -369,19 +369,86 @@ console.log('\n■ 半分に折ると、幅の半分を超える型紙は入ら�
     r.problems.map((x) => x.kind).join(',') || 'なし')
 }
 
+console.log('\n■ 回すのは回転であって、鏡ではない')
+{
+  /*
+    左右へ90度ずつ回す作りにしたときに直したこと（依頼者の指摘・2026-08-31）。
+
+    もとは90度のところで x と y を入れかえていた。入れかえは対角線を軸にした鏡映で、
+    回転ではない。枠の大きさは同じなので要尺の数字には出ないが、
+    左右対称でない型紙は**裏返った形**で描かれていた。
+    「裏返す」を別に用意して印まで出しているのに、
+    回しただけで黙って裏返るのでは筋が通らない。
+
+    鏡になっているかどうかは、多角形の符号つき面積の**符号**で分かる。
+    回転では符号は変わらず、鏡映では反転する。
+  */
+  // 左下を欠いた五角形。左右にも上下にも対称でない
+  const poly = [
+    { x: 0, y: 0 }, { x: 300, y: 0 }, { x: 300, y: 400 },
+    { x: 120, y: 400 }, { x: 0, y: 260 },
+  ]
+  const asym: PlacedPart = {
+    id: 'z', hasFoldEdge: false,
+    cutLineMm: poly, finishedLineMm: poly,
+    foldMarksMm: [], centerLineMm: null,
+  }
+  const base = signedArea(orientedOutline(asym, newPlacement('r0', 'z', 's1')))
+  const sign = (v: number) => (v > 0 ? '+' : '−')
+  for (const [label, over] of [
+    ['右へ90度', { rot90: true }],
+    ['180度', { rot180: true }],
+    ['左へ90度（＝270度）', { rot90: true, rot180: true }],
+  ] as const) {
+    const a = signedArea(orientedOutline(asym, newPlacement('r', 'z', 's1', over)))
+    ok(`${label}で裏返らない`, sign(a) === sign(base), `${sign(base)} → ${sign(a)}`)
+  }
+  const flipped = signedArea(
+    orientedOutline(asym, newPlacement('rm', 'z', 's1', { mirrored: true })),
+  )
+  ok('裏返したときだけ鏡になる', sign(flipped) !== sign(base), `${sign(base)} → ${sign(flipped)}`)
+
+  /*
+    角度の足し引き。右へ4回まわせば元へ戻り、左右は打ち消しあう。
+    真偽値2つで持っているぶん、ここを間違えると
+    「押しても向きが変わらない」「1回押すと2つ飛ぶ」が起きる
+  */
+  let pl = newPlacement('t', 'z', 's1')
+  const seen: number[] = []
+  for (let i = 0; i < 4; i++) { pl = { ...pl, ...turnBy(pl, 1) }; seen.push(turnOf(pl)) }
+  ok('右へ4回まわすと一周する', seen.join(',') === '90,180,270,0', seen.join('→'))
+  let back = newPlacement('t2', 'z', 's1', { rot90: true })
+  back = { ...back, ...turnBy(back, -1) }
+  ok('左へ1回で戻る', turnOf(back) === 0, `${turnOf(back)}°`)
+  let under = newPlacement('t3', 'z', 's1')
+  under = { ...under, ...turnBy(under, -1) }
+  ok('0度から左へまわすと270度', turnOf(under) === 270, `${turnOf(under)}°`)
+}
+
 console.log('\n■ 止めるべきものを止めているか')
 {
   const napped = fabric(1100, ['vLeft'], true)
   const r1 = run(napped, [newPlacement('a', 'p1', 's1', { snapTo: 'left', rot180: true })],
     [part('p1', 300, 400, true)])
-  ok('毛並みありで差し込みを止める',
+  ok('毛並みありで上下逆を知らせる',
     r1.problems.some((x) => x.kind === 'napLocked'), r1.problems[0]?.message ?? 'なし')
 
   const plain = fabric(1100, ['vLeft'])
   const r2 = run(plain, [newPlacement('a', 'p1', 's1', { snapTo: 'left', rot180: true })],
     [part('p1', 300, 400, true)])
-  ok('向きなしなら差し込みを許す',
-    !r2.problems.some((x) => x.kind === 'napLocked'), '止めない')
+  ok('向きなしなら上下逆でも言わない',
+    !r2.problems.some((x) => x.kind === 'napLocked'), '言わない')
+
+  /*
+    270度は `rot180` が立っているが、差し込みではない（依頼者の指摘・2026-08-31）。
+    左右へ90度ずつ回す作りにしたので、270度は「地の目が横」の側にあたる。
+    ここを `rot180` だけで見ていると、毛並みのある生地で
+    右へ3回まわしただけの型紙に「上下逆です」と出てしまう
+  */
+  const r2b = run(napped, [newPlacement('a', 'p1', 's1', { rot90: true, rot180: true })],
+    [part('p1', 300, 400, false)])
+  ok('270度は上下逆ではない',
+    !r2b.problems.some((x) => x.kind === 'napLocked'), '言わない')
 
   // わ の辺（縫い代0）を持つのに折り山から離れている
   const r3 = run(plain, [newPlacement('a', 'p1', 's1', { xMm: 200 })],

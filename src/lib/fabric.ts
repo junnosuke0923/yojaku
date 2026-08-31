@@ -173,13 +173,37 @@ export type Placement = {
   yMm: number
   /** どの折り山に当てているか。当てていなければ null */
   snapTo: Side | null
-  /** 差し込み。生地に向きがあるときは許さない */
+  /**
+   * 回した向き。90度きざみの4通りを、この2つの真偽値で持っている。
+   *
+   * **画面では角度そのもの（`turnOf`）を見せ、左右へ90度ずつ回してもらう**
+   * （依頼者の指摘・2026-08-31「任意で左右方向に90°ずつ回転出来るボタンがあれば
+   * それで済むし、分かりやすい」）。もとは「差し込む（180°）」と
+   * 「横向き（地の目を変える）」という2つの入り／切りに分けていたが、
+   * 学生から見れば同じ「回す」であり、2つの札のどちらを押せば目当ての向きになるのかが
+   * 読めなかった。持ちかたは変えていない——古い見積もりをそのまま開けるようにするため。
+   *
+   * 角度が持つ意味（実物の言葉）は、こちらで言い添える。
+   * 90度・270度は**地の目が横**、180度は**差し込み**（上下逆）にあたる。
+   */
   rot180: boolean
   /** 裏返し（鏡像）。許すが、印を出す */
   mirrored: boolean
-  /** 地の目の変更。ふだんは止まっているが、学生が解除できる。解除したら印が残る */
   rot90: boolean
 }
+
+/** 回した角度（0・90・180・270）。真偽値2つの組み合わせから出す */
+export const turnOf = (p: Placement): 0 | 90 | 180 | 270 =>
+  ((p.rot90 ? 90 : 0) + (p.rot180 ? 180 : 0)) as 0 | 90 | 180 | 270
+
+/** 角度を真偽値2つに戻す。90度きざみでない値は丸める */
+export const turnTo = (deg: number): { rot90: boolean; rot180: boolean } => {
+  const t = ((Math.round(deg / 90) * 90) % 360 + 360) % 360
+  return { rot90: t === 90 || t === 270, rot180: t === 180 || t === 270 }
+}
+
+/** いまの向きから、右（`+1`）か左（`-1`）へ90度回した向き */
+export const turnBy = (p: Placement, dir: 1 | -1) => turnTo(turnOf(p) + dir * 90)
 
 /**
  * 「わ」の辺に付ける作図の記号（◎の半分）を、どこにどの向きで描くか。
@@ -251,30 +275,45 @@ export const newPlacement = (
 export function orientedPair(
   part: PlacedPart, p: Placement,
 ): { cut: Polygon; finished: Polygon; marks: FoldMark[]; center: { a: Point; b: Point } | null } {
-  const swap = (poly: Polygon) => (p.rot90 ? poly.map((q) => ({ x: q.y, y: q.x })) : poly)
-  const cut = swap(part.cutLineMm)
-  const finished = swap(part.finishedLineMm)
+  /*
+    回すのは**本当の回転**にする。
+
+    もとは90度のところで x と y を入れかえていた。入れかえは対角線を軸にした
+    鏡映であって回転ではないので、左右対称でない型紙は裏返った形で描かれていた
+    （枠の大きさは同じなので、要尺の数字には出ない。図だけが違う）。
+    「裏返す」を別の札にして印まで出しているのに、
+    回しただけで黙って裏返るのでは筋が通らない。
+
+    画面の y は下向きなので、`+90` は画面上の右回り。
+  */
+  const turn = turnOf(p)
+  const spin = (poly: Polygon): Polygon =>
+    turn === 90 ? poly.map((q) => ({ x: -q.y, y: q.x }))
+      : turn === 180 ? poly.map((q) => ({ x: -q.x, y: -q.y }))
+        : turn === 270 ? poly.map((q) => ({ x: q.y, y: -q.x }))
+          : poly
+  const cut = spin(part.cutLineMm)
+  const finished = spin(part.finishedLineMm)
 
   const b = bounds(cut)
   const w = b.maxX - b.minX
-  const h = b.maxY - b.minY
+  // 裏返しは、回したあとの画面の上で左右をひっくり返す。
+  // 「見えている形が左右反転する」のが、いちばん読みやすい
   const move = (poly: Polygon) =>
     poly.map((q) => {
-      let x = q.x - b.minX
-      let y = q.y - b.minY
-      if (p.mirrored) x = w - x
-      if (p.rot180) { x = w - x; y = h - y }
-      return { x, y }
+      const x = q.x - b.minX
+      const y = q.y - b.minY
+      return { x: p.mirrored ? w - x : x, y }
     })
 
   // 「わ」の記号も中心線も、裁ち切り線とまったく同じ計算に通す
   const marks = part.foldMarksMm.map((m) => {
-    const [a, bb, inn] = move(swap([m.a, m.b, m.inn]))
+    const [a, bb, inn] = move(spin([m.a, m.b, m.inn]))
     return { a, b: bb, inn, lengthMm: m.lengthMm }
   })
   let center: { a: Point; b: Point } | null = null
   if (part.centerLineMm) {
-    const [a, bb] = move(swap([part.centerLineMm.a, part.centerLineMm.b]))
+    const [a, bb] = move(spin([part.centerLineMm.a, part.centerLineMm.b]))
     center = { a, b: bb }
   }
 
@@ -587,11 +626,20 @@ export function computeYardage(
             : `生地の横幅からはみ出しています。内側へ寄せてください（置ける幅 ${fmtCm(surfaceWidth)}cm）。`,
         })
       }
-      if (p.rot180 && fabric.hasNap) {
+      /*
+        上下逆（差し込み）は、向きのある生地では毛並みや柄がそろわない。
+        **止めはせず、そうなっていることを知らせる**（依頼者の指示・2026-08-30）。
+        左右へ90度ずつ回す作りにした以上、途中の180度だけ通さない、
+        という作りにはできない（依頼者の指摘・2026-08-31）。
+
+        見るのは180度のときだけ。270度は `rot180` が立っているが、
+        これは「地の目が横」の側であって、差し込みではない
+      */
+      if (turnOf(p) === 180 && fabric.hasNap) {
         problems.push({
           kind: 'napLocked',
           placementId: p.id,
-          message: '毛並みのある生地・一方向の柄では、差し込み（180度回転）はできません。',
+          message: '毛並みのある生地・一方向の柄です。上下逆（180度）にすると向きがそろいません。',
         })
       }
       // 縫い代 0 の辺を持つパーツは、折り山に当てないといけない。

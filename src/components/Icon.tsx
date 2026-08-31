@@ -30,6 +30,7 @@ export type IconName =
   | 'grain' | 'grainSide' | 'nap' | 'napNone' | 'flip' | 'mirror' | 'nest'
   | 'question' | 'hint' | 'warn' | 'check'
   | 'plus' | 'trash' | 'back' | 'undo' | 'redo' | 'save'
+  | 'turnLeft' | 'turnRight'
 
 /**
  * みみのピン穴。生地の絵で使っている点々と同じもの。
@@ -312,6 +313,27 @@ const SHAPES: Record<IconName, ReactNode> = {
     <>
       <path d="M19.4 8.3h-9.1a5.1 5.1 0 0 0 0 10.2h6.5" />
       <path d="M15.6 4.5l3.8 3.8-3.8 3.8" />
+    </>
+  ),
+
+  /*
+    型紙を左右へ90度ずつ回す（依頼者の指摘・2026-08-31）。
+
+    はじめは「四角（型紙）の上に弧」で描いていたが、16px まで縮めると
+    弧と四角がくっついて、ふたの付いた箱に見えた。
+    まわる向きだけを、ほぼ一周する弧で描くほうが小さくても読める。
+    「1つ戻る／1つ進む」と同じく、左右を鏡にしただけの一対にしてある
+  */
+  turnLeft: (
+    <>
+      <path d="M5 12A7 7 0 1 0 8.6 5.9" />
+      <path d="M12.4 6.2l-3.8-.3-.4 3.8" />
+    </>
+  ),
+  turnRight: (
+    <>
+      <path d="M19 12A7 7 0 1 1 15.4 5.9" />
+      <path d="M11.6 6.2l3.8-.3.4 3.8" />
     </>
   ),
 }

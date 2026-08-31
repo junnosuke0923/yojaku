@@ -19,7 +19,7 @@ import { cutSizeOf, isReserve, RESERVE_CHOICES, toReserve } from '../lib/store'
 import { cm } from '../lib/format'
 import {
   canHalfFold, computeYardage, foldEdgeSides, FOLD_LABELS, FOLD_MARK_REF_MM, foldOfSides,
-  foldSidesOf,
+  foldSidesOf, turnBy, turnOf,
   isHalfFold, isHorizontalFold, isVerticalSide, newPlacement, orientedPair,
   PURCHASE_MARGIN_MM, SELVAGE_MM, SNAP_MM, toggleFoldSide,
   type Fabric, type FoldMark, type FoldMode, type PlacedPart, type Placement,
@@ -2360,6 +2360,8 @@ function Controls({
   onRemove: () => void
   onClose: () => void
 }) {
+  /** いま回している角度（0・90・180・270） */
+  const turn = turnOf(placement)
   /*
     出たことに気づけるようにする（依頼者の指摘・2026-08-30
     「メニューの背景色が白なので、表示されたことに気づきにくい」
@@ -2445,29 +2447,51 @@ function Controls({
               わに当てる（{SIDE_LABELS[s]}）
             </Chip>
           ))}
+          {/*
+            回すのは、左右へ90度ずつの1組にまとめてある
+            （依頼者の指摘・2026-08-31「任意で左右方向に90°ずつ回転出来るボタンが
+            あればそれで済むし、分かりやすい」）。
+
+            もとは「差し込む（180°）」と「横向き（地の目を変える）」という
+            2つの入り／切りだった。中身は同じ4通りの向きなのに、
+            目当ての向きにするのにどちらを押せばよいのかが読めず、
+            2つ押して初めて 270 度になる、というのも表からは分からなかった。
+
+            いまの角度をまんなかに出しておく。押した結果がどうなったかを、
+            図を見に行かなくても確かめられるようにするため
+          */}
+          <div className="flex items-center gap-0.5 rounded-lg border border-mat-100 bg-white px-1 py-1">
+            <button
+              type="button"
+              aria-label="左へ90度回す"
+              onClick={() => onPatch(turnBy(placement, -1))}
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-bold text-ink-700 active:bg-mat-50"
+            >
+              <Icon name="turnLeft" className="h-4 w-4 shrink-0" />
+              左へ90°
+            </button>
+            <span className="tnum w-9 shrink-0 text-center text-xs font-bold text-mat-600">
+              {turn}°
+            </span>
+            <button
+              type="button"
+              aria-label="右へ90度回す"
+              onClick={() => onPatch(turnBy(placement, 1))}
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-bold text-ink-700 active:bg-mat-50"
+            >
+              右へ90°
+              <Icon name="turnRight" className="h-4 w-4 shrink-0" />
+            </button>
+          </div>
           {!reserve && (
-            <>
-              <Chip
-                on={placement.rot180}
-                disabled={hasNap}
-                onClick={() => onPatch({ rot180: !placement.rot180 })}
-              >
-                <Icon name="nest" />
-                差し込む（180°）
-              </Chip>
-              <Chip
-                on={placement.mirrored}
-                onClick={() => onPatch({ mirrored: !placement.mirrored })}
-              >
-                <Icon name="mirror" />
-                裏返す
-              </Chip>
-            </>
+            <Chip
+              on={placement.mirrored}
+              onClick={() => onPatch({ mirrored: !placement.mirrored })}
+            >
+              <Icon name="mirror" />
+              裏返す
+            </Chip>
           )}
-          <Chip on={placement.rot90} onClick={() => onPatch({ rot90: !placement.rot90 })}>
-            <Icon name="grainSide" />
-            横向き（地の目を変える）
-          </Chip>
         </div>
 
         {reserve && (
@@ -2476,8 +2500,24 @@ function Controls({
             仮縫いのあとで寸法が決まってから、ここを裁ちます。
           </Note>
         )}
-        {!reserve && hasNap && (
-          <Note icon="nap">向きのある生地なので、差し込み（180°）は使えません。</Note>
+        {/*
+          いまの向きが、実物の言葉で何にあたるか。
+          札の名前を「回す」に寄せたぶん、意味はここで言う。
+          0度のときは何も言わない——ふつうの置き方に注意書きは要らない
+        */}
+        {turn === 180 && (
+          hasNap ? (
+            <Note icon="nap" tone="warn">
+              <span className="font-bold">上下逆（差し込み）</span>にしています。
+              この生地は<span className="font-bold">向きがある</span>ので、
+              上下逆にすると毛並みや柄の向きがそろいません。
+            </Note>
+          ) : (
+            <Note icon="nest">
+              <span className="font-bold text-ink-700">上下逆（差し込み）</span>にしています。
+              向きのない生地では、こうして互い違いに入れると生地が節約できます。
+            </Note>
+          )
         )}
         {/*
           「ダメ」とは言わない（依頼者の指示・2026-08-30）。
@@ -2497,26 +2537,25 @@ function Controls({
   )
 }
 
+/*
+  入り／切りの札。押せない状態は持たせていない——
+  「実物でありうることは止めない」（依頼者の指示・2026-08-30）ので、
+  灰色にして押せなくするかわりに、注意書きで知らせている
+*/
 function Chip({
-  on, disabled, onClick, children,
+  on, onClick, children,
 }: {
   on: boolean
-  disabled?: boolean
   onClick: () => void
   children: ReactNode
 }) {
   return (
     <button
       type="button"
-      disabled={disabled}
       aria-pressed={on}
       onClick={onClick}
       className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-bold ${
-        disabled
-          ? 'border border-mat-100 bg-white/50 text-ink-300'
-          : on
-            ? 'bg-mat-500 text-white'
-            : 'border border-mat-100 bg-white text-ink-700'
+        on ? 'bg-mat-500 text-white' : 'border border-mat-100 bg-white text-ink-700'
       }`}
     >
       {children}
