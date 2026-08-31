@@ -117,12 +117,29 @@ export function App() {
   /** 取り込もうとしている型紙に、もう縫い代が付いているか */
   const [seamIncluded, setSeamIncluded] = useState(false)
   /**
+   * 開いたときに、前回のパーツが端末に残っていたか（依頼者の指摘・2026-09-01）。
+   *
+   * 取り込んだものは端末に残す作りなので、読み込み直しても続きから触れる。
+   * それ自体は狙いどおりなのだけれど、**次の課題を始めるつもりで開いた人**にとっては、
+   * 残っていることに気づかないまま撮ることになり、縫い代の画面でパーツが
+   * どんどん増えていく。依頼者から「写真を撮り込む場面で、前回からの続きで
+   * 追加するのか、リセットして新たに取り込むのかを一度聞いたほうがいい」と言われた。
+   *
+   * 聞くのは**開いたときに残っていたときの一度だけ**。1枚撮るたびに聞くと、
+   * 大きいパーツを1枚ずつ撮り足していく本来の使い方の邪魔になる。
+   */
+  const [askCarry, setAskCarry] = useState(parts.parts.length > 0)
+  /**
    * 「はじめから」を押したあと、本当に消してよいかを聞いている最中か。
    *
    * 取り込んだものは端末の中に残るので、閉じても次に開いたとき続きから触れる。
    * それは狙いどおりなのだけれど、次の課題に移るときや、
    * 人に渡して試してもらうときに戻せないと困る、という指摘を受けて付けた
-   * （依頼者・2026-08-27）。消すと戻せないので、必ず一度たずねる
+   * （依頼者・2026-08-27）。何がいくつ消えるのかを、押す前に数字で見せておく。
+   *
+   * なお、消したぶんは控えに積んであるので「1つ戻る」で戻せる。
+   * 以前ここに「戻せません」と書いてあったが、それは事実と違っていた（2026-09-01）。
+   * ただし控えは画面の中だけに持っているので、閉じたり読み込み直したりすると消える
    */
   const [askReset, setAskReset] = useState(false)
   /**
@@ -580,7 +597,8 @@ export function App() {
                     <span className="font-bold"> {parts.parts.length} 個</span>
                     と、生地の設定・並べた場所を
                     <span className="font-bold">ぜんぶ消して</span>、
-                    写真を撮るところからやり直します。消したものは戻せません。
+                    写真を撮るところからやり直します。
+                    消したものは、すぐなら「1つ戻る」で戻せます。
                   </>
                 )}
               </span>
@@ -635,6 +653,54 @@ export function App() {
             </div>
 
             {/*
+              前回のぶんが残ったまま撮り始めてしまう問題（依頼者の指摘・2026-09-01）。
+
+              開いたときにパーツが残っていたときだけ、撮る前に一度たずねる。
+              「足す」か「はじめから」かは、こちらでは決められない——
+              大きいパーツを1枚ずつ撮り足していくのも、次の課題を始めるのも、
+              どちらも実際にある使い方なので、本人に選んでもらう。
+
+              このカードが出ているあいだは、下の見本の写真を引っ込めてある。
+              先に答えてほしい問いなので、答える前から撮るボタンを
+              画面の外へ押し出してしまうと、かえって撮りに行ける状態に見える
+            */}
+            {askCarry && (
+              <div className="flex flex-col gap-3 rounded-xl border-2 border-mat-500 bg-mat-50 px-4 py-4">
+                <p className="flex gap-2 text-sm leading-relaxed text-mat-700">
+                  <Icon name="part" className="mt-[0.2em] h-[1.15em] w-[1.15em] shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    <span className="font-bold">
+                      前に取り込んだパーツが {parts.parts.length} 個 残っています。
+                    </span>
+                    このまま撮ると、そこに足していきます。
+                    <span className="text-mat-600">消しても、すぐなら「1つ戻る」で戻せます。</span>
+                  </span>
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAskCarry(false)}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-mat-500 px-3 py-3 text-sm font-bold text-white active:bg-mat-600"
+                  >
+                    <Icon name="part" className="h-4 w-4 shrink-0" />
+                    このまま足す
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      clearAll()
+                      setAskCarry(false)
+                    }}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl border-2 border-seam bg-white px-3 py-3 text-sm font-bold text-seam"
+                  >
+                    <Icon name="trash" className="h-4 w-4 shrink-0" />
+                    消して、はじめから
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/*
               しまってあるものを開くと、いま触っているぶんは置きかわる。
               戻せない操作ではない（1つ戻るの控えに積んである）が、
               黙って置きかえると何が起きたのか分からないので、一度たずねる
@@ -676,7 +742,11 @@ export function App() {
               確かめてある写真そのものになっている。
               注意書きは、その絵と同じ枠の中に入れてある
             */}
-            <div className="flex flex-col gap-2.5 rounded-xl border border-ink-100 bg-white px-4 py-3.5">
+            <div
+              className={`flex-col gap-2.5 rounded-xl border border-ink-100 bg-white px-4 py-3.5 ${
+                askCarry ? 'hidden' : 'flex'
+              }`}
+            >
               <p className="flex items-center gap-2 text-sm text-ink-500">
                 <Icon name="camera" className="h-4 w-4 shrink-0 text-mat-600" />
                 <span className="min-w-0 flex-1">
@@ -845,7 +915,7 @@ export function App() {
                   開発用（?dev を付けて開いたときだけ出ます）
                 </p>
                 <p className="text-sm text-ink-500">
-                  上に出ている見本の写真を、いま撮ったものとして読み込みます。定規から先は学生と同じ道です。
+                  見本の写真を、いま撮ったものとして読み込みます。定規から先は学生と同じ道です。
                 </p>
                 <button
                   type="button"
