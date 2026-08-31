@@ -14,7 +14,7 @@
  * 縫い代どうしがどう重なるかを見ながら置きたいため（依頼者の指示）。
  */
 
-import { useMemo, useRef, useState, type PointerEvent, type ReactNode } from 'react'
+import { useMemo, useRef, useState, type PointerEvent, type ReactNode, type RefObject } from 'react'
 import { cutSizeOf, isReserve, RESERVE_CHOICES, toReserve } from '../lib/store'
 import { cm } from '../lib/format'
 import {
@@ -26,6 +26,7 @@ import {
   type Section, type Side,
 } from '../lib/fabric'
 import { defaultName, MAX_SAVES, putSave, type Save } from '../lib/saves'
+import { renderLayoutImage, saveImage, type Sheet } from '../lib/exportImage'
 import { FoldPicker, type EdgeAction } from './FoldPicker'
 import { placedPartOf, type PartsState, type StoredPart } from '../lib/store'
 import { FoldDiagram } from './FoldDiagram'
@@ -126,6 +127,8 @@ const SELVAGE_UNDER = { line: '#6b6857', band: 0.14, dot: 0.62 }
 export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSaved }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [activeSection, setActiveSection] = useState(state.sections[0]?.id ?? 's1')
+  /** 画像に書き出すとき、この中から生地の絵（svg[data-sheet]）を拾う */
+  const rootRef = useRef<HTMLElement>(null)
 
   const fabric: Fabric = useMemo(
     () => ({ widthMm: state.fabricWidthMm, hasNap: state.hasNap, sections: state.sections }),
@@ -276,7 +279,7 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
   const shortage = state.parts.filter((p) => !isReserve(p) && takenOf(p.id) < p.needed)
 
   return (
-    <section className="flex flex-col gap-3.5 pb-40">
+    <section ref={rootRef} className="flex flex-col gap-3.5 pb-40">
       <Tour id="layout" />
       <button
         type="button"
@@ -425,6 +428,19 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
         name={saveName}
         onName={onSaveName}
         onSaved={onSaved}
+      />
+
+      {/*
+        出来た配置図を、画像にして端末へ出す（依頼者の指示・2026-09-01）。
+        「しまっておく」の下に置く。どちらも出来あがったものの持ち出し方だが、
+        しまうのはアプリの中、画像はアプリの外へ、という順にしてある
+      */}
+      <ImageBox
+        rootRef={rootRef}
+        report={report}
+        widthMm={state.fabricWidthMm}
+        sections={state.sections}
+        onBeforeDraw={() => setSelectedId(null)}
       />
 
       {selected && (
@@ -615,6 +631,105 @@ function SaveBox({
       {note && <Note icon={bad ? 'warn' : 'check'} tone={bad ? 'warn' : 'good'}>{note}</Note>}
     </div>
   )
+}
+
+/* --------------------------------------------------- 画像にして持ち出す */
+
+/**
+ * 出来あがった裁ち合わせ図を、1枚の画像にして端末へ出す（依頼者の指示・2026-09-01）。
+ *
+ * 使い道は2つと聞いている——スマホに残して裁つときに見る、
+ * パソコンに保存して授業資料に貼る。だから
+ * **指で使う端末では共有の口、パソコンではそのまま取り込み**に分けてある
+ * （lib/exportImage.ts の saveImage）。
+ *
+ * 生地幅と買う長さは、図にかからないよう下端の帯にまとめてある。
+ * 資料に貼るとき数字が要らないことがある、と言われているので、
+ * 帯ごと切り落とせる形にした。
+ *
+ * 何も並べていないうちは出さない。書き出す中身がまだ無いため。
+ */
+function ImageBox({
+  rootRef, report, widthMm, sections, onBeforeDraw,
+}: {
+  rootRef: RefObject<HTMLElement | null>
+  report: ReturnType<typeof computeYardage>
+  widthMm: number
+  sections: Section[]
+  /** 書き出す前にやっておくこと（選んである型紙の囲みを消す） */
+  onBeforeDraw: () => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
+  const [bad, setBad] = useState(false)
+
+  if (report.purchaseMm <= 0) return null
+
+  const run = async () => {
+    setBusy(true)
+    setNote(null)
+    try {
+      // 選んである型紙には緑の囲みが出ている。画像には残さない
+      onBeforeDraw()
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+
+      const found = rootRef.current?.querySelectorAll<SVGSVGElement>('svg[data-sheet]')
+      const sheets: Sheet[] = [...(found ?? [])].map((svg, i) => ({
+        svg,
+        viewBox: svg.dataset.viewbox ?? svg.getAttribute('viewBox') ?? '0 0 100 100',
+        label: sections.length > 1
+          ? `${i + 1} つめ・${FOLD_LABELS[sections[i]?.fold ?? 'none']}`
+          : undefined,
+      }))
+      if (sheets.length === 0) throw new Error('empty')
+
+      const caption =
+        `生地幅 ${widthMm / 10} cm ／ 買ってくる長さ ${(report.purchaseMm / 10).toFixed(0)} cm`
+      const blob = await renderLayoutImage(sheets, caption)
+      const how = await saveImage(blob, `裁ち合わせ図-${today()}.png`)
+      setBad(false)
+      if (how === 'downloaded') setNote('画像を保存しました')
+      else if (how === 'shared') setNote('画像を渡しました')
+    } catch {
+      setBad(true)
+      setNote('画像にできませんでした。読み込み直してから、もう一度試してください')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-ink-100 bg-white px-4 py-3">
+      <div className="flex items-center gap-2">
+        <Icon name="photo" className="h-4 w-4 shrink-0 text-mat-600" />
+        <span className="shrink-0 text-sm font-bold text-ink-700">配置図を画像にする</span>
+      </div>
+      <button
+        type="button"
+        onClick={run}
+        disabled={busy}
+        className="flex items-center justify-center gap-2 rounded-lg bg-mat-500 px-4 py-2.5 text-sm font-bold text-white active:bg-mat-600 disabled:opacity-50"
+      >
+        <Icon name="photo" className="h-4 w-4 shrink-0" />
+        {busy ? '書き出しています…' : '画像にして保存'}
+      </button>
+      <Hint
+        icon="photo"
+        summary={<>生地幅と買う長さは<b className="text-ink-700">下の帯</b>に入ります</>}
+      >
+        帯は図にかからないよう下端にまとめてあります。資料に貼るとき数字が要らなければ、
+        帯ごと下を切り落としてください。
+      </Hint>
+      {note && <Note icon={bad ? 'warn' : 'check'} tone={bad ? 'warn' : 'good'}>{note}</Note>}
+    </div>
+  )
+}
+
+/** 書き出した画像の名前に付ける日付 */
+function today(): string {
+  const d = new Date()
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 
 /* ------------------------------------------------------------- 生地の面 */
@@ -1787,6 +1902,13 @@ function SectionCanvas({
         <svg
           ref={svgRef}
           viewBox={`${bx0 - PAD + zx} ${-PAD + zy} ${viewW} ${viewH}`}
+          /*
+            画像に書き出すときの目印（lib/exportImage.ts）。
+            画面のほうは指で拡大できるので、上の viewBox はそのときの窓になっている。
+            書き出しでは倍率を無視したいので、ぜんぶ見えている状態を別に持たせておく
+          */
+          data-sheet={index}
+          data-viewbox={`${bx0 - PAD} ${-PAD} ${vbW} ${vbH}`}
           data-tour={index === 0 ? 'fabric' : undefined}
           className="w-full select-none"
           style={{ aspectRatio: `${vbW} / ${vbH}`, touchAction: 'none' }}
