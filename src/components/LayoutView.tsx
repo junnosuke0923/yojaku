@@ -1111,7 +1111,25 @@ function SectionCanvas({
    */
   const hasUnder = flaps.length > 0
   const foldVertical = foldSides.includes('left') || foldSides.includes('right')
-  const under = { x0: bx0, y0: 0, x1: bx1, y1: L }
+  /**
+   * 生地の裁ち端に見せる、わずかな余白（依頼者の指示・2026-08-31）。
+   *
+   * 型紙が生地の端にぴったり付いていると、そこが端であることが伝わらず、
+   * 「布のどのあたりを使っているのか」が読めない。実際にはぴったり収まるのだが、
+   * 生地端ぎりぎりまで使うことは実務でもまず無いので、図の上だけ少し空けておく。
+   *
+   * **これは絵のうえの余白で、買う長さには入らない。**
+   * 長さの矢印も「ここまで◯ cm」も、これまでどおり本当の座標で引いてある。
+   *
+   * 空けるのは**裁ち端の側だけ**。折り山に「わ」を当てているところは、
+   * ぴったり合っていることこそが正しいので動かさない。
+   * みみの側は、もともと帯のぶんだけ型紙が内側に寄っている。
+   */
+  const EDGE_GAP = W * 0.025
+  /** 図に描く生地の上端・下端。折り山の側は面のまま、裁ち端の側だけ外へ出す */
+  const by0 = foldSides.includes('top') ? 0 : -EDGE_GAP
+  const by1 = foldSides.includes('bottom') ? L : L + EDGE_GAP
+  const under = { x0: bx0, y0: by0, x1: bx1, y1: by1 }
   if (!allDoubled && hasUnder) {
     /*
       端だけ折り返したとき。下の一枚は**面ぜんぶを敷いたまま**にしておき、
@@ -1125,6 +1143,7 @@ function SectionCanvas({
     if (foldVertical) under.y1 += UNDER_SHIFT
     else under.x1 += UNDER_SHIFT
   }
+
   if (allDoubled) {
     if (foldVertical) {
       under.y0 += UNDER_SHIFT
@@ -1313,7 +1332,7 @@ function SectionCanvas({
    * ずれた側の折り山の端で、上の一枚と下の一枚の裁ち端が集まる頂点。
    * 上の一枚の身頃より `TIP` だけ先へ出たところに置き、両方の一枚に同じ値を渡す
    */
-  const leadApex = foldVertical ? L + TIP : bx1 + TIP
+  const leadApex = foldVertical ? by1 + TIP : bx1 + TIP
   /**
    * 上に来ている一枚。
    *
@@ -1333,17 +1352,19 @@ function SectionCanvas({
       // 縦わ。出会っているのは左右のみみなので、生地の端はみみの帯のぶんだけ内側
       const eL = depth.left - MEET_V * 0.5 + SEL_BW
       const eR = W - depth.right + MEET_V * 0.5 - SEL_BW
-      return `${sheet(bx0, 0, eL, L, cutTop, cutBottom, leadApex, ['left'])} `
-        + sheet(eR, 0, bx1, L, cutTop, cutBottom, leadApex, ['right'])
+      return `${sheet(bx0, by0, eL, by1, cutTop, cutBottom, leadApex, ['left'])} `
+        + sheet(eR, by0, bx1, by1, cutTop, cutBottom, leadApex, ['right'])
     }
     if (meetH) {
       // 横わ。出会っているのは裁ち端どうし。割った側も波で描く
       const eT = depth.top - MEET_H * 0.5
       const eB = L - depth.bottom + MEET_H * 0.5
-      return `${sheet(bx0, 0, bx1, eT, cutTop, true, leadApex, ['top'])} `
-        + sheet(bx0, eB, bx1, L, true, cutBottom, leadApex, ['bottom'])
+      return `${sheet(bx0, by0, bx1, eT, cutTop, true, leadApex, ['top'])} `
+        + sheet(bx0, eB, bx1, by1, true, cutBottom, leadApex, ['bottom'])
     }
-    if (!allDoubled) {
+    // 折り返しが1つも無いときは、ここへ来ても描くものが無い。
+    // `flaps` が空のまま下の枝へ入ると、輪郭が空文字になって生地ごと消える
+    if (!allDoubled && flaps.length > 0) {
       /*
         端だけ折り返したとき（依頼者のイラレの図・生地折り方_02 の5〜8ページ目）。
 
@@ -1357,15 +1378,15 @@ function SectionCanvas({
       */
       return flaps.map((f) => (
         f.side === 'left'
-          ? sheet(bx0, 0, f.w + SEL_BW, L, cutTop, cutBottom, leadApex, ['left'])
+          ? sheet(bx0, by0, f.w + SEL_BW, by1, cutTop, cutBottom, leadApex, ['left'])
           : f.side === 'right'
-            ? sheet(W - f.w - SEL_BW, 0, bx1, L, cutTop, cutBottom, leadApex, ['right'])
+            ? sheet(W - f.w - SEL_BW, by0, bx1, by1, cutTop, cutBottom, leadApex, ['right'])
             : f.side === 'top'
-              ? sheet(bx0, 0, bx1, f.h, cutTop, true, leadApex, ['top'])
-              : sheet(bx0, L - f.h, bx1, L, true, cutBottom, leadApex, ['bottom'])
+              ? sheet(bx0, by0, bx1, f.h, cutTop, true, leadApex, ['top'])
+              : sheet(bx0, L - f.h, bx1, by1, true, cutBottom, leadApex, ['bottom'])
       )).join(' ')
     }
-    return sheet(bx0, 0, bx1, L, cutTop, cutBottom, leadApex)
+    return sheet(bx0, by0, bx1, by1, cutTop, cutBottom, leadApex)
   })()
   /**
    * 下になっている一枚の形。上の一枚とまったく同じ描き方で、
@@ -1464,7 +1485,7 @@ function SectionCanvas({
   const selvageStraight = (xEdge: number, outward: 1 | -1) => {
     const line = (o: number) => {
       const x = (xEdge + outward * o).toFixed(1)
-      return `M${x} 0 L${x} ${L.toFixed(1)}`
+      return `M${x} ${by0.toFixed(1)} L${x} ${by1.toFixed(1)}`
     }
     return selvageMarks(line(SEL_BW / 2), line(SEL_BW), SELVAGE)
   }
@@ -1866,7 +1887,7 @@ function SectionCanvas({
               （依頼者の指摘・2026-08-30）。長めに引いておいて、その一枚の形で切り抜く
             */}
             {selvages.map((s) => (
-              selvageOn({ x0: bx0, y0: 0, x1: bx1, y1: L }, s as 'left' | 'right', SELVAGE, `sv-${s}`)
+              selvageOn({ x0: bx0, y0: by0, x1: bx1, y1: by1 }, s as 'left' | 'right', SELVAGE, `sv-${s}`)
             ))}
           </g>
           {/* 裁ち端の名前。はさみの印を添える */}
@@ -1910,9 +1931,9 @@ function SectionCanvas({
               <g key={f.side}>
                 {!shadeless && <rect
                   x={horiz ? sx : bx0}
-                  y={horiz ? 0 : sy}
+                  y={horiz ? by0 : sy}
                   width={horiz ? shade : bodyW}
-                  height={horiz ? L : shade}
+                  height={horiz ? by1 - by0 : shade}
                   fill={`url(#${gid}-${horiz ? 'h' : 'v'})`}
                   transform={
                     flip
@@ -2318,8 +2339,15 @@ function SectionCanvas({
           {/* いま使っているところの終わり。ここまでが買う長さに効く */}
           {used > 0 && used < L && (
             <g>
-              <rect x={bx0} y={used} width={bodyW} height={L - used}
-                fill="#f4f5f1" fillOpacity={0.85} />
+              {/*
+                覆いは**うっすら**に留める（依頼者の指摘・2026-08-31）。
+                濃く敷くと、下の一枚（一重のところ）の色までいっしょに飛んでしまい、
+                「二重か一重か」が読めなくなる。横わで上端だけ折ったときは
+                一重のところと未使用のところがそっくり重なるので、そこが顕著だった。
+                「まだ使っていない」は、点線と「ここまで◯ cm」の文字でも言ってある
+              */}
+              <rect x={bx0} y={used} width={bodyW} height={by1 - used}
+                fill="#f4f5f1" fillOpacity={0.4} />
               <line x1={bx0} y1={used} x2={bx1} y2={used}
                 stroke="#9aa69e" strokeWidth={W * 0.005}
                 strokeDasharray={`${W * 0.03} ${W * 0.02}`} />
@@ -2350,7 +2378,7 @@ function SectionCanvas({
           summary={allDoubled
             ? <>見えている面は<b className="text-mat-600">ぜんぶ二重</b>。型紙1つで2枚とれます</>
             : flaps.length > 0
-              ? <>白いところが<b className="text-mat-600">二重</b>、濃いところが一重です</>
+              ? <>折り返したぶんだけが<b className="text-mat-600">二重</b>。そこは型紙1つで2枚とれます</>
               : <>折らずに<b className="text-ink-700">一重</b>で使っています</>}
         >
           {half && section.fold === 'vBoth' ? (
