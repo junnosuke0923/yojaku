@@ -21,7 +21,6 @@ import { DEFAULT_GREEN, estimateHueCenter, type GreenParams } from './lib/hsv'
 import { loadImageFile, type LoadedImage } from './lib/image'
 import { analyze, previewGreenMask, type AnalyzeResult } from './lib/pipeline'
 import { defaultRulerQuad, guessRuler, RULERS, type RulerId } from './lib/ruler'
-import { DEV_SEEDS } from './lib/devSeed'
 import { loadSaves, removeSave, whenOf, type Save } from './lib/saves'
 import { EMPTY, load as loadParts, save as saveParts, toStored, type PartsState } from './lib/store'
 import type { Quad } from './lib/geom'
@@ -111,8 +110,6 @@ export function App() {
    * （依頼者・2026-08-27）。消すと戻せないので、必ず一度たずねる
    */
   const [askReset, setAskReset] = useState(false)
-  /** 開発用：パーツの一覧を開いたとき、この型紙の縫い代の画面を最初から出す */
-  const [openSeamFor, setOpenSeamFor] = useState<string | null>(null)
   /**
    * しまってある見積もり（依頼者の指示・2026-08-28）。
    *
@@ -342,22 +339,32 @@ export function App() {
   }
 
   /**
-   * 開発用：撮り終えた状態にする。ふだんの取り込みと同じ道を通す。
+   * 開発用：見本の写真を、いま撮ったものとして読み込む（依頼者の指示・2026-08-31）。
    *
-   * どこから始めるかを選べる。縫い代を付けるところだけ見たいのに、
-   * 毎回パーツの一覧から型紙を押して開くのは手間なため（依頼者の指示・2026-08-27）。
+   * もとは「撮り終えた形（実寸の輪郭）」を流し込んでいたが、
+   * それだと**写真そのものが無い**ので、定規を合わせる画面から先を見られなかった。
+   * 依頼者から「画像として見ることができない」と指摘されて作り直した。
+   *
+   * ふだんの取り込みとまったく同じ道を通す。
+   * 写真を選んだときと同じ `pickFile` に渡すので、
+   * 定規 → 実寸 → 縫い代 → 並べる が、学生と同じ順番でそのまま出る。
+   *
+   * 見本は `public/` に置いてある。名前が置きなおしても変わらないため、
+   * 古いページを開いたままの端末でも読める（`devSeed` を別ファイルにしていたころ、
+   * 名前が毎回変わって読めなくなった失敗の裏返し）。
    */
-  const seedDev = (to: 'parts' | 'seam' | 'layout') => {
-    const added = DEV_SEEDS.map((s, i) => ({
-      ...toStored(
-        s.outline.map(([x, y]) => ({ x, y })), s.widthMm, s.heightMm, i, false,
-      ),
-      name: s.name,
-      needed: s.needed,
-    }))
-    updateParts({ ...EMPTY, parts: added })
-    setOpenSeamFor(to === 'seam' ? added[0].id : null)
-    setStep(to === 'layout' ? 'layout' : 'parts')
+  const loadSample = async () => {
+    setError(null)
+    setBusy(true)
+    try {
+      const res = await fetch(`${import.meta.env.BASE_URL}dev-sample.jpg`, { cache: 'no-store' })
+      if (!res.ok) throw new Error(String(res.status))
+      const blob = await res.blob()
+      await pickFile(new File([blob], 'dev-sample.jpg', { type: 'image/jpeg' }))
+    } catch {
+      setError('見本の写真を読み込めませんでした。読み込み直してから、もう一度試してください。')
+      setBusy(false)
+    }
   }
 
   /**
@@ -807,35 +814,19 @@ export function App() {
                   開発用（?dev を付けて開いたときだけ出ます）
                 </p>
                 <p className="text-sm text-ink-500">
-                  前スカート・後ろスカート・ベルトの3点を、撮り終えた状態で入れます。
-                  どこから始めるか選べます。
+                  見本の写真（前スカート・後ろスカート・ベルトと、まん中に方眼定規1本）を、
+                  いま撮ったものとして読み込みます。
+                  そのあとは学生とまったく同じ順番——定規・実寸・縫い代・並べる——を通ります。
                 </p>
                 <button
                   type="button"
-                  onClick={() => seedDev('parts')}
-                  className="flex items-center justify-center gap-2 rounded-xl bg-hold-600 px-5 py-3.5 text-base font-bold text-white active:bg-hold-700"
+                  onClick={loadSample}
+                  disabled={busy}
+                  className="flex items-center justify-center gap-2 rounded-xl bg-hold-600 px-5 py-3.5 text-base font-bold text-white active:bg-hold-700 disabled:opacity-50"
                 >
-                  <Icon name="part" className="h-5 w-5 shrink-0" />
-                  パーツの一覧から
+                  <Icon name="camera" className="h-5 w-5 shrink-0" />
+                  見本を撮った写真として読む
                 </button>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => seedDev('seam')}
-                    className="flex flex-1 items-center justify-center gap-2 rounded-xl border-2 border-hold-400 bg-white px-3 py-3 text-sm font-bold text-hold-700"
-                  >
-                    <Icon name="seam" className="h-4 w-4 shrink-0" />
-                    縫い代から
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => seedDev('layout')}
-                    className="flex flex-1 items-center justify-center gap-2 rounded-xl border-2 border-hold-400 bg-white px-3 py-3 text-sm font-bold text-hold-700"
-                  >
-                    <Icon name="layout" className="h-4 w-4 shrink-0" />
-                    並べるところから
-                  </button>
-                </div>
                 {/* 「ぜんぶ消す」は見出しの「はじめから」に移した（学生も使うため） */}
               </div>
             )}
@@ -1030,7 +1021,6 @@ export function App() {
             onChange={updateParts}
             onAddMore={restart}
             onLayout={() => setStep('layout')}
-            openSeamFor={openSeamFor}
           />
         )}
         {step === 'layout' && (

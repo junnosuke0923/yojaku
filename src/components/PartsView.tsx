@@ -23,13 +23,12 @@ type Props = {
   state: PartsState
   onChange: (state: PartsState) => void
   /** 開発用：この型紙の縫い代の画面を、開いた状態で始める */
-  openSeamFor?: string | null
   onAddMore: () => void
   onLayout: () => void
 }
 
-export function PartsView({ state, onChange, onAddMore, onLayout, openSeamFor }: Props) {
-  const [editing, setEditing] = useState<string | null>(openSeamFor ?? null)
+export function PartsView({ state, onChange, onAddMore, onLayout }: Props) {
+  const [editing, setEditing] = useState<string | null>(null)
 
   /*
     後で裁つぶんの余白は、ここには出さない。
