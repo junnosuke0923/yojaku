@@ -868,13 +868,14 @@ export function App() {
               <p className="text-sm leading-relaxed text-ink-500">
                 <span className="font-bold text-ink-700">4つの丸を、定規の角に合わせてください。</span>
                 <br />
-                台形にゆがんだ形にも合わせられます。
+                台形にゆがんだ形にも合わせられます。2本の指で広げると大きくできます。
               </p>
             ) : (
               <p className="text-sm leading-relaxed text-ink-500">
                 <span className="font-bold text-ink-700">緑の枠を、定規にぴったり重ねてください。</span>
                 <br />
-                中を押して動かす、角をつまんで伸ばす、上の丸をつまんで回す。
+                中を押して動かす、角をつまんで伸ばす、上の丸をつまんで回す、
+                2本の指で広げて大きくする。
               </p>
             )}
 

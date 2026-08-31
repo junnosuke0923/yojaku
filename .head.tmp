@@ -1,0 +1,93 @@
+/**
+ * 定規の位置を教えてもらう画面。
+ *
+ * 透明な方眼定規は緑マットに溶けて自動では見つけにくいので、ここは人の手に頼る。
+ *
+ * ■ ふだんは「長方形をそのまま定規へ持っていく」（2026-08-26 に変更）
+ *
+ * もとは4つの丸を1つずつ角に合わせる作りだった。
+ * けれど定規はもともと長方形なので、4点を別々に置く必要はない。
+ * 依頼者から「長方形のまま定規のところへ持っていって、そこから微調整するほうが
+ * 手っ取り早いのでは」という提案があり、そのとおりに変えた。
+ *
+ * 速いだけではなく、計算のうえでも大事だった。
+ * 4点を自由に置けると、指の数画素のずれがそのまま「遠近の歪み」として読み取られ、
+ * 定規から遠い型紙ほど大きく歪む（合成画像で最悪56%）。
+ * 長方形のまま動かすかぎり、そういう崩れ方はしない。
+ * 詳しくは lib/ruler.ts の buildScale の説明を参照。
+ *
+ * 動かし方は3つ。イラストレーターの選択と同じ考え方にしてある。
+ *   中を押して動かす／角をつまんで伸ばす／上の丸をつまんで回す
+ *
+ * ■ 斜めから撮ってしまったときだけ「ゆがみを直す」
+ *
+ * そのときは4つの角が自由になり、台形に合わせられる（もとの作り）。
+ * 角を正確に合わせられるなら、こちらのほうが正確に直せる。
+ */
+
+import { useLayoutEffect, useRef, useState } from 'react'
+import { dist, type Point, type Quad } from '../lib/geom'
+
+type Props = {
+  bitmap: ImageBitmap
+  imageWidth: number
+  imageHeight: number
+  quad: Quad
+  /** rect = 長方形のまま動かす（ふだん） / free = 4隅を自由に置く（ゆがみを直す） */
+  mode: 'rect' | 'free'
+  onChange: (quad: Quad) => void
+}
+
+const HANDLE_R = 13
+const GRAB_R = 30
+/** 回すための丸を、定規の端からどれだけ外へ出すか（画面上の px） */
+const SPIN_GAP = 34
+/** 短辺・長辺の最小の長さ（写真の px）。つぶれてしまわないように */
+const MIN_SIDE = 12
+
+type Frame = {
+  cx: number
+  cy: number
+  /** 短辺の向き（ラジアン）。長辺はこれに直交する */
+  ang: number
+  halfShort: number
+  halfLong: number
+}
+
+/** 四隅から、長方形としての姿を取り出す */
+function frameOf(q: Quad): Frame {
+  const ang = Math.atan2(q[1].y - q[0].y, q[1].x - q[0].x)
+  return {
+    cx: (q[0].x + q[1].x + q[2].x + q[3].x) / 4,
+    cy: (q[0].y + q[1].y + q[2].y + q[3].y) / 4,
+    ang,
+    halfShort: (dist(q[0], q[1]) + dist(q[3], q[2])) / 4,
+    halfLong: (dist(q[1], q[2]) + dist(q[0], q[3])) / 4,
+  }
+}
+
+/** 長方形としての姿から、四隅に戻す。順番は defaultRulerQuad と同じ */
+function quadOf(f: Frame): Quad {
+  const ux = Math.cos(f.ang)
+  const uy = Math.sin(f.ang)
+  const at = (su: number, sv: number): Point => ({
+    x: f.cx + su * f.halfShort * ux - sv * f.halfLong * uy,
+    y: f.cy + su * f.halfShort * uy + sv * f.halfLong * ux,
+  })
+  return [at(-1, -1), at(1, -1), at(1, 1), at(-1, 1)]
+}
+
+/**
+ * ばらけた4点を、いちばん近い長方形に直す。
+ * 「ゆがみに合わせる」から戻ってきたときに使う（台形のままだと角をつまめない）
+ */
+export const rectifyQuad = (q: Quad): Quad => quadOf(frameOf(q))
+
+/** どの角をつまんだかで決まる、中心から見た向き */
+const CORNER_SIGN: [number, number][] = [[-1, -1], [1, -1], [1, 1], [-1, 1]]
+
+type Grab =
+  | { kind: 'corner'; index: number }
+  | { kind: 'spin' }
+  | { kind: 'move'; fromX: number; fromY: number; cx: number; cy: number }
+

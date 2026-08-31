@@ -19,10 +19,19 @@
  * 動かし方は3つ。イラストレーターの選択と同じ考え方にしてある。
  *   中を押して動かす／角をつまんで伸ばす／上の丸をつまんで回す
  *
- * ■ 斜めから撮ってしまったときだけ「ゆがみを直す」
+ * ■ 2本の指で広げると、写真そのものを大きくできる（2026-09-01 に追加）
  *
- * そのときは4つの角が自由になり、台形に合わせられる（もとの作り）。
- * 角を正確に合わせられるなら、こちらのほうが正確に直せる。
+ * ここだけは「だいたい合っていればよい」では済まない。
+ * 定規の長さがそのまま換算率になるので、四隅が数画素ずれると、
+ * 写っている型紙ぜんぶの寸法がその割合だけ狂う。
+ * ところがスマホの画面では、写真の中の定規はせいぜい指1本ぶんの幅しかなく、
+ * 合わせようにも指が邪魔で角が見えない
+ * （依頼者の指摘・2026-09-01「2本指で拡縮できるようにして、定規を当てていくことは可能ですか」）。
+ *
+ * そこで写真のほうを拡大できるようにした。倍率を上げても、
+ * つまむ丸の大きさは画面上では変わらない（＝写真に対しては相対的に小さくなる）ので、
+ * 拡大するほど細かく合わせられる。「拡大の入り／切り」のような状態は作らず、
+ * ふだんの操作にそのまま重ねてある。
  */
 
 import { useLayoutEffect, useRef, useState } from 'react'
@@ -44,6 +53,16 @@ const GRAB_R = 30
 const SPIN_GAP = 34
 /** 短辺・長辺の最小の長さ（写真の px）。つぶれてしまわないように */
 const MIN_SIDE = 12
+/**
+ * 何倍まで大きくできるか。
+ * 8倍あれば、幅 350px の画面でも写真の 1px が指先より大きくなる
+ */
+const MAX_ZOOM = 8
+/**
+ * 1本目の指が着いてから、これだけの間に2本目が来たら
+ * 「はじめから2本で広げるつもりだった」とみなす（ミリ秒）
+ */
+const PINCH_GRACE = 350
 
 type Frame = {
   cx: number
@@ -53,6 +72,9 @@ type Frame = {
   halfShort: number
   halfLong: number
 }
+
+/** 写真の見せ方。z が倍率、ox/oy が左上のずれ（画面の px） */
+type Zoom = { z: number; ox: number; oy: number }
 
 /** 四隅から、長方形としての姿を取り出す */
 function frameOf(q: Quad): Frame {
@@ -90,12 +112,27 @@ type Grab =
   | { kind: 'corner'; index: number }
   | { kind: 'spin' }
   | { kind: 'move'; fromX: number; fromY: number; cx: number; cy: number }
+  /** 大きくしてあるとき、写真のほうを指でずらす */
+  | { kind: 'pan'; fromX: number; fromY: number; ox: number; oy: number }
 
 export function CornerPicker({ bitmap, imageWidth, imageHeight, quad, mode, onChange }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [boxWidth, setBoxWidth] = useState(0)
   const [grab, setGrab] = useState<Grab | null>(null)
+  const [zoom, setZoom] = useState<Zoom>({ z: 1, ox: 0, oy: 0 })
+  /** いま触れている指（pointerId → 画面の座標）。2本になったら広げ縮めに切り替える */
+  const pointers = useRef(new Map<number, Point>())
+  /** 広げ始めたときの、指の間の長さ・まん中・そのときの見せ方 */
+  const pinch = useRef<{ d: number; mx: number; my: number } & Zoom | null>(null)
+  /**
+   * 1本目の指が着いた時刻と、そのときの四隅。
+   * 2本指で広げようとすると、どうしても片方の指が先に着く。
+   * その指が枠の中だと、広げ始める前に枠がわずかに動いてしまう。
+   * ここは数画素のずれがそのまま換算率の狂いになる画面なので、
+   * 「着いてすぐ2本目が来た」ときは、動いたぶんを無かったことにする
+   */
+  const began = useRef<{ at: number; quad: Quad } | null>(null)
 
   useLayoutEffect(() => {
     const el = wrapRef.current
@@ -106,9 +143,37 @@ export function CornerPicker({ bitmap, imageWidth, imageHeight, quad, mode, onCh
     return () => observer.disconnect()
   }, [])
 
+  /*
+    写真を入れ替えたら、見せ方はいったん元に戻す。
+    effect ではなく描き出しの途中で直しているのは、
+    前の写真の倍率のまま一瞬描いてしまうのを避けるため
+    （React の「props が変わったときに state を直す」やり方）
+  */
+  const [lastBitmap, setLastBitmap] = useState(bitmap)
+  if (lastBitmap !== bitmap) {
+    setLastBitmap(bitmap)
+    setZoom({ z: 1, ox: 0, oy: 0 })
+  }
+
   const view = boxWidth || imageWidth
+  /** 写真の px → 画面の px（等倍のとき） */
   const k = view / imageWidth
   const viewHeight = imageHeight * k
+  /** 写真の px → 画面の px（いまの倍率で） */
+  const s = k * zoom.z
+  const X = (v: number) => v * s + zoom.ox
+  const Y = (v: number) => v * s + zoom.oy
+
+  /** 倍率とずれを、行きすぎないところまで戻す */
+  const fit = (next: Zoom): Zoom => {
+    const z = Math.min(Math.max(next.z, 1), MAX_ZOOM)
+    // 画面の外へ写真を送り出してしまわないよう、はみ出す幅までで止める
+    return {
+      z,
+      ox: Math.min(0, Math.max(view * (1 - z), next.ox)),
+      oy: Math.min(0, Math.max(viewHeight * (1 - z), next.oy)),
+    }
+  }
 
   useLayoutEffect(() => {
     const canvas = canvasRef.current
@@ -120,24 +185,27 @@ export function CornerPicker({ bitmap, imageWidth, imageHeight, quad, mode, onCh
     if (!ctx) return
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, view, viewHeight)
-    ctx.drawImage(bitmap, 0, 0, view, viewHeight)
-  }, [bitmap, boxWidth, view, viewHeight])
+    ctx.drawImage(bitmap, zoom.ox, zoom.oy, view * zoom.z, viewHeight * zoom.z)
+  }, [bitmap, boxWidth, view, viewHeight, zoom])
 
   const toImage = (clientX: number, clientY: number): Point => {
     const rect = wrapRef.current!.getBoundingClientRect()
-    return { x: (clientX - rect.left) / k, y: (clientY - rect.top) / k }
+    return {
+      x: (clientX - rect.left - zoom.ox) / s,
+      y: (clientY - rect.top - zoom.oy) / s,
+    }
   }
 
   const frame = frameOf(quad)
   /** 回すための丸の位置（写真の座標） */
   const spin: Point = {
-    x: frame.cx + (frame.halfLong + SPIN_GAP / k) * Math.sin(frame.ang),
-    y: frame.cy - (frame.halfLong + SPIN_GAP / k) * Math.cos(frame.ang),
+    x: frame.cx + (frame.halfLong + SPIN_GAP / s) * Math.sin(frame.ang),
+    y: frame.cy - (frame.halfLong + SPIN_GAP / s) * Math.cos(frame.ang),
   }
 
   const nearestCorner = (p: Point): number => {
     let nearest = -1
-    let best = GRAB_R / k
+    let best = GRAB_R / s
     quad.forEach((c, i) => {
       const d = Math.hypot(c.x - p.x, c.y - p.y)
       if (d < best) { best = d; nearest = i }
@@ -157,31 +225,91 @@ export function CornerPicker({ bitmap, imageWidth, imageHeight, quad, mode, onCh
     )
   }
 
+  /** 2本目の指が着いたところ。枠をつまんでいた途中でも、そちらは手放す */
+  const startPinch = (now: number) => {
+    const [a, b] = [...pointers.current.values()]
+    const rect = wrapRef.current!.getBoundingClientRect()
+    pinch.current = {
+      d: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+      mx: (a.x + b.x) / 2 - rect.left,
+      my: (a.y + b.y) / 2 - rect.top,
+      ...zoom,
+    }
+    // 1本目が着いてすぐなら、その指で動いたぶんは広げ始めの一部とみなして戻す
+    const first = began.current
+    if (first && now - first.at < PINCH_GRACE) onChange(first.quad)
+    setGrab(null)
+  }
+
   const onPointerDown = (e: React.PointerEvent) => {
+    e.currentTarget.setPointerCapture(e.pointerId)
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    if (pointers.current.size >= 2) {
+      if (pointers.current.size === 2) startPinch(e.timeStamp)
+      return
+    }
+
+    began.current = { at: e.timeStamp, quad }
     const p = toImage(e.clientX, e.clientY)
 
-    if (mode === 'rect' && Math.hypot(spin.x - p.x, spin.y - p.y) < GRAB_R / k) {
-      ;(e.target as Element).setPointerCapture(e.pointerId)
+    if (mode === 'rect' && Math.hypot(spin.x - p.x, spin.y - p.y) < GRAB_R / s) {
       setGrab({ kind: 'spin' })
       return
     }
 
     const corner = nearestCorner(p)
     if (corner >= 0) {
-      ;(e.target as Element).setPointerCapture(e.pointerId)
       setGrab({ kind: 'corner', index: corner })
       return
     }
 
     if (mode === 'rect' && inside(p)) {
-      ;(e.target as Element).setPointerCapture(e.pointerId)
       setGrab({ kind: 'move', fromX: p.x, fromY: p.y, cx: frame.cx, cy: frame.cy })
+      return
+    }
+
+    // 枠のどこでもないところ。大きくしてあるときは、写真のほうをずらす
+    if (zoom.z > 1) {
+      setGrab({ kind: 'pan', fromX: e.clientX, fromY: e.clientY, ox: zoom.ox, oy: zoom.oy })
     }
   }
 
   const onPointerMove = (e: React.PointerEvent) => {
+    if (pointers.current.has(e.pointerId)) {
+      pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    }
+
+    // 指が2本あるあいだは、広げ縮めだけを見る
+    const start = pinch.current
+    if (start && pointers.current.size >= 2) {
+      e.preventDefault()
+      const [a, b] = [...pointers.current.values()]
+      const rect = wrapRef.current!.getBoundingClientRect()
+      const d = Math.hypot(a.x - b.x, a.y - b.y) || 1
+      const z = Math.min(Math.max(start.z * (d / start.d), 1), MAX_ZOOM)
+      // つまみ始めた場所を、いまの指のまん中へ持っていく（＝広げながらずらせる）
+      const atX = (a.x + b.x) / 2 - rect.left
+      const atY = (a.y + b.y) / 2 - rect.top
+      setZoom(fit({
+        z,
+        ox: atX - ((start.mx - start.ox) / start.z) * z,
+        oy: atY - ((start.my - start.oy) / start.z) * z,
+      }))
+      return
+    }
+
     if (!grab) return
     e.preventDefault()
+
+    if (grab.kind === 'pan') {
+      setZoom(fit({
+        z: zoom.z,
+        ox: grab.ox + (e.clientX - grab.fromX),
+        oy: grab.oy + (e.clientY - grab.fromY),
+      }))
+      return
+    }
+
     const p = toImage(e.clientX, e.clientY)
 
     if (grab.kind === 'move') {
@@ -232,9 +360,41 @@ export function CornerPicker({ bitmap, imageWidth, imageHeight, quad, mode, onCh
     }))
   }
 
-  const stop = () => setGrab(null)
+  const stop = (e: React.PointerEvent) => {
+    pointers.current.delete(e.pointerId)
+    if (pointers.current.size === 0) began.current = null
+    if (pointers.current.size < 2) pinch.current = null
+    setGrab(null)
+  }
 
-  const path = quad.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x * k},${p.y * k}`).join(' ') + ' Z'
+  /*
+    パソコンの操作板（トラックパッド）でつまむと、ブラウザは
+    ctrl を押しながらの回し操作として送ってくる。指のときと同じに扱う。
+    React の onWheel からでは止められないことがあるので、じかに繋いでいる
+  */
+  useLayoutEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return
+      e.preventDefault()
+      const rect = el.getBoundingClientRect()
+      const atX = e.clientX - rect.left
+      const atY = e.clientY - rect.top
+      setZoom((now) => {
+        const z = Math.min(Math.max(now.z * Math.exp(-e.deltaY / 180), 1), MAX_ZOOM)
+        return {
+          z,
+          ox: Math.min(0, Math.max(view * (1 - z), atX - ((atX - now.ox) / now.z) * z)),
+          oy: Math.min(0, Math.max(viewHeight * (1 - z), atY - ((atY - now.oy) / now.z) * z)),
+        }
+      })
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [view, viewHeight])
+
+  const path = quad.map((p, i) => `${i === 0 ? 'M' : 'L'}${X(p.x)},${Y(p.y)}`).join(' ') + ' Z'
   const grabbedCorner = grab?.kind === 'corner' ? grab.index : -1
 
   return (
@@ -259,18 +419,18 @@ export function CornerPicker({ bitmap, imageWidth, imageHeight, quad, mode, onCh
           <g>
             {/* 回すための丸。定規の先から棒を1本出しておく */}
             <line
-              x1={frame.cx * k}
-              y1={frame.cy * k}
-              x2={spin.x * k}
-              y2={spin.y * k}
+              x1={X(frame.cx)}
+              y1={Y(frame.cy)}
+              x2={X(spin.x)}
+              y2={Y(spin.y)}
               stroke="#35664e"
               strokeWidth={2}
               strokeDasharray="5 4"
             />
-            <circle cx={spin.x * k} cy={spin.y * k} r={GRAB_R} fill="transparent" />
+            <circle cx={X(spin.x)} cy={Y(spin.y)} r={GRAB_R} fill="transparent" />
             <circle
-              cx={spin.x * k}
-              cy={spin.y * k}
+              cx={X(spin.x)}
+              cy={Y(spin.y)}
               r={HANDLE_R}
               fill={grab?.kind === 'spin' ? '#35664e' : '#ffffff'}
               stroke="#35664e"
@@ -278,7 +438,7 @@ export function CornerPicker({ bitmap, imageWidth, imageHeight, quad, mode, onCh
             />
             {/* 回す向きが分かるように、丸の中に弧を描く */}
             <path
-              d={`M${spin.x * k - 5},${spin.y * k + 2} a5,5 0 1,1 4,3`}
+              d={`M${X(spin.x) - 5},${Y(spin.y) + 2} a5,5 0 1,1 4,3`}
               fill="none"
               stroke={grab?.kind === 'spin' ? '#ffffff' : '#35664e'}
               strokeWidth={2}
@@ -289,10 +449,10 @@ export function CornerPicker({ bitmap, imageWidth, imageHeight, quad, mode, onCh
 
         {quad.map((p, i) => (
           <g key={i}>
-            <circle cx={p.x * k} cy={p.y * k} r={GRAB_R} fill="transparent" />
+            <circle cx={X(p.x)} cy={Y(p.y)} r={GRAB_R} fill="transparent" />
             <circle
-              cx={p.x * k}
-              cy={p.y * k}
+              cx={X(p.x)}
+              cy={Y(p.y)}
               r={HANDLE_R}
               fill={grabbedCorner === i ? '#35664e' : '#ffffff'}
               stroke="#35664e"
@@ -301,6 +461,22 @@ export function CornerPicker({ bitmap, imageWidth, imageHeight, quad, mode, onCh
           </g>
         ))}
       </svg>
+
+      {/*
+        大きくしたあと、元へ戻る口。
+        等倍のあいだは出さない（押すもののない札を画面に残さない）。
+        いま何倍かも札の中で言っておく。数字だけを置くと、
+        何のための数字なのかが分からなくなる
+      */}
+      {zoom.z > 1 && (
+        <button
+          type="button"
+          onClick={() => setZoom({ z: 1, ox: 0, oy: 0 })}
+          className="tnum absolute right-2 top-2 rounded-lg border border-ink-100 bg-white/90 px-2.5 py-1.5 text-xs font-bold text-ink-700"
+        >
+          {zoom.z.toFixed(1)}倍 ／ ぜんぶ見る
+        </button>
+      )}
     </div>
   )
 }
