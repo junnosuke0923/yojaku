@@ -723,6 +723,31 @@ function SectionCanvas({
   const CR = W * 0.06
   /** みみの帯の幅 */
   const SEL_BW = W * 0.022
+  /**
+   * 生地の裁ち端に見せる、わずかな余白（依頼者の指示・2026-08-31）。
+   * **絵のうえの余白で、買う長さには入らない。**
+   */
+  const EDGE_GAP = W * 0.025
+  const meetV = depth.left > 0 && depth.right > 0 && depth.left + depth.right >= W - 0.5
+  const meetH = depth.top > 0 && depth.bottom > 0 && depth.top + depth.bottom >= L - 0.5
+  /**
+   * 上下から折って、裁ち端どうしが真ん中でちょうど出会うとき
+   * （`meetH`）だけ使う、**図のうえだけの開き**（依頼者の指示・2026-08-31）。
+   *
+   * このとき上の型紙の下辺と下の型紙の上辺は、同じ一点をはさんで背中合わせに並び、
+   * あいだに生地が1ミリも無い。そのため2枚の裁ち端の波は型紙の下に隠れてしまい、
+   * 「ここが生地の端」であることが図から消えていた。
+   * 依頼者が Photoshop で「横わ・上端」と「横わ・下端」を貼り合わせて見せてくれた
+   * とおり、**上半分と下半分を少しだけ離して描く**と、両方の波が見える。
+   *
+   * 離すのは絵のうえだけで、買う長さには入らない。
+   * `openAt` を通したものだけが下へずれる（下半分の型紙・折り山・札）。
+   */
+  const OPEN = meetH ? EDGE_GAP * 2 + W * 0.018 : 0
+  /** 出会い目。上から来た一枚と下から来た一枚の裁ち端が並ぶところ */
+  const meetY = depth.top
+  /** 出会い目より下にあるものを、図のうえで下へずらす量 */
+  const openAt = (y: number) => (OPEN > 0 && y >= meetY - 0.5 ? OPEN : 0)
 
   /** 折り山ではない縦の端＝耳。二重なら耳も2枚ぶんある */
   const selvages: Side[] = (['left', 'right'] as Side[]).filter((s) => !foldSides.includes(s))
@@ -804,7 +829,7 @@ function SectionCanvas({
 
   const gid = `fold-${section.id}`
   const vbW = bodyW + PAD * 2
-  const vbH = L + PAD * 2
+  const vbH = L + OPEN + PAD * 2
 
   /** 画面の1px が何mmか。指の動きを実寸に直すのに使う */
   const mmPerPx = () => {
@@ -1037,9 +1062,6 @@ function SectionCanvas({
    */
   const SEL_GAP = SEL_BW * 0.85
   const MEET_V = SEL_BW * 2 + SEL_GAP
-  const MEET_H = W * 0.013
-  const meetV = depth.left > 0 && depth.right > 0 && depth.left + depth.right >= W - 0.5
-  const meetH = depth.top > 0 && depth.bottom > 0 && depth.top + depth.bottom >= L - 0.5
   if (depth.left > 0) {
     const w = meetV ? depth.left - MEET_V * 0.5 : depth.left
     flaps.push({ side: 'left', x: 0, y: 0, w, h: L, full: depth.left >= W - 0.5 })
@@ -1049,12 +1071,13 @@ function SectionCanvas({
     flaps.push({ side: 'right', x: W - w, y: 0, w, h: L, full: depth.right >= W - 0.5 })
   }
   if (depth.top > 0) {
-    const h = meetH ? depth.top - MEET_H * 0.5 : depth.top
-    flaps.push({ side: 'top', x: 0, y: 0, w: W, h, full: depth.top >= L - 0.5 })
+    flaps.push({ side: 'top', x: 0, y: 0, w: W, h: depth.top, full: depth.top >= L - 0.5 })
   }
   if (depth.bottom > 0) {
-    const h = meetH ? depth.bottom - MEET_H * 0.5 : depth.bottom
-    flaps.push({ side: 'bottom', x: 0, y: L - h, w: W, h, full: depth.bottom >= L - 0.5 })
+    flaps.push({
+      side: 'bottom', x: 0, y: L - depth.bottom, w: W, h: depth.bottom,
+      full: depth.bottom >= L - 0.5,
+    })
   }
 
   /**
@@ -1120,15 +1143,18 @@ function SectionCanvas({
    *
    * **これは絵のうえの余白で、買う長さには入らない。**
    * 長さの矢印も「ここまで◯ cm」も、これまでどおり本当の座標で引いてある。
+   * 値そのものは、出会い目の開き（`OPEN`）といっしょに上のほうで決めてある。
    *
    * 空けるのは**裁ち端の側だけ**。折り山に「わ」を当てているところは、
    * ぴったり合っていることこそが正しいので動かさない。
    * みみの側は、もともと帯のぶんだけ型紙が内側に寄っている。
    */
-  const EDGE_GAP = W * 0.025
-  /** 図に描く生地の上端・下端。折り山の側は面のまま、裁ち端の側だけ外へ出す */
+  /**
+   * 図に描く生地の上端・下端。折り山の側は面のまま、裁ち端の側だけ外へ出す。
+   * 下の折り山は、出会い目を開いたぶん（`OPEN`）だけ下へ下がる
+   */
   const by0 = foldSides.includes('top') ? 0 : -EDGE_GAP
-  const by1 = foldSides.includes('bottom') ? L : L + EDGE_GAP
+  const by1 = foldSides.includes('bottom') ? L + OPEN : L + EDGE_GAP
   const under = { x0: bx0, y0: by0, x1: bx1, y1: by1 }
   if (!allDoubled && hasUnder) {
     /*
@@ -1310,7 +1336,7 @@ function SectionCanvas({
   const crestBands = () => foldSides.map((s) => {
     const horiz = s === 'left' || s === 'right'
     const x = s === 'left' ? 0 : W - CR
-    const y = s === 'top' ? 0 : L - CR
+    const y = s === 'top' ? 0 : L + OPEN - CR
     const over = RIM * 3
     return (
       <rect
@@ -1318,7 +1344,7 @@ function SectionCanvas({
         x={horiz ? x : bx0 - over}
         y={horiz ? -over : y}
         width={horiz ? CR : bodyW + over * 2}
-        height={horiz ? L + over * 2 : CR}
+        height={horiz ? L + OPEN + over * 2 : CR}
         fill={`url(#${gid}-sp-${s})`}
       />
     )
@@ -1356,9 +1382,15 @@ function SectionCanvas({
         + sheet(eR, by0, bx1, by1, cutTop, cutBottom, leadApex, ['right'])
     }
     if (meetH) {
-      // 横わ。出会っているのは裁ち端どうし。割った側も波で描く
-      const eT = depth.top - MEET_H * 0.5
-      const eB = L - depth.bottom + MEET_H * 0.5
+      /*
+        横わ。出会っているのは裁ち端どうし。割った側も波で描く。
+
+        2枚とも、当てた型紙より `EDGE_GAP` だけ先まで伸ばす。
+        そのぶん下の一枚は `OPEN` だけ下へ下がっているので、
+        2つの波のあいだには下の一枚（一重の色）が細く見える
+      */
+      const eT = depth.top + EDGE_GAP
+      const eB = L - depth.bottom + OPEN - EDGE_GAP
       return `${sheet(bx0, by0, bx1, eT, cutTop, true, leadApex, ['top'])} `
         + sheet(bx0, eB, bx1, by1, true, cutBottom, leadApex, ['bottom'])
     }
@@ -1987,7 +2019,7 @@ function SectionCanvas({
               return (
                 <g
                   key={p.id}
-                  transform={`translate(${box.x} ${box.y})`}
+                  transform={`translate(${box.x} ${box.y + openAt(box.y)})`}
                   style={{ cursor: 'grab' }}
                   onPointerDown={(e) => startDrag(e, p)}
                   onPointerMove={moveDrag}
@@ -2032,7 +2064,7 @@ function SectionCanvas({
             return (
               <g
                 key={p.id}
-                transform={`translate(${box.x} ${box.y})`}
+                transform={`translate(${box.x} ${box.y + openAt(box.y)})`}
                 style={{ cursor: 'grab' }}
                 onPointerDown={(e) => startDrag(e, p)}
                 onPointerMove={moveDrag}
@@ -2198,7 +2230,7 @@ function SectionCanvas({
             const ty = horiz
               ? L * 0.045
               : f.full ? Math.min(L * 0.5, W * 0.045)
-              : f.side === 'top' ? nearFold : L - nearFold
+              : f.side === 'top' ? nearFold : L + OPEN - nearFold
             const icx = horiz
               ? mid - label.length * W * 0.021 - W * 0.038
               : W * 0.02 + isz * 0.5
@@ -2260,10 +2292,11 @@ function SectionCanvas({
               : Math.max(bx1, under.x1) + PAD * 0.4
             const size = W * 0.036
             // 押すとこちら側が「わ」になる。上の小さな図で押すのと同じこと
-            return edgeTag(s, x, L * 0.5, W * 0.13, W * 0.32, (
+            const my = (L + OPEN) * 0.5
+            return edgeTag(s, x, my, W * 0.13, W * 0.32, (
               <>
-                {iconSelvageLayers(x, L * 0.5 - size * 2.1, W * 0.082, allDoubled ? 2 : 1, '#7f857d')}
-                <text x={x} y={L * 0.5 + size * 0.3} fontSize={size} fill="#8a9188"
+                {iconSelvageLayers(x, my - size * 2.1, W * 0.082, allDoubled ? 2 : 1, '#7f857d')}
+                <text x={x} y={my + size * 0.3} fontSize={size} fill="#8a9188"
                   textAnchor="middle">
                   <tspan x={x}>み</tspan>
                   <tspan x={x} dy={size * 1.05}>み</tspan>
@@ -2293,15 +2326,15 @@ function SectionCanvas({
               left: [0, TIP, 0, leadApex],
               right: [W, TIP, W, leadApex],
               top: [bx0 + TIP, 0, leadApex, 0],
-              bottom: [bx0 + TIP, L, leadApex, L],
+              bottom: [bx0 + TIP, L + OPEN, leadApex, L + OPEN],
             }[side]
             const lx = {
               left: -PAD * 0.42, right: W + PAD * 0.42,
               top: bxMid, bottom: bxMid,
             }[side]
             const ly = {
-              left: L * 0.5, right: L * 0.5,
-              top: -PAD * 0.36, bottom: L + PAD * 0.36,
+              left: (L + OPEN) * 0.5, right: (L + OPEN) * 0.5,
+              top: -PAD * 0.36, bottom: L + OPEN + PAD * 0.36,
             }[side]
             /*
               横わ（上下が折り山）の札は、ヘアピンの印と「わ（折り山）」の文字を
@@ -2353,7 +2386,8 @@ function SectionCanvas({
                 一重のところと未使用のところがそっくり重なるので、そこが顕著だった。
                 「まだ使っていない」は、点線と「ここまで◯ cm」の文字でも言ってある
               */}
-              <rect x={bx0} y={used} width={bodyW} height={by1 - used}
+              <rect x={bx0} y={used + openAt(used)} width={bodyW}
+                height={by1 - used - openAt(used)}
                 fill="#f4f5f1" fillOpacity={0.4} />
               <line x1={bx0} y1={used} x2={bx1} y2={used}
                 stroke="#9aa69e" strokeWidth={W * 0.005}
