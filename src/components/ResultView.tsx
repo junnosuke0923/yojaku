@@ -266,12 +266,9 @@ function SmoothPicker({ value, onChange }: {
         icon="smooth"
         summary={<>紙のふちの<b className="text-ink-700">ガタガタ</b>をならします。大きさは変わりません</>}
       >
-        写真から切り抜いた線は、紙のふちのけばと画素の階段で、1mm ほどこまかく波打ちます。
-        ここを上げると、その波だけをならします。
-        型紙の角と、アームホールのようにきつく曲がっているところは動かさないので、
-        最大丈・最大幅はほとんど変わりません（このアプリで試したかぎり 0.6mm 以内）。
-        実物の線がほんとうに波打っているとき——たとえば手で裁って端が波になっているとき——も、
-        いっしょにならされます。そこまで写し取りたいときは「なし」にしてください。
+        角ときつい曲がりは動かさないので、最大丈・最大幅はほとんど変わりません。
+        実物の線がほんとうに波打っているときも、いっしょにならされます。
+        そこまで写し取りたいときは「なし」にしてください。
       </Hint>
     </div>
   )
@@ -327,8 +324,8 @@ export function ResultView({ bitmap, result, excluded, onToggle, smooth, onSmoot
             <p className="flex items-start gap-2 text-xs leading-relaxed text-ink-500">
               <Icon name="hint" className="mt-[0.2em] h-[1.15em] w-[1.15em] shrink-0 text-mat-600" />
               <span className="min-w-0 flex-1">
-                型紙でないものが混じっていたら、そのカードを押して外してください。
-                消しゴムや紙片も、3cmより大きければここに出てきます。
+                型紙でないものが混じっていたら、そのカードを押して外してください
+                （消しゴムや紙片も、3cmより大きければ出てきます）。
               </span>
             </p>
           )}

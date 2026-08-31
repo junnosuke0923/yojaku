@@ -495,8 +495,7 @@ function Totals({
       <div className="pt-0.5">
         <Hint icon="warn" summary={<>この数字は<b className="text-ink-700">概算</b>です</>}>
           型紙の形は写真から読み取っているので、実物とは数ミリの差が出ます。
-          地直しの縮み、柄合わせ、裁つときのくせでも変わります。
-          買う長さの目安として使って、心配なときは少し多めに見てください。
+          地直しの縮みや裁つときのくせでも変わるので、心配なときは少し多めに見てください。
         </Hint>
       </div>
       {/* 計算の中身は、式のかたちで一目で見せる。文にすると読ませることになる */}
@@ -513,8 +512,7 @@ function Totals({
               </span>
             }
           >
-            足している {PURCHASE_MARGIN_MM / 10} cm は、地直しの縮みと裁ち端のぶんです。
-            そのうえで 10cm 単位に切り上げています。
+            {PURCHASE_MARGIN_MM / 10} cm は地直しの縮みと裁ち端のぶん。そのうえで 10cm 単位に切り上げます。
           </Hint>
         </div>
       ) : (
@@ -2444,35 +2442,25 @@ function SectionCanvas({
         >
           {half && section.fold === 'vBoth' ? (
             <>
-              生地幅 {((report.foldDepth.left + report.foldDepth.right) * 2 + SELVAGE_MM * 2) / 10} cm を、
-              両側のみみが出会うまで折っています。
-              折り山が左右に1本ずつあるので、「わ」の辺を持つ型紙を、左右どちらにも当てられます。
-              折り返す深さは、当てた型紙に合わせて左右べつべつに決まるので、
-              出会うところは真ん中とはかぎりません。
+              折り山が左右に1本ずつあるので、「わ」の辺を持つ型紙をどちらにも当てられます。
+              折り返す深さは左右べつべつに決まるので、出会うところは真ん中とはかぎりません。
             </>
           ) : half && section.fold === 'hBoth' ? (
             <>
-              上下の裁ち端が出会うまで折っています。
-              折り山が上下に1本ずつあるので、「わ」の辺を持つ型紙を、どちらにも当てられます。
-              折り返す深さは、当てた型紙に合わせて上下べつべつに決まるので、
-              出会うところは真ん中とはかぎりません。
+              折り山が上下に1本ずつあるので、「わ」の辺を持つ型紙をどちらにも当てられます。
               買う長さは、見えている面の長さ {(report.surfaceLengthMm / 10).toFixed(0)} cm の倍になります。
             </>
           ) : half && isHorizontalFold(section.fold) ? (
             <>
-              生地を長さの方向に、きっちり半分に折っています。
               買う長さは、見えている面の長さ {(report.surfaceLengthMm / 10).toFixed(0)} cm の倍になります。
-              折り山の反対の端には裁ち端が2枚重なっていて、下の一枚が少しのぞいています。
             </>
           ) : half ? (
             <>
               生地幅 {(report.foldDepth.left * 2 + SELVAGE_MM * 2) / 10} cm を、きっちり半分に折っています。
-              折り山の反対の端にはみみが2枚重なっていて、下の一枚が少しのぞいています。
             </>
           ) : flaps.length > 0 ? (
             <>
               「わに当てる」を使った型紙の幅のぶんだけ、生地を折り返しています。
-              折り返したところに置いた型紙は、1つで2枚とれます。
             </>
           ) : (
             <>「わに当てる」を使った型紙を置くと、その幅のぶんだけ生地を折り返します。</>
@@ -2489,8 +2477,8 @@ function SectionCanvas({
         {idleFold && (
           <Note icon="fold">
             <b className="text-ink-700">{SIDE_LABELS[idleFold]}の折り山</b>には、
-            まだ何も当てていません。いまのところ、{SIDE_LABELS[idleFold]}は折らなくても同じです。
-            両側から折るのが効くのは、どちらの折り山にも「わ」の辺を持つ型紙を当てるときです。
+            まだ何も当てていません。両側から折るのが効くのは、
+            どちらの折り山にも「わ」の辺を持つ型紙を当てるときです。
           </Note>
         )}
         </div>
@@ -2583,7 +2571,6 @@ function Tray({
       {shortage.length > 0 && (
         <Hint summary={<>数えているのは<b className="text-ink-700">できあがりの枚数</b></>}>
           二重のところに置いた型紙は1つで2枚（型紙に ×2 と出ます）。
-          折り山に当てたパーツは、開いて左右対称の1枚です。
         </Hint>
       )}
 
@@ -2637,12 +2624,11 @@ function ReserveAdder({
     <div className="flex flex-col gap-3 rounded-xl border border-dashed border-hold-400 bg-hold-50 px-4 py-3">
       <Hint icon="hold" summary={<>いまは裁たずに<b className="text-ink-700">場所だけ空けておきます</b></>}>
         仮縫いのあとで寸法が変わるものは、ここで大きさだけ決めておきます。
-        ベルトなら「ベルト幅×2＋縫い代」の幅で、「ウエスト寸法＋縫い代」以上の長さ。
         きっちりでなくてかまいません。
         <br />
         <b className="text-ink-700">写真から形をうまく拾えなかった型紙も、ここで置けます。</b>
-        実物にメジャーを当てて、いちばん広いところの幅と、いちばん長いところの丈を
-        「その他」で入れてください。形は長方形になりますが、要尺の見積もりとしては足ります。
+        実物を測って幅と丈を「その他」で入れてください。
+        形は長方形になりますが、要尺の見積もりとしては足ります。
       </Hint>
 
       <div className="flex flex-wrap gap-1.5">
@@ -2882,7 +2868,7 @@ function Controls({
         {reserve && (
           <Note icon="hold">
             これは型紙ではなく、<span className="font-bold text-ink-700">空けておく場所</span>です。
-            仮縫いのあとで寸法が決まってから、ここを裁ちます。
+            寸法が決まってから、ここを裁ちます。
           </Note>
         )}
         {/*
@@ -2894,8 +2880,7 @@ function Controls({
           hasNap ? (
             <Note icon="nap" tone="warn">
               <span className="font-bold">上下逆（差し込み）</span>にしています。
-              この生地は<span className="font-bold">向きがある</span>ので、
-              上下逆にすると毛並みや柄の向きがそろいません。
+              この生地は<span className="font-bold">向きがある</span>ので、毛並みや柄がそろいません。
             </Note>
           ) : (
             <Note icon="nest">
@@ -2913,8 +2898,7 @@ function Controls({
         {placement.rot90 && (
           <Note icon="grainSide">
             <span className="font-bold text-ink-700">地の目が横</span>になっています。
-            生地の幅に縦地で入りきらないときは、こう置くことがあります。
-            伸び方も落ち方も変わるので、そのつもりで。図の型紙にも印が出ます。
+            伸び方も落ち方も変わるので、そのつもりで。
           </Note>
         )}
       </div>

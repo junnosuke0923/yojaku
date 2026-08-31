@@ -630,8 +630,7 @@ export function App() {
             <div className="rounded-xl border border-ink-100 bg-white px-3 py-1">
               <Hint icon="warn" summary={<>ここで出るのは生地の<b className="text-ink-700">概算</b>です</>}>
                 型紙の形は写真から読み取っているので、実物とは数ミリの差が出ます。
-                地直しの縮み、柄合わせ、裁つときのくせでも変わります。
-                買う長さの目安として使って、心配なときは少し多めに見てください。
+                地直しの縮みや裁つときのくせでも変わるので、心配なときは少し多めに見てください。
               </Hint>
             </div>
 
@@ -680,23 +679,19 @@ export function App() {
             </p>
 
             {/*
-              「定規は1本でいい」「地の目はそろえる」の2つは、
+              「定規は1本でいい」「地の目はそろえる」は、
               何枚も一度に撮るときにいちばん間違えやすいところ（依頼者の質問・2026-08-26）。
-              ただ、はじめて開いた人の目に長い説明が3つ並ぶのは重い（依頼者・2026-08-27）ので、
+              もとは2行に分けていたが、どちらもこの定規1本の話なので1行にまとめた
+              （説明を整理する、という依頼者の指示・2026-08-31）。
               結論だけ出して、理由は「？」の中に畳んでおく
             */}
             <div data-tour="photo-hint">
-              <Hint icon="ruler" summary={<>定規は<b className="text-ink-700">1本</b>で足ります</>}>
-                定規は写真の面そのものの実寸を決めているので、写真に1本あれば、
-                写っているパーツは全部そのまま測れます。
-                どれか1枚に載せても、マットの空いたところに置いてもかまいません。
+              <Hint icon="ruler" summary={<>定規は<b className="text-ink-700">1本</b>だけ、地の目と<b className="text-ink-700">平行に</b></>}>
+                写真の実寸も地の目の向きも、この定規1本から決めています。
+                1本あれば写っているパーツは全部測れます。
+                地の目の向きが違うものが混ざっていると斜めに読まれるので、分けて撮ってください。
               </Hint>
             </div>
-            <Hint icon="grain" summary={<>地の目は<b className="text-ink-700">定規と平行に</b>そろえて</>}>
-              地の目の向きも、この定規1本から決めています。
-              向きの違うものが混ざっていると、そちらが斜めに読まれてしまうので、
-              分けて撮ってください。
-            </Hint>
 
             <input
               ref={cameraRef}
@@ -830,9 +825,7 @@ export function App() {
                   開発用（?dev を付けて開いたときだけ出ます）
                 </p>
                 <p className="text-sm text-ink-500">
-                  見本の写真（前スカート・後ろスカート・ベルトと、まん中に方眼定規1本）を、
-                  いま撮ったものとして読み込みます。
-                  そのあとは学生とまったく同じ順番——定規・実寸・縫い代・並べる——を通ります。
+                  見本の写真を、いま撮ったものとして読み込みます。定規から先は学生と同じ道です。
                 </p>
                 <button
                   type="button"
@@ -855,7 +848,7 @@ export function App() {
               <p className="text-sm leading-relaxed text-ink-500">
                 <span className="font-bold text-ink-700">4つの丸を、定規の角に合わせてください。</span>
                 <br />
-                台形にゆがんだ形にも合わせられます。そのかわり、角は正確に合わせてください。
+                台形にゆがんだ形にも合わせられます。
               </p>
             ) : (
               <p className="text-sm leading-relaxed text-ink-500">
@@ -893,9 +886,8 @@ export function App() {
             </button>
             {perspective && (
               <Note icon="warn" tone="warn">
-                4つの角を1つずつ合わせます。
                 <span className="font-bold">数画素のずれが、離れた型紙を大きく歪ませます。</span>
-                拡大して丁寧に合わせるか、真上から撮り直すほうが確実です。
+                真上から撮り直すほうが確実です。
               </Note>
             )}
 
@@ -965,9 +957,6 @@ export function App() {
             <div className="flex flex-col gap-3 rounded-xl border border-ink-100 bg-white px-4 py-4">
               {/* 問いかけには「？」を付ける。答えを選ぶところだと、読む前に分かる */}
               <Heading icon="question">この型紙は、どちらですか</Heading>
-              <p className="text-xs leading-relaxed text-ink-500">
-                切ってある線が、出来上がり線か、縫い代まで含んだ線かということです。
-              </p>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
