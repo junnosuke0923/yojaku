@@ -507,7 +507,7 @@ export function App() {
 
       <StepBar step={step} canGo={canGo} onGo={setStep} />
 
-      <main className="safe-b flex flex-1 flex-col gap-4 px-4 py-4">
+      <main className="flex flex-1 flex-col gap-4 px-4 py-4">
         {/*
           置きなおした版が出ているのに、古いページを開いたまま。
           この状態だと、押しても何も起きないところが出る。
@@ -1044,6 +1044,21 @@ export function App() {
           />
         )}
       </main>
+
+      {/*
+        名義（依頼者の指示・2026-08-31）。どの画面にもいちばん下に出る。
+        `main` が `flex-1` なので、中身が短い画面では画面の底に、
+        長い画面では最後までたどり着いたところに出る。
+
+        操作するものではないので、いちばん薄い字にしてある。
+        ここに置いたぶん画面は少しだけ長くなるが、
+        押すものは上に出そろっているので、
+        「スクロールしないと操作できない」ことにはならない。
+        端末の下端（ホームバーなど）を避ける余白は、main から移してここに付けた
+      */}
+      <footer className="safe-b px-4 pt-1 text-center text-[10px] tracking-wide text-ink-300">
+        制作：Junnosuke Kato
+      </footer>
     </div>
   )
 }
