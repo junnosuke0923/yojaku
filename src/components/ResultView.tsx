@@ -8,7 +8,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { bounds } from '../lib/geom'
-import { cm, cm2 } from '../lib/format'
+import { cm } from '../lib/format'
 import type { AnalyzeResult, PatternPart } from '../lib/pipeline'
 import { SMOOTH_LEVELS, type SmoothLevel } from '../lib/smooth'
 import { Hint, Icon } from './Icon'
@@ -126,20 +126,22 @@ function PartCard({ part, on, onToggle }: {
         on ? 'border-mat-500 bg-white' : 'border-ink-100 bg-white opacity-45'
       }`}
     >
-      <div className="flex items-center justify-between gap-2">
-        <span className="flex items-center gap-2 text-sm font-bold text-ink-700">
-          <span
-            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md ${
-              on ? 'bg-mat-500 text-white' : 'border border-ink-300 text-transparent'
-            }`}
-          >
-            <Icon name="check" className="h-3.5 w-3.5" />
-          </span>
-          <Icon name="part" className="h-4 w-4 shrink-0 text-mat-600" />
-          {part.name}
+      {/*
+        面積は出さない（依頼者の指示・2026-08-31）。
+        要尺は「生地の上に並べたときの丈」で決まるので、面積は使いどころがない。
+        使わない数字を並べると、確かめるべき最大丈・最大幅がその中に埋もれる
+      */}
+      <span className="flex items-center gap-2 text-sm font-bold text-ink-700">
+        <span
+          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md ${
+            on ? 'bg-mat-500 text-white' : 'border border-ink-300 text-transparent'
+          }`}
+        >
+          <Icon name="check" className="h-3.5 w-3.5" />
         </span>
-        <span className="tnum text-xs text-ink-300">面積 約 {cm2(part.areaMm2)} cm²</span>
-      </div>
+        <Icon name="part" className="h-4 w-4 shrink-0 text-mat-600" />
+        {part.name}
+      </span>
 
       <PartShape part={part} />
 
