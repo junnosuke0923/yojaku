@@ -88,6 +88,15 @@ export function App() {
   const [tunerOpen, setTunerOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<AnalyzeResult | null>(null)
+  /**
+   * 見つかったが、取り込まないことにした形の id。
+   *
+   * 写真には型紙のほかに消しゴムや紙片や手が写る。それを機械に見分けさせるのではなく、
+   * **外すのを1タップにする**（依頼者の指示・2026-08-31）。既定は全部入り。
+   */
+  const [excluded, setExcluded] = useState<Set<string>>(new Set())
+  /** 取り込むことにした形の数。ボタンの文字と、押せるかどうかに使う */
+  const chosenCount = result ? result.parts.filter((p) => !excluded.has(p.id)).length : 0
   const [error, setError] = useState<string | null>(null)
   // 取り込んだパーツと生地の設定は端末の中に持つ。何度も撮り足す途中で閉じても消えないように
   const [parts, setParts] = useState<PartsState>(loadParts)
@@ -300,6 +309,7 @@ export function App() {
         setError(out.error)
       } else {
         setResult(out)
+        setExcluded(new Set())
         setStep('result')
       }
       setBusy(false)
@@ -311,6 +321,7 @@ export function App() {
   const restart = () => {
     setStep('photo')
     setResult(null)
+    setExcluded(new Set())
   }
 
   /**
@@ -321,9 +332,11 @@ export function App() {
    */
   const keep = () => {
     if (!result) return
-    const added = result.parts.map((p, i) =>
-      toStored(p.outlineMm, p.widthMm, p.heightMm, parts.parts.length + i, seamIncluded),
-    )
+    const added = result.parts
+      .filter((p) => !excluded.has(p.id))
+      .map((p, i) =>
+        toStored(p.outlineMm, p.widthMm, p.heightMm, parts.parts.length + i, seamIncluded),
+      )
     updateParts({ ...parts, parts: [...parts.parts, ...added] })
     setStep('parts')
   }
@@ -637,7 +650,7 @@ export function App() {
             <p className="flex items-center gap-2 text-sm text-ink-500">
               <Icon name="camera" className="h-4 w-4 shrink-0 text-mat-600" />
               <span className="min-w-0 flex-1">
-                緑のマットに型紙と
+                無地で色のついた台に型紙と
                 <span className="font-bold text-ink-700">方眼定規</span>
                 を置いて、真上から
               </span>
@@ -888,10 +901,15 @@ export function App() {
             >
               <summary className="flex cursor-pointer items-center gap-2 text-sm font-bold text-ink-700">
                 <Icon name="hint" className="h-4 w-4 shrink-0 text-mat-600" />
-                うまく切り抜けないとき（緑の調整）
+                うまく切り抜けないとき（台の色の調整）
               </summary>
               <div className="pt-4">
-                <GreenTuner value={green} onChange={setGreen} preview={maskPreview} />
+                <GreenTuner
+                  value={green}
+                  onChange={setGreen}
+                  photo={image?.imageData ?? null}
+                  preview={maskPreview}
+                />
               </div>
             </details>
 
@@ -919,7 +937,17 @@ export function App() {
 
         {step === 'result' && image && result && (
           <section className="flex flex-col gap-5">
-            <ResultView bitmap={image.bitmap} result={result} />
+            <ResultView
+              bitmap={image.bitmap}
+              result={result}
+              excluded={excluded}
+              onToggle={(id) => setExcluded((prev) => {
+                const next = new Set(prev)
+                if (next.has(id)) next.delete(id)
+                else next.add(id)
+                return next
+              })}
+            />
 
             {/*
               持ってくる型紙は、出来上がり線で切ってあるとは限らない（依頼者の指摘）。
@@ -968,11 +996,13 @@ export function App() {
             <button
               type="button"
               onClick={keep}
-              disabled={result.parts.length === 0}
+              disabled={chosenCount === 0}
               className="flex items-center justify-center gap-2 rounded-xl bg-mat-500 px-5 py-4 text-base font-bold text-white active:bg-mat-600 disabled:opacity-50"
             >
               <Icon name="part" className="h-5 w-5 shrink-0" />
-              このパーツを取り込む（{result.parts.length}）
+              {chosenCount === result.parts.length
+                ? `このパーツを取り込む（${chosenCount}）`
+                : `選んだ ${chosenCount} 個を取り込む`}
             </button>
             <div className="flex gap-3">
               <button

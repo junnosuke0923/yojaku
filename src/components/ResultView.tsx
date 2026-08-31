@@ -102,11 +102,38 @@ function PartShape({ part }: { part: PatternPart }) {
   )
 }
 
-function PartCard({ part }: { part: PatternPart }) {
+/**
+ * 見つかった形ひとつぶん。押すと「取り込む／取り込まない」が切りかわる。
+ *
+ * 写真には型紙のほかに、消しゴムや紙片や手が写り込む。
+ * それを機械に見分けさせようとはしない。細長い型紙を「これは道具でしょう」と
+ * 捨てられるほうが困るし、確信の持てない自動判定を学生に見せない、
+ * というのがこのアプリの方針でもある。
+ * 見分けるのは人がして、**外すのを1タップにする**（依頼者の指示・2026-08-31）。
+ */
+function PartCard({ part, on, onToggle }: {
+  part: PatternPart
+  on: boolean
+  onToggle: () => void
+}) {
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-ink-100 bg-white p-4">
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={on}
+      className={`flex w-full flex-col gap-3 rounded-xl border p-4 text-left transition-opacity ${
+        on ? 'border-mat-500 bg-white' : 'border-ink-100 bg-white opacity-45'
+      }`}
+    >
       <div className="flex items-center justify-between gap-2">
         <span className="flex items-center gap-2 text-sm font-bold text-ink-700">
+          <span
+            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md ${
+              on ? 'bg-mat-500 text-white' : 'border border-ink-300 text-transparent'
+            }`}
+          >
+            <Icon name="check" className="h-3.5 w-3.5" />
+          </span>
           <Icon name="part" className="h-4 w-4 shrink-0 text-mat-600" />
           {part.name}
         </span>
@@ -132,11 +159,19 @@ function PartCard({ part }: { part: PatternPart }) {
           <span className="tnum text-2xl font-bold text-mat-700">{cm(part.widthMm)}<span className="ml-1 text-sm">cm</span></span>
         </div>
       </div>
-    </div>
+
+      <span className={`text-xs font-bold ${on ? 'text-mat-600' : 'text-ink-300'}`}>
+        {on ? '取り込みます' : '取り込みません（押すと戻ります）'}
+      </span>
+    </button>
   )
 }
 
-function PhotoOverlay({ bitmap, result }: { bitmap: ImageBitmap; result: AnalyzeResult }) {
+function PhotoOverlay({ bitmap, result, excluded }: {
+  bitmap: ImageBitmap
+  result: AnalyzeResult
+  excluded: Set<string>
+}) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [w, setW] = useState(0)
@@ -166,17 +201,21 @@ function PhotoOverlay({ bitmap, result }: { bitmap: ImageBitmap; result: Analyze
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.drawImage(bitmap, 0, 0, w, h)
 
-    ctx.lineWidth = 2.5
-    ctx.strokeStyle = '#35664e'
-    ctx.fillStyle = 'rgba(53,102,78,0.16)'
+    // 外したものは、細い破線で塗りなし。写真の上でも「これは入れていない」と分かる
     for (const part of result.parts) {
+      const off = excluded.has(part.id)
+      ctx.setLineDash(off ? [6, 5] : [])
+      ctx.lineWidth = off ? 1.5 : 2.5
+      ctx.strokeStyle = off ? 'rgba(255,255,255,0.85)' : '#35664e'
+      ctx.fillStyle = 'rgba(53,102,78,0.16)'
       ctx.beginPath()
       part.outlinePx.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x * k, p.y * k) : ctx.lineTo(p.x * k, p.y * k)))
       ctx.closePath()
-      ctx.fill()
+      if (!off) ctx.fill()
       ctx.stroke()
     }
-  }, [bitmap, result, w])
+    ctx.setLineDash([])
+  }, [bitmap, result, excluded, w])
 
   return (
     <div ref={wrapRef} className="w-full overflow-hidden rounded-xl">
@@ -185,7 +224,13 @@ function PhotoOverlay({ bitmap, result }: { bitmap: ImageBitmap; result: Analyze
   )
 }
 
-export function ResultView({ bitmap, result }: { bitmap: ImageBitmap; result: AnalyzeResult }) {
+export function ResultView({ bitmap, result, excluded, onToggle }: {
+  bitmap: ImageBitmap
+  result: AnalyzeResult
+  /** 取り込まないことにした形の id */
+  excluded: Set<string>
+  onToggle: (id: string) => void
+}) {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex gap-2.5 rounded-xl border-2 border-mat-500 bg-mat-50 px-4 py-3">
@@ -208,11 +253,37 @@ export function ResultView({ bitmap, result }: { bitmap: ImageBitmap; result: An
           <span className="min-w-0 flex-1">
             型紙を見つけられませんでした。
             <br />
-            「緑の調整」を開いて、白く塗られる部分が型紙の形になるよう合わせてみてください。
+            「台の色の調整」を開いて、写真の台のところを1回押してみてください。
+            白く塗られる部分が型紙の形になれば成功です。
+            <br />
+            白い机や木目の机では、型紙と色が近すぎて分けられません。
+            無地で色のついた布か紙を1枚敷いてから撮り直してください。
+            <br />
+            どうしても拾えないときは、生地に並べる画面の
+            <b>「余白を空けておく」</b>から、実物を測った幅と丈を入れて
+            長方形として置けます。要尺の見積もりとしてはそれで足ります。
           </span>
         </div>
       ) : (
-        result.parts.map((p) => <PartCard key={p.id} part={p} />)
+        <>
+          {result.parts.length > 1 && (
+            <p className="flex items-start gap-2 text-xs leading-relaxed text-ink-500">
+              <Icon name="hint" className="mt-[0.2em] h-[1.15em] w-[1.15em] shrink-0 text-mat-600" />
+              <span className="min-w-0 flex-1">
+                型紙でないものが混じっていたら、そのカードを押して外してください。
+                消しゴムや紙片も、3cmより大きければここに出てきます。
+              </span>
+            </p>
+          )}
+          {result.parts.map((p) => (
+            <PartCard
+              key={p.id}
+              part={p}
+              on={!excluded.has(p.id)}
+              onToggle={() => onToggle(p.id)}
+            />
+          ))}
+        </>
       )}
 
       <div className="flex flex-col gap-2">
@@ -220,7 +291,7 @@ export function ResultView({ bitmap, result }: { bitmap: ImageBitmap; result: An
           <Icon name="photo" className="h-4 w-4 shrink-0 text-mat-600" />
           写真の上での切り抜き位置
         </span>
-        <PhotoOverlay bitmap={bitmap} result={result} />
+        <PhotoOverlay bitmap={bitmap} result={result} excluded={excluded} />
       </div>
     </div>
   )
