@@ -79,6 +79,20 @@ export function FoldDiagram({ fold, nearMm, farMm, spanMm }: Props) {
    */
   const pending = !folded && foldSidesOf(fold).length > 0
   const along = isHorizontalFold(fold) ? '長さの向き' : '幅の向き'
+  /**
+   * 折り山ではないほうの端の名前（依頼者の指摘・2026-08-31）。
+   *
+   * 縦に折った断面は**幅の向き**に切ったものなので、両端はみみ——
+   * 織り上がったときからある、ほつれない端。
+   * ところが横に折った断面は**長さの向き**に切ったもので、
+   * 両端ははさみで切った裁ち端であって、みみではない。
+   * みみはこの断面では左右の奥行き方向にあり、絵には出てこない。
+   * 同じ絵を向きだけ変えて使い回していたので、
+   * 横わのときにも端を「みみ」と呼んでしまっていた
+   */
+  const edgeName = isHorizontalFold(fold) ? '裁ち端' : 'みみ'
+  /** 端の名前を、折り山と反対のほうへどける量。文字数ぶん広げる */
+  const edgeDx = edgeName.length * 11 + 12
 
   /*
     「二重」とだけ書くと、置いた型紙が2枚という意味に読めてしまう
@@ -143,7 +157,7 @@ export function FoldDiagram({ fold, nearMm, farMm, spanMm }: Props) {
             {/* 中央で出会っているときは、みみの名前をひとつだけ、その場所に置く */}
             {!metInMiddle && (
               <text x={near} y={UPPER - 26} fontSize={22} fill={FAINT} textAnchor="middle"
-                dx={allDoubled ? -34 : 30}>みみ</text>
+                dx={allDoubled ? -edgeDx : edgeDx}>{edgeName}</text>
             )}
           </>
         )}
@@ -155,13 +169,13 @@ export function FoldDiagram({ fold, nearMm, farMm, spanMm }: Props) {
               textAnchor="end">わ</text>
             {!metInMiddle && (
               <text x={W - far} y={UPPER - 26} fontSize={22} fill={FAINT} textAnchor="middle"
-                dx={-30}>みみ</text>
+                dx={allDoubled ? edgeDx : -edgeDx}>{edgeName}</text>
             )}
           </>
         )}
 
         {/*
-          中央で向かい合っているみみ。
+          中央で向かい合っている端どうし。
           隙間そのものが「ここが端どうしの出会うところ」を語るので、
           あとは両端に印を付けて、名前をひとつ添えるだけにする
         */}
@@ -172,7 +186,7 @@ export function FoldDiagram({ fold, nearMm, farMm, spanMm }: Props) {
                 stroke={FAINT} strokeWidth={4} strokeLinecap="round" />
             ))}
             <text x={W * 0.5} y={UPPER - 26} fontSize={22} fill={FAINT} textAnchor="middle">
-              みみ
+              {edgeName}
             </text>
           </>
         )}

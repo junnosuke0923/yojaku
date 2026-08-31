@@ -169,10 +169,31 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
   const countOf = (placementId: string) =>
     report.counts.find((c) => c.placementId === placementId)?.count ?? 1
 
+  /**
+   * 回したあとの「わに当てる」先を付け直す（依頼者の指摘・2026-08-31）。
+   *
+   * どの折り山に当てられるかは「わ」の辺が向いている向きで決まるので、
+   * 型紙を回せば当然変わる。ところが当てた先だけが古いまま残っていたので、
+   * **「わ」が右を向いているのに左の折り山に当たっている**という、
+   * 実物では起こりえない図が描かれていた。
+   *
+   * 回したあとに向きが合わなくなったら、合う折り山へ付け替える。
+   * 合う折り山がひとつも無ければ外す。そのときは
+   * 「折り山に当ててください」が出るので、置き直す入口になる
+   */
+  const resnap = (p: Placement): Placement => {
+    if (!p.snapTo) return p
+    const sides = foldSidesOf(
+      state.sections.find((sc) => sc.id === p.sectionId)?.fold ?? 'none',
+    )
+    const fit = snapTargetsOf(partMap.get(p.partId), { ...p, snapTo: null }, sides)
+    return fit.includes(p.snapTo) ? p : { ...p, snapTo: fit[0] ?? null }
+  }
+
   const patch = (id: string, over: Partial<Placement>, group?: string) =>
     onChange({
       ...state,
-      placements: state.placements.map((p) => (p.id === id ? { ...p, ...over } : p)),
+      placements: state.placements.map((p) => (p.id === id ? resnap({ ...p, ...over }) : p)),
     }, group)
 
   const place = (partId: string) => {
@@ -415,8 +436,10 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
           count={countOf(selected.id)}
           reserve={isReserve(state.parts.find((p) => p.id === selected.partId) ?? ({} as StoredPart))}
           hasNap={state.hasNap}
-          foldSides={foldSidesOf(
-            state.sections.find((s) => s.id === selected.sectionId)?.fold ?? 'none',
+          snapTargets={snapTargetsOf(
+            partMap.get(selected.partId),
+            selected,
+            foldSidesOf(state.sections.find((s) => s.id === selected.sectionId)?.fold ?? 'none'),
           )}
           onPatch={(over) => patch(selected.id, over)}
           onRemove={() => remove(selected.id)}
@@ -652,7 +675,15 @@ function SectionCanvas({
   const W = Math.max(report.surfaceWidthMm, 1)
   /** 実際に使っている長さ。ここから下は、まだ使っていない生地 */
   const used = report.surfaceLengthMm
-  const L = Math.max(used, MIN_VIEW_MM)
+  /**
+   * 図に描く生地の長さ。
+   *
+   * ふだんは、まだ何も置いていなくても生地に見えるように、少しだけ長めに描く。
+   * ただし**下の辺が折り山になっているときは、使っている長さがそのまま生地の下端**。
+   * 折り山は「そこで生地が折り返っている場所」なので、その先に生地は無い。
+   * 長めに描くと、下の折り山に当てたはずの型紙が折り山から離れて浮いて見えてしまう
+   */
+  const L = report.foldDepth.bottom > 0 ? used : Math.max(used, MIN_VIEW_MM)
   const foldSides = foldSidesOf(section.fold)
   const half = isHalfFold(section)
   /**
@@ -2067,15 +2098,44 @@ function SectionCanvas({
             */
             const label = longLayerLabels
               ? (f.full ? '生地がぜんぶ二重' : '生地が二重') : '二重'
-            const tx = horiz ? (f.side === 'left' ? f.w / 2 : W - f.w / 2) : W * 0.5
-            const ty = horiz ? L * 0.045 : f.side === 'top' ? f.h / 2 : L - f.h / 2
+            /*
+              札は**帯のはじまり**に寄せる（依頼者の指摘・2026-08-31
+              「横わのとき、札と型紙の名前や地の目線が重なって読めない」）。
+
+              縦の帯（左右の折り返し）は上下に長いので、はじまりは上端。
+              横の帯（上下の折り返し）は左右に長いので、はじまりは左端。
+              帯のまんなかは、型紙の名前と地の目線が必ず通るところなので空けておく。
+              もとは横の帯だけ、そのまんなかに置いていた
+            */
+            const isz = W * 0.046
+            const mid = horiz ? (f.side === 'left' ? f.w / 2 : W - f.w / 2) : 0
+            /*
+              横の帯では、上下も帯のまんなかから折り山ぎわへ寄せる。
+              帯の高さは当てた型紙の丈そのものなので、帯のまんなか＝型紙のまんなかで、
+              そこには名前と、横に寝た地の目の矢が必ず通っている。
+              札を折り山ぎわの角へ追い出すと、どちらも読めるようになる
+            */
+            const nearFold = Math.min(f.h * 0.5, W * 0.045)
+            /*
+              面が丸ごと二重のときだけは、折り山ぎわではなく上端に置く。
+              このとき帯は生地そのものなので、どこに置いても言っていることは同じ。
+              折り山ぎわに置くと、生地いっぱいに広がった型紙の名前とぶつかる
+            */
+            const ty = horiz
+              ? L * 0.045
+              : f.full ? Math.min(L * 0.5, W * 0.045)
+              : f.side === 'top' ? nearFold : L - nearFold
+            const icx = horiz
+              ? mid - label.length * W * 0.021 - W * 0.038
+              : W * 0.02 + isz * 0.5
+            const tx = horiz ? mid : icx + isz * 0.5 + W * 0.018
             return (
               <g key={`t-${f.side}`}>
-                {iconLayers(tx - label.length * W * 0.021 - W * 0.038, ty, W * 0.046, 2, CREASE, true)}
+                {iconLayers(icx, ty, isz, 2, CREASE, true)}
                 <text
                   x={tx} y={ty}
                   fontSize={W * 0.04} fontWeight={700} fill={CREASE}
-                  textAnchor="middle" dominantBaseline="middle"
+                  textAnchor={horiz ? 'middle' : 'start'} dominantBaseline="middle"
                   stroke="#ffffff" strokeWidth={W * 0.013} paintOrder="stroke"
                 >
                   {label}
@@ -2087,17 +2147,24 @@ function SectionCanvas({
           {/* 一重のところにも印しを。二重との対比で、意味がはっきりする */}
           {flaps.length > 0 && !flaps.some((f) => f.full) && (() => {
             const vert = flaps.some((f) => f.side === 'left' || f.side === 'right')
-            const tx = vert ? (depth.left + (W - depth.right)) / 2 : W * 0.5
-            const ty = vert ? L * 0.045 : (depth.top + (L - depth.bottom)) / 2
             const room = vert ? W - depth.left - depth.right : L - depth.top - depth.bottom
             if (room < (vert ? W : L) * 0.3) return null
+            // 二重の札と同じで、横に寝た帯では上端へ寄せる
+            const ty = vert
+              ? L * 0.045
+              : depth.top + Math.min(room * 0.5, W * 0.045)
             // 二重の帯と同じ書き方にする。片方だけ主語が付いていると、違うものに見える
             const label = longLayerLabels ? '生地が一重' : '一重'
+            // 置きどころも二重の札と同じ決まり。縦に長ければ上端、横に長ければ左端
+            const isz = W * 0.046
+            const mid = (depth.left + (W - depth.right)) / 2
+            const icx = vert ? mid - label.length * W * 0.019 - W * 0.04 : W * 0.02 + isz * 0.5
+            const tx = vert ? mid : icx + isz * 0.5 + W * 0.016
             return (
               <g>
-                {iconLayers(tx - label.length * W * 0.019 - W * 0.04, ty, W * 0.046, 1, '#7d867e', true)}
+                {iconLayers(icx, ty, isz, 1, '#7d867e', true)}
                 <text x={tx} y={ty} fontSize={W * 0.036} fontWeight={600} fill="#7d867e"
-                  textAnchor="middle" dominantBaseline="middle"
+                  textAnchor={vert ? 'middle' : 'start'} dominantBaseline="middle"
                   stroke="#ffffff" strokeWidth={W * 0.012} paintOrder="stroke">{label}</text>
               </g>
             )
@@ -2210,8 +2277,17 @@ function SectionCanvas({
               <line x1={bx0} y1={used} x2={bx1} y2={used}
                 stroke="#9aa69e" strokeWidth={W * 0.005}
                 strokeDasharray={`${W * 0.03} ${W * 0.02}`} />
-              <text x={bxMid} y={used + L * 0.035} fontSize={W * 0.038}
-                fill="#5c665f" textAnchor="middle">
+              {/*
+                線の**下**に置く（依頼者の指摘・2026-08-31）。
+                これまでは文字の足を線に合わせていたので、
+                字のほとんどが線の上——つまり型紙の側——にはみ出して、
+                いちばん下に置いた型紙の裾と重なって読めなくなっていた。
+                残りが浅いときは、その帯の中に収まるところまで戻す
+              */}
+              <text x={bxMid} y={used + Math.min((L - used) * 0.5, W * 0.05)}
+                fontSize={W * 0.038} fill="#5c665f"
+                textAnchor="middle" dominantBaseline="middle"
+                stroke="#f4f5f1" strokeWidth={W * 0.011} paintOrder="stroke">
                 ここまで {(used / 10).toFixed(0)} cm
               </text>
             </g>
@@ -2496,10 +2572,29 @@ function ReserveAdder({
   )
 }
 
+/**
+ * 「わに当てる」を出してよい辺（依頼者の指摘・2026-08-31）。
+ *
+ * 折り山がある辺すべてに札を出していたので、
+ * **「わ」の辺が左を向いている型紙に「わに当てる（右）」が出ていた**。
+ * 押しても向きが合わないので、生地の右端に寄るだけで折り山には当たらない。
+ * 指で引きずって当てるときは向きを見て吸い付くようにしてあるのに、
+ * 札のほうだけが野放しになっていた。同じ決まりに揃える。
+ *
+ * いま当てている辺だけは、外せるように必ず残す。
+ * 当てたあとで型紙を回すと向きが変わるので、
+ * 絞り込んだだけだと札が消えて、当てっぱなしから抜けられなくなる
+ */
+function snapTargetsOf(part: PlacedPart | undefined, p: Placement, foldSides: Side[]): Side[] {
+  const fit = part ? foldEdgeSides(part, p).filter((sd) => foldSides.includes(sd)) : []
+  const now = p.snapTo
+  return now && foldSides.includes(now) && !fit.includes(now) ? [...fit, now] : fit
+}
+
 /* ------------------------------------------------------- 選んだパーツの操作 */
 
 function Controls({
-  placement, name, size, count, reserve, hasNap, foldSides, onPatch, onRemove, onClose,
+  placement, name, size, count, reserve, hasNap, snapTargets, onPatch, onRemove, onClose,
 }: {
   placement: Placement
   name: string
@@ -2509,7 +2604,8 @@ function Controls({
   /** 後で裁つぶんの余白か。ただの長方形なので、選べることが少ない */
   reserve: boolean
   hasNap: boolean
-  foldSides: Side[]
+  /** 「わに当てる」を出す辺。その型紙の「わ」が向いている辺だけに絞ってある */
+  snapTargets: Side[]
   onPatch: (over: Partial<Placement>) => void
   onRemove: () => void
   onClose: () => void
@@ -2591,7 +2687,7 @@ function Controls({
 
         {/* 操作は全部、結果の形を絵にしてある。言葉より先に、どうなるかが見える */}
         <div className="flex flex-wrap gap-1.5">
-          {!reserve && foldSides.map((s) => (
+          {!reserve && snapTargets.map((s) => (
             <Chip
               key={s}
               on={placement.snapTo === s}
