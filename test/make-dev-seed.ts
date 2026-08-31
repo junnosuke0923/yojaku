@@ -1,21 +1,26 @@
 /**
  * 「もう撮り終えた状態」を作る道具（開発用）。
  *
- * 実物の型紙がまだ手元に無いので、依頼者がイラストレーターで作った
- * スカートの図（前・後ろ・ベルト＋方眼定規）を、アプリと同じ処理にかけて、
- * 出てきた実寸の輪郭を src/lib/devSeed.ts に書き出す。
+ * 実物の型紙がまだ手元に無いので、依頼者が用意したスカートの見本写真
+ * （前・後ろ・ベルトと、まん中に置いた方眼定規）を、
+ * アプリと同じ処理にかけて、出てきた実寸の輪郭を src/lib/devSeed.ts に書き出す。
  *
  * こうしておくと、撮影と定規合わせを毎回やり直さずに、
  * 縫い代や配置の画面だけを何度でも触れる。
  *
  *   実行: npm run seed
  *
- * 写真は2回に分けて読む。
- * この図では前後スカートの定規が縦、ベルトの定規が横に置かれていて、
- * 地の目の向きが違うため。実際の撮影でも、向きが違うものは分けて撮ってもらう。
+ * 写真は1枚を1回だけ読む。定規が1本しか写っていないので、
+ * 実寸も地の目の向きも、その1本から決まる。
+ * （2026-08-31 に見本を差し替えるまでは、定規が縦横2本あったため2回に分けて読んでいた。
+ *   写真に定規が2本あると、合わせなかったほうが、ただの物として型紙にくっついて読まれる）
+ *
+ * 見本の写真そのものは、この配りものの repository の外——
+ * プロジェクトの一段上——に置いてある。学生に配るものではないため。
  */
 
 import { writeFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { readPng, downscale } from './png'
 import { analyze } from '../src/lib/pipeline'
 import { MAX_EDGE } from '../src/lib/image'
@@ -36,7 +41,7 @@ class NodeImageData {
 ;(globalThis as unknown as { ImageData: unknown }).ImageData = NodeImageData
 
 const SOURCE = process.argv[2]
-  ?? 'C:/Users/bun121194/Desktop/スカート作図 (用尺シミュレーションTEST).png'
+  ?? fileURLToPath(new URL('../../テストサンプル.png', import.meta.url))
 
 const img = downscale(readPng(SOURCE), MAX_EDGE)
 const imageData = new NodeImageData(img.width, img.height, img.data) as unknown as ImageData
@@ -48,45 +53,36 @@ const quadOf = (x0: number, y0: number, x1: number, y1: number, vertical: boolea
     ? [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }]
     : [{ x: x0, y: y0 }, { x: x0, y: y1 }, { x: x1, y: y1 }, { x: x1, y: y0 }]
 
-/** 図の中で実際に測った定規の位置（縮小後の画素） */
-const SKIRT_RULER = quadOf(215, 669, 272, 1249, true)   // 後ろスカートの上・縦向き
-const BELT_RULER = quadOf(267, 273, 848, 331, false)    // ベルトの上・横向き。下へはみ出している
+/**
+ * 見本の中で実際に測った定規の位置（縮小後の画素）。
+ * 前と後ろのあいだに、縦に1本だけ置いてある。
+ * この四隅から、縦横比 9.75 →「50cm定規」と自動で当てられている
+ */
+const RULER = quadOf(346, 290, 411, 924, true)
 
-const run = (rulerQuad: Quad) => {
-  const out = analyze({ imageData, rulerQuad, ruler: RULERS.r50, green })
-  if ('error' in out) throw new Error(out.error)
-  return out
-}
+const out = analyze({ imageData, rulerQuad: RULER, ruler: RULERS.r50, green })
+if ('error' in out) throw new Error(out.error)
 
-const skirts = run(SKIRT_RULER)
-const belt = run(BELT_RULER)
+console.log(`換算 ${out.scale.mmPerPixel.toFixed(4)} mm/px`
+  + `  定規の自動判別 ${out.guess.suggested ?? 'なし'}（縦横比 ${out.guess.observedRatio.toFixed(2)}）`)
+console.log(`  定規そのものとして取り除いた画素 ${out.rulerOverhangPx}`
+  + `  小さすぎて捨てたかたまり ${out.discarded}`)
+out.parts.forEach((p, i) => {
+  console.log(`  ${i}: ${(p.widthMm / 10).toFixed(1)} × ${(p.heightMm / 10).toFixed(1)} cm`
+    + `  点 ${p.outlineMm.length}`)
+})
 
-const show = (label: string, r: ReturnType<typeof run>) => {
-  console.log(`\n${label}  換算 ${r.scale.mmPerPixel.toFixed(4)} mm/px  はみ出し除去 ${r.rulerOverhangPx}px`)
-  r.parts.forEach((p, i) => {
-    console.log(
-      `  ${i}: ${(p.widthMm / 10).toFixed(1)} × ${(p.heightMm / 10).toFixed(1)} cm` +
-      `  点 ${p.outlineMm.length}`,
-    )
-  })
-}
-show('縦の定規で読んだとき', skirts)
-show('横の定規で読んだとき', belt)
-
-/** 面積の大きい順に並べた添字 */
-const byArea = (r: ReturnType<typeof run>) =>
-  r.parts.map((p, i) => ({ p, i })).sort((a, b) => b.p.areaMm2 - a.p.areaMm2)
-
-// 縦の定規の回からは、大きいほうから2つ（前後スカート）。
-// 図では左が「後ろ」、右が「前」に描かれている
-const big = byArea(skirts).slice(0, 2).map((e) => e.p)
+// 大きいほうから2つが前後スカート。見本では左が「後ろ」、右が「前」
+const big = out.parts.slice().sort((a, b) => b.areaMm2 - a.areaMm2).slice(0, 2)
 big.sort((a, b) => a.outlinePx[0].x - b.outlinePx[0].x)
 const [ushiro, mae] = big
 
-// 横の定規の回からは、いちばん細長いもの（ベルト）
-const beltPart = belt.parts.reduce((a, b) =>
-  Math.max(a.heightMm, a.widthMm) / Math.min(a.heightMm, a.widthMm) >
-  Math.max(b.heightMm, b.widthMm) / Math.min(b.heightMm, b.widthMm) ? a : b)
+// 残ったいちばん細長いものがベルト
+const beltPart = out.parts
+  .filter((p) => p !== ushiro && p !== mae)
+  .reduce((a, b) =>
+    Math.max(a.heightMm, a.widthMm) / Math.min(a.heightMm, a.widthMm) >
+    Math.max(b.heightMm, b.widthMm) / Math.min(b.heightMm, b.widthMm) ? a : b)
 
 const round = (poly: Polygon) =>
   '[' + poly.map((q) => `[${q.x.toFixed(1)},${q.y.toFixed(1)}]`).join(',') + ']'
@@ -112,8 +108,8 @@ const file = `/**
  *
  * 作り直す: npm run seed
  *
- * もとは依頼者がイラストレーターで作ったスカートの図
- * （前スカート・後ろスカート・ベルトに方眼定規を載せたもの）。
+ * もとは依頼者が用意したスカートの見本写真
+ * （前スカート・後ろスカート・ベルトと、まん中に置いた方眼定規）。
  * それをアプリと同じ処理にかけ、出てきた実寸の輪郭だけを写してある。
  *
  * URL のうしろに ?dev を付けて開いたときだけ読み込まれる。
