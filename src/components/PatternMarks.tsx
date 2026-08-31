@@ -27,6 +27,14 @@ type Props = {
   /** 名前の大きさの上限。図に対する割合。実際はこれと「入る幅」の小さいほうを使う */
   fontScale?: number
   /**
+   * 名前だけを、この数で割って小さくする。
+   *
+   * 図そのものを拡大して見ているときに使う。線は生地の上に実際にあるものだから
+   * いっしょに大きくなってよいが、名前は読むために添えてあるだけなので、
+   * 拡大した倍率でここを割ると、画面の上での大きさが変わらない
+   */
+  fontShrink?: number
+  /**
    * 地の目の向き。ふつうは縦。
    * 生地の上で90度回して置いたパーツだけ横になる（地の目を変えたということ）。
    */
@@ -57,7 +65,7 @@ type Props = {
 
 export function PatternMarks({
   poly, hasNap, name, fontScale = 0.075, direction = 'v', color = INK, paper = PAPER,
-  shift = 0, labelShift = 0,
+  shift = 0, labelShift = 0, fontShrink = 1,
 }: Props) {
   const b = bounds(poly)
   const s = Math.max(b.maxX - b.minX, b.maxY - b.minY)
@@ -68,7 +76,7 @@ export function PatternMarks({
   const spot = name ? labelSpot(poly) : null
   // 日本語は1文字がほぼ1文字ぶんの幅なので、字数で割れば入る大きさが出る
   const fs = spot && name
-    ? Math.min(s * fontScale, (spot.width * 0.8) / Math.max(name.length, 1))
+    ? Math.min(s * fontScale, (spot.width * 0.8) / Math.max(name.length, 1)) / fontShrink
     : 0
 
   const label = spot && name && (

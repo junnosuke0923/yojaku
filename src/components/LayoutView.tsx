@@ -53,6 +53,19 @@ type Props = {
 /** 生地が空でも、置き場所が見えるように確保しておく長さ(mm) */
 const MIN_VIEW_MM = 400
 
+/**
+ * 二本指でひろげられる上限。
+ *
+ * 6倍まで寄れば、110cm 幅の生地が電話の画面で 18cm ぶんになる。
+ * 縫い代どうしの重なりを見ながら 1cm きざみで詰めるには、このくらい要る。
+ * これ以上寄れても、どこを見ているのか分からなくなるだけ
+ */
+const MAX_ZOOM = 6
+
+/** 上と下からはみ出さないように収める */
+const clampTo = (v: number, lo: number, hi: number) =>
+  hi <= lo ? lo : v < lo ? lo : v > hi ? hi : v
+
 /** 引きずるたびに増える番号。ひと続きの動きに同じ合図を付けるためだけのもの */
 let dragSeq = 0
 
@@ -620,6 +633,20 @@ function SectionCanvas({
   /** 辺を引きずっている最中に出す、いま何をしているのかのひと言 */
   const [hint, setHint] = useState<string | null>(null)
 
+  /*
+    二本指でひろげる・つまむ ための覚え書き（使うのはずっと下の節）。
+    React の決まりで、途中で帰る `return` より先に置いておく必要があるため、
+    ここだけ離れたところに書いてある
+  */
+  /** いまの倍率と、見ている窓の左上 */
+  const [zoom, setZoom] = useState({ k: 1, x: 0, y: 0 })
+  /** いま触れている指の位置。二本目が来たら、型紙を動かすのをやめてつまむほうへ移る */
+  const pointers = useRef(new Map<number, { x: number; y: number }>())
+  /** つまみはじめの指の間隔・倍率・つまんだ点 */
+  const pinch = useRef<{ d0: number; k0: number; ox: number; oy: number } | null>(null)
+  /** 型紙ではないところをつかんで、図をずらしているとき */
+  const pan = useRef<{ px: number; py: number; zx: number; zy: number } | null>(null)
+
   if (!report) return null
 
   const W = Math.max(report.surfaceWidthMm, 1)
@@ -751,7 +778,117 @@ function SectionCanvas({
   /** 画面の1px が何mmか。指の動きを実寸に直すのに使う */
   const mmPerPx = () => {
     const box = svgRef.current?.getBoundingClientRect()
-    return box && box.width > 0 ? vbW / box.width : 1
+    return box && box.width > 0 ? viewW / box.width : 1
+  }
+
+  /* ------------------------------------------------- 二本指でひろげる・つまむ */
+
+  /**
+   * 図そのものを拡大縮小する（依頼者の指示・2026-08-31
+   * 「配置の際に二本指で配置図部分を拡縮出来るようにしたい」）。
+   *
+   * 生地は幅110cm・丈2mといった大きさで、それを電話の画面に丸ごと収めている。
+   * 1cm きざみで型紙を突き合わせたいのに、画面の上では1cm が3画素にもならない。
+   * 指で置くには、寄って見られる必要がある。
+   *
+   * **枠そのものは変えず、見る窓（viewBox）だけを動かす。**
+   * 絵の大きさも指の動きの換算（`mmPerPx`）も、すべてこの窓から出しているので、
+   * 拡大したまま型紙を引きずっても、指と型紙はずれない。
+   *
+   * 図の外へは出られないようにしてある。
+   * 迷子になると、戻る道が「もとの大きさ」しかなくなるため。
+   */
+  const viewW = vbW / zoom.k
+  const viewH = vbH / zoom.k
+  /**
+   * 名前や印の大きさ。**寄っても画面の上では同じ大きさのまま**にする。
+   *
+   * 線（型紙の枠・地の目線・折り山）は生地の上に実際にあるものなので、
+   * 寄れば大きくなってよい。名前や印は読むために添えてあるだけで、
+   * 生地の上にある物ではない。いっしょに大きくすると、
+   * 寄って合わせようとしている当の型紙を、名前が覆いかくしてしまう
+   */
+  const lbl = (v: number) => v / zoom.k
+  // 生地が長くなると枠も伸びるので、しまってある値は毎回ここで枠の中へ入れ直す
+  const zx = clampTo(zoom.x, 0, vbW - viewW)
+  const zy = clampTo(zoom.y, 0, vbH - viewH)
+
+  const rectOf = () => {
+    const r = svgRef.current?.getBoundingClientRect()
+    return r && r.width > 0 && r.height > 0 ? r : null
+  }
+  /** 画面の点を、図の左上からのずれに直す */
+  const spotOf = (cx: number, cy: number) => {
+    const r = rectOf()
+    if (!r) return { x: zx, y: zy }
+    return {
+      x: zx + ((cx - r.left) / r.width) * viewW,
+      y: zy + ((cy - r.top) / r.height) * viewH,
+    }
+  }
+  /** 倍率と、窓の左上を決める。つまんだ点が指のあいだに残るように置く */
+  const zoomAround = (k: number, cx: number, cy: number, ox: number, oy: number) => {
+    const r = rectOf()
+    if (!r) return
+    const kk = clampTo(k, 1, MAX_ZOOM)
+    const w = vbW / kk
+    const h = vbH / kk
+    setZoom({
+      k: kk,
+      x: clampTo(ox - ((cx - r.left) / r.width) * w, 0, vbW - w),
+      y: clampTo(oy - ((cy - r.top) / r.height) * h, 0, vbH - h),
+    })
+  }
+
+  const canvasDown = (e: PointerEvent) => {
+    onActivate()
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    if (pointers.current.size === 2) {
+      // 二本目が触れた。型紙を動かすのはやめて、つまむほうへ移る
+      drag.current = null
+      pan.current = null
+      const [a, b] = [...pointers.current.values()]
+      const mid = spotOf((a.x + b.x) / 2, (a.y + b.y) / 2)
+      pinch.current = {
+        d0: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)),
+        k0: zoom.k, ox: mid.x, oy: mid.y,
+      }
+    } else if (pointers.current.size === 1 && !drag.current) {
+      // 型紙ではないところをつかんだので、図そのものをずらす
+      pan.current = { px: e.clientX, py: e.clientY, zx, zy }
+    }
+  }
+
+  const canvasMove = (e: PointerEvent) => {
+    if (pointers.current.has(e.pointerId)) {
+      pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    }
+    const g = pinch.current
+    if (g && pointers.current.size >= 2) {
+      const [a, b] = [...pointers.current.values()]
+      const d = Math.hypot(a.x - b.x, a.y - b.y)
+      if (d >= 1) zoomAround(g.k0 * (d / g.d0), (a.x + b.x) / 2, (a.y + b.y) / 2, g.ox, g.oy)
+      return
+    }
+    const q = pan.current
+    if (q) {
+      const r = rectOf()
+      if (!r) return
+      setZoom({
+        k: zoom.k,
+        x: clampTo(q.zx - ((e.clientX - q.px) / r.width) * viewW, 0, vbW - viewW),
+        y: clampTo(q.zy - ((e.clientY - q.py) / r.height) * viewH, 0, vbH - viewH),
+      })
+      return
+    }
+    moveDrag(e)
+  }
+
+  const canvasUp = (e: PointerEvent) => {
+    pointers.current.delete(e.pointerId)
+    if (pointers.current.size < 2) pinch.current = null
+    if (pointers.current.size === 0) pan.current = null
+    endDrag()
   }
 
   const startDrag = (e: PointerEvent, p: Placement) => {
@@ -1475,20 +1612,35 @@ function SectionCanvas({
         どの絵の話なのかが分からない（依頼者の指示・2026-08-27）
       */}
       <div
-        className={`flex flex-col overflow-hidden rounded-xl border-2 bg-table ${
+        className={`relative flex flex-col overflow-hidden rounded-xl border-2 bg-table ${
           active ? 'border-mat-500' : 'border-ink-100'
         }`}
       >
+        {/*
+          寄っているあいだだけ、戻る道を絵の上に出しておく。
+          二本指でつまんで戻せはするが、端まで寄せてしまうと戻しにくい。
+          いま何倍かも書いておく——寄っていることに気づかないまま
+          「型紙が大きくなった」と誤解されないように
+        */}
+        {zoom.k > 1.01 && (
+          <button
+            type="button"
+            onClick={() => setZoom({ k: 1, x: 0, y: 0 })}
+            className="tnum absolute right-2 top-2 z-10 rounded-lg bg-white/90 px-2.5 py-1.5 text-xs font-bold text-ink-700 shadow-sm active:bg-mat-50"
+          >
+            {zoom.k.toFixed(1)}倍 ／ もとの大きさへ
+          </button>
+        )}
         <svg
           ref={svgRef}
-          viewBox={`${bx0 - PAD} ${-PAD} ${vbW} ${vbH}`}
+          viewBox={`${bx0 - PAD + zx} ${-PAD + zy} ${viewW} ${viewH}`}
           data-tour={index === 0 ? 'fabric' : undefined}
           className="w-full select-none"
           style={{ aspectRatio: `${vbW} / ${vbH}`, touchAction: 'none' }}
-          onPointerDown={onActivate}
-          onPointerMove={moveDrag}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
+          onPointerDown={canvasDown}
+          onPointerMove={canvasMove}
+          onPointerUp={canvasUp}
+          onPointerCancel={canvasUp}
           role="img"
           aria-label={`${index + 1}つめの生地`}
         >
@@ -1754,18 +1906,18 @@ function SectionCanvas({
                     strokeDasharray={`${W * 0.022} ${W * 0.016}`} strokeLinejoin="round"
                   />
                   <text
-                    x={box.w * 0.5} y={box.h * 0.5 - W * 0.018}
-                    fontSize={Math.min(W * 0.042, box.w * 0.17)} fontWeight={700} fill="#6d6448"
+                    x={box.w * 0.5} y={box.h * 0.5 - lbl(W * 0.018)}
+                    fontSize={lbl(Math.min(W * 0.042, box.w * 0.17))} fontWeight={700} fill="#6d6448"
                     textAnchor="middle" dominantBaseline="middle"
-                    stroke="#ffffff" strokeWidth={W * 0.012} paintOrder="stroke"
+                    stroke="#ffffff" strokeWidth={lbl(W * 0.012)} paintOrder="stroke"
                   >
                     {stored?.name}
                   </text>
                   <text
-                    x={box.w * 0.5} y={box.h * 0.5 + W * 0.03}
-                    fontSize={Math.min(W * 0.03, box.w * 0.12)} fill="#8a7f5c"
+                    x={box.w * 0.5} y={box.h * 0.5 + lbl(W * 0.03)}
+                    fontSize={lbl(Math.min(W * 0.03, box.w * 0.12))} fill="#8a7f5c"
                     textAnchor="middle" dominantBaseline="middle"
-                    stroke="#ffffff" strokeWidth={W * 0.012} paintOrder="stroke"
+                    stroke="#ffffff" strokeWidth={lbl(W * 0.012)} paintOrder="stroke"
                   >
                     あとで裁つ
                   </text>
@@ -1823,9 +1975,10 @@ function SectionCanvas({
                   name={state.parts.find((x) => x.id === p.partId)?.name}
                   direction={p.rot90 ? 'h' : 'v'}
                   fontScale={0.1}
+                  fontShrink={zoom.k}
                   paper={p.mirrored ? '#e9e7e0' : undefined}
                   shift={grainShiftOf(center, p.rot90 === true, box.w, box.h)}
-                  labelShift={showBadges ? badges.length * W * 0.055 : 0}
+                  labelShift={showBadges ? lbl(badges.length * W * 0.055) : 0}
                 />
                 {/* 「わ」の辺の印。地の目線より後に描いて、隠れないようにする */}
                 {foldMarks(marks)}
@@ -1855,25 +2008,25 @@ function SectionCanvas({
                   そうなっていることが図の上で分かるようにしておく
                 */}
                 {showBadges && (() => {
-                  const fs = W * 0.034
-                  const isz = W * 0.044
+                  const fs = lbl(W * 0.034)
+                  const isz = lbl(W * 0.044)
                   /*
                     印は型紙の**左上の角**に、左そろえで積む。
                     型紙の名前と地の目線は真ん中にあるので、真ん中へ書くと重なって読めない
                   */
                   return badges.map((b, i) => {
-                    const cy = W * 0.05 + i * W * 0.055
-                    const x0 = W * 0.022
+                    const cy = lbl(W * 0.05 + i * W * 0.055)
+                    const x0 = lbl(W * 0.022)
                     return (
                       <g key={b.k}>
                         {b.flip
                           ? iconFlip(x0 + isz * 0.5, cy, isz * 0.96, b.color)
                           : iconGrainSide(x0 + isz * 0.5, cy, isz, b.color)}
                         <text
-                          x={x0 + isz + W * 0.014 + b.text.length * fs * 0.5} y={cy}
+                          x={x0 + isz + lbl(W * 0.014) + b.text.length * fs * 0.5} y={cy}
                           fontSize={fs} fontWeight={700} fill={b.color}
                           textAnchor="middle" dominantBaseline="middle"
-                          stroke="#ffffff" strokeWidth={W * 0.013} paintOrder="stroke"
+                          stroke="#ffffff" strokeWidth={lbl(W * 0.013)} paintOrder="stroke"
                         >
                           {b.text}
                         </text>
@@ -1887,8 +2040,9 @@ function SectionCanvas({
                 */}
                 {twice && (
                   <g>
-                    <circle cx={box.w - W * 0.058} cy={box.h - W * 0.055} r={W * 0.042} fill={CREASE} />
-                    <text x={box.w - W * 0.058} y={box.h - W * 0.055} fontSize={W * 0.044}
+                    <circle cx={box.w - lbl(W * 0.058)} cy={box.h - lbl(W * 0.055)}
+                      r={lbl(W * 0.042)} fill={CREASE} />
+                    <text x={box.w - lbl(W * 0.058)} y={box.h - lbl(W * 0.055)} fontSize={lbl(W * 0.044)}
                       fontWeight={700} fill="#ffffff" textAnchor="middle" dominantBaseline="middle">
                       ×2
                     </text>
