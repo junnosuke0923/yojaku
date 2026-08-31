@@ -101,12 +101,24 @@ export function FoldDiagram({ fold, nearMm, farMm, spanMm }: Props) {
   */
   const layerLabel = (len: number) => (len > 230 ? '生地が二重' : '二重')
 
-  /** 折り返した腕。端（みみ）から折り山まで戻って、下の一枚につながる */
-  const flap = (at: 'near' | 'far', len: number) => {
+  /**
+   * 折り返した腕。端（みみ・裁ち端）から折り山まで戻って、下の一枚につながる。
+   *
+   * `part` に `upper` を渡すと、**折り山の丸みのてっぺんで止める**
+   * （依頼者の指摘・2026-08-31）。生地は1枚つながりなので、
+   * 「上に乗っている一枚」と「下の一枚」の境目は、
+   * ちょうどその半円の真ん中——いちばん外へふくらんだところにある。
+   * 丸みを最後まで緑で塗ってしまうと、
+   * 下の一枚になったあとまで上の一枚の色が続いてしまう
+   */
+  const flap = (at: 'near' | 'far', len: number, part: 'all' | 'upper' = 'all') => {
     const edge = at === 'near' ? len : W - len
     const turn = at === 'near' ? 0 : W
     const sweep = at === 'near' ? 0 : 1
-    return `M${edge} ${UPPER} H${turn} A${R} ${R} 0 0 ${sweep} ${turn} ${LOWER}`
+    const end = part === 'upper'
+      ? `${at === 'near' ? -R : W + R} ${(UPPER + LOWER) / 2}`
+      : `${turn} ${LOWER}`
+    return `M${edge} ${UPPER} H${turn} A${R} ${R} 0 0 ${sweep} ${end}`
   }
 
   return (
@@ -124,14 +136,28 @@ export function FoldDiagram({ fold, nearMm, farMm, spanMm }: Props) {
         <path d={`M0 ${LOWER} H${W}`} stroke={CLOTH} strokeWidth={THICK}
           strokeLinecap="butt" fill="none" />
 
-        {/* 折り返して上に乗っている一枚。先が丸くつながっているところが折り山 */}
+        {/*
+          折り返して上に乗っている一枚。先が丸くつながっているところが折り山。
+
+          腕まるごとを下の一枚の色でいちど描き、そのうえに
+          **折り山のてっぺんまで**を緑で重ねる。
+          こうすると継ぎ目が出ず、色の変わるところが境目になる
+        */}
         {near > 0 && (
-          <path d={flap('near', near)} stroke={CREASE} strokeWidth={THICK}
-            fill="none" strokeLinecap="butt" />
+          <>
+            <path d={flap('near', near)} stroke={CLOTH} strokeWidth={THICK}
+              fill="none" strokeLinecap="butt" />
+            <path d={flap('near', near, 'upper')} stroke={CREASE} strokeWidth={THICK}
+              fill="none" strokeLinecap="butt" />
+          </>
         )}
         {far > 0 && (
-          <path d={flap('far', far)} stroke={CREASE} strokeWidth={THICK}
-            fill="none" strokeLinecap="butt" />
+          <>
+            <path d={flap('far', far)} stroke={CLOTH} strokeWidth={THICK}
+              fill="none" strokeLinecap="butt" />
+            <path d={flap('far', far, 'upper')} stroke={CREASE} strokeWidth={THICK}
+              fill="none" strokeLinecap="butt" />
+          </>
         )}
 
         {/* 折り方だけ先に決まっているとき。ここが山になる、という予告 */}
