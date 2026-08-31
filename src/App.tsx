@@ -19,7 +19,8 @@ import { RulerToggle } from './components/RulerToggle'
 import { replayTour, Tour, TOUR_ON } from './components/Tour'
 import { DEFAULT_GREEN, estimateHueCenter, type GreenParams } from './lib/hsv'
 import { loadImageFile, type LoadedImage } from './lib/image'
-import { analyze, previewGreenMask, type AnalyzeResult } from './lib/pipeline'
+import { analyze, DEFAULT_SMOOTH, previewGreenMask, resmooth, type AnalyzeResult } from './lib/pipeline'
+import type { SmoothLevel } from './lib/smooth'
 import { defaultRulerQuad, guessRuler, RULERS, type RulerId } from './lib/ruler'
 import { loadSaves, removeSave, whenOf, type Save } from './lib/saves'
 import { EMPTY, load as loadParts, save as saveParts, toStored, type PartsState } from './lib/store'
@@ -88,6 +89,19 @@ export function App() {
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<AnalyzeResult | null>(null)
   /**
+   * 輪郭のガタガタをならす強さ（依頼者の指示・2026-08-31）。
+   *
+   * 写真から切り抜いた線は、そのままだと 1mm ほど波打つ。
+   * 既定でならしておくが、実物の線をそのまま写し取りたい人のために
+   * 「なし」も選べるようにしてある。
+   */
+  const [smooth, setSmooth] = useState<SmoothLevel>(DEFAULT_SMOOTH)
+  /**
+   * 画面に出す結果。なめらかさを変えたときは、
+   * 写真の読み直しはせず、輪郭の作り直しだけをする（そのほうが速い）
+   */
+  const shown = useMemo(() => (result ? resmooth(result, smooth) : null), [result, smooth])
+  /**
    * 見つかったが、取り込まないことにした形の id。
    *
    * 写真には型紙のほかに消しゴムや紙片や手が写る。それを機械に見分けさせるのではなく、
@@ -96,6 +110,7 @@ export function App() {
   const [excluded, setExcluded] = useState<Set<string>>(new Set())
   /** 取り込むことにした形の数。ボタンの文字と、押せるかどうかに使う */
   const chosenCount = result ? result.parts.filter((p) => !excluded.has(p.id)).length : 0
+
   const [error, setError] = useState<string | null>(null)
   // 取り込んだパーツと生地の設定は端末の中に持つ。何度も撮り足す途中で閉じても消えないように
   const [parts, setParts] = useState<PartsState>(loadParts)
@@ -301,6 +316,7 @@ export function App() {
     setTimeout(() => {
       const out = analyze({
         imageData: image.imageData, rulerQuad: quad, ruler: RULERS[rulerId], green, perspective,
+        smooth,
       })
       if ('error' in out) {
         setError(out.error)
@@ -313,7 +329,7 @@ export function App() {
     }, 30)
     // perspective を入れ忘れると、「斜めから撮った」に切り替えた直後に
     // 四隅を動かさずそのまま進んだとき、切り替える前の計算のままになる
-  }, [image, quad, rulerId, green, perspective])
+  }, [image, quad, rulerId, green, perspective, smooth])
 
   const restart = () => {
     setStep('photo')
@@ -328,8 +344,8 @@ export function App() {
    * 縫い代つきなら何も足さず、「わ」の辺の指定だけを聞く（依頼者の指示）。
    */
   const keep = () => {
-    if (!result) return
-    const added = result.parts
+    if (!shown) return
+    const added = shown.parts
       .filter((p) => !excluded.has(p.id))
       .map((p, i) =>
         toStored(p.outlineMm, p.widthMm, p.heightMm, parts.parts.length + i, seamIncluded),
@@ -926,11 +942,13 @@ export function App() {
           </section>
         )}
 
-        {step === 'result' && image && result && (
+        {step === 'result' && image && shown && (
           <section className="flex flex-col gap-5">
             <ResultView
               bitmap={image.bitmap}
-              result={result}
+              result={shown}
+              smooth={smooth}
+              onSmooth={setSmooth}
               excluded={excluded}
               onToggle={(id) => setExcluded((prev) => {
                 const next = new Set(prev)
@@ -991,7 +1009,7 @@ export function App() {
               className="flex items-center justify-center gap-2 rounded-xl bg-mat-500 px-5 py-4 text-base font-bold text-white active:bg-mat-600 disabled:opacity-50"
             >
               <Icon name="part" className="h-5 w-5 shrink-0" />
-              {chosenCount === result.parts.length
+              {chosenCount === shown.parts.length
                 ? `このパーツを取り込む（${chosenCount}）`
                 : `選んだ ${chosenCount} 個を取り込む`}
             </button>

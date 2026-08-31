@@ -16,12 +16,13 @@ import { buildObjectMask, closing, connectedComponents, opening, type Component,
 import { traceOuterContour } from './contour'
 import { removeRulerOverhang } from './rulerStrip'
 import { buildScale, guessRuler, type RulerGuess, type RulerSpec, type ScaleResult } from './ruler'
+import { smoothClosed, smoothLevel, type SmoothLevel } from './smooth'
 import type { GreenParams } from './hsv'
 
 /** かたまりとして扱う最小の大きさ（画面全体に対する割合） */
 const MIN_AREA_RATIO = 0.0015
-/** 輪郭の点を間引く強さ（px）。大きいほど角ばる */
-const SIMPLIFY_EPSILON = 1.2
+/** ならしの既定の強さ。段階は smooth.ts の SMOOTH_LEVELS を参照 */
+export const DEFAULT_SMOOTH: SmoothLevel = 2
 /** かたまりのうちこの割合以上が定規の帯なら、それは定規そのものとみなす */
 const RULER_COVERAGE = 0.8
 
@@ -32,6 +33,11 @@ export type PatternPart = {
   outlineMm: Polygon
   /** 写真の上での輪郭（px）。重ね描きに使う */
   outlinePx: Polygon
+  /**
+   * なぞったままの輪郭（px）。ならす前・間引く前。
+   * なめらかさを画面で変えたときに、ここからやり直す
+   */
+  rawPx: Polygon
   /** 最大幅（mm）。地の目に対して横 */
   widthMm: number
   /** 最大丈（mm）。地の目に対して縦 */
@@ -50,6 +56,8 @@ export type AnalyzeOptions = {
    * ふだんは偽で、指のずれに強い相似変換を使う。詳しくは buildScale を参照
    */
   perspective?: boolean
+  /** 輪郭のガタガタをならす強さ（0〜3）。省くと既定の強さ */
+  smooth?: SmoothLevel
 }
 
 export type AnalyzeResult = {
@@ -68,6 +76,7 @@ export type AnalyzeError = { error: string }
 
 export function analyze(opts: AnalyzeOptions): AnalyzeResult | AnalyzeError {
   const { imageData, rulerQuad, ruler, green } = opts
+  const smooth = opts.smooth ?? DEFAULT_SMOOTH
 
   const scale = buildScale(rulerQuad, ruler, opts.perspective)
   if (!scale) {
@@ -98,30 +107,15 @@ export function analyze(opts: AnalyzeOptions): AnalyzeResult | AnalyzeError {
     if (!traced) continue
 
     // 切り出した範囲の座標なので、元画像の座標へ戻す
-    const raw = traced.map((p) => ({ x: p.x + comp.offsetX, y: p.y + comp.offsetY }))
-    const outlinePx = simplify(raw, SIMPLIFY_EPSILON)
-    if (outlinePx.length < 3) continue
-
-    const mm = applyHToPolygon(scale.imageToMm, outlinePx)
-    if (!mm) continue
-
-    const b = bounds(mm)
-    const outlineMm = mm.map((p) => ({ x: p.x - b.minX, y: p.y - b.minY }))
-
-    const widthMm = boundsWidth(b)
-    const heightMm = boundsHeight(b)
-    // 実寸に直したとき不自然に大きい／小さいものは、判定の失敗とみなす
-    if (widthMm < 10 || heightMm < 10 || widthMm > 3000 || heightMm > 3000) continue
+    const rawPx = traced.map((p) => ({ x: p.x + comp.offsetX, y: p.y + comp.offsetY }))
+    const shape = shapeOf(rawPx, scale, smooth)
+    if (!shape) continue
 
     parts.push({
       id: `part-${parts.length + 1}`,
       name: `パーツ${parts.length + 1}`,
-      outlineMm,
-      outlinePx,
-      widthMm,
-      heightMm,
-      areaMm2: Math.abs(signedArea(outlineMm)),
-      perimeterMm: perimeter(outlineMm),
+      rawPx,
+      ...shape,
     })
   }
 
@@ -135,6 +129,50 @@ export function analyze(opts: AnalyzeOptions): AnalyzeResult | AnalyzeError {
     maskPreview: renderMask(mask),
     discarded,
     rulerOverhangPx: overhang.removedPx,
+  }
+}
+
+/** 輪郭から形の情報をひととおり作る。ならす強さを変えたときも、ここだけをやり直す */
+function shapeOf(rawPx: Polygon, scale: ScaleResult, smooth: SmoothLevel) {
+  const level = smoothLevel(smooth)
+  // ならす幅は実寸で決めてあるので、この写真の画素に直してから渡す
+  const sigmaPx = level.mm / Math.max(scale.mmPerPixel, 1e-6)
+  const outlinePx = simplify(smoothClosed(rawPx, sigmaPx), level.epsilon)
+  if (outlinePx.length < 3) return null
+
+  const mm = applyHToPolygon(scale.imageToMm, outlinePx)
+  if (!mm) return null
+
+  const b = bounds(mm)
+  const outlineMm = mm.map((p) => ({ x: p.x - b.minX, y: p.y - b.minY }))
+  const widthMm = boundsWidth(b)
+  const heightMm = boundsHeight(b)
+  // 実寸に直したとき不自然に大きい／小さいものは、判定の失敗とみなす
+  if (widthMm < 10 || heightMm < 10 || widthMm > 3000 || heightMm > 3000) return null
+
+  return {
+    outlineMm,
+    outlinePx,
+    widthMm,
+    heightMm,
+    areaMm2: Math.abs(signedArea(outlineMm)),
+    perimeterMm: perimeter(outlineMm),
+  }
+}
+
+/**
+ * ならす強さだけを変えて、形を作り直す。
+ *
+ * 写真を読み直したり緑を判定し直したりはしない（そこは変わらないので）。
+ * 画面のつまみを動かすたびに全部やり直すと、待たされて選べなくなる。
+ */
+export function resmooth(result: AnalyzeResult, smooth: SmoothLevel): AnalyzeResult {
+  return {
+    ...result,
+    parts: result.parts.map((p) => {
+      const shape = shapeOf(p.rawPx, result.scale, smooth)
+      return shape ? { ...p, ...shape } : p
+    }),
   }
 }
 

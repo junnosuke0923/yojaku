@@ -25,7 +25,7 @@ import type { ReactNode, SVGProps } from 'react'
 
 export type IconName =
   | 'camera' | 'photo' | 'ruler' | 'measure'
-  | 'part' | 'seam' | 'scissors' | 'fold'
+  | 'part' | 'seam' | 'scissors' | 'fold' | 'smooth'
   | 'cloth' | 'selvage' | 'clothWidth' | 'yardage' | 'layout' | 'hold'
   | 'grain' | 'grainSide' | 'nap' | 'napNone' | 'flip' | 'mirror' | 'nest'
   | 'question' | 'hint' | 'warn' | 'check'
@@ -128,6 +128,17 @@ const SHAPES: Record<IconName, ReactNode> = {
 
   /** 折り山。生地を横から見た、折り返しのヘアピン形 */
   fold: <path d="M18.6 6.6H9.4a5.4 5.4 0 0 0 0 10.8h9.2" />,
+
+  /**
+   * 線をならす。下がガタガタの線、上が同じ線をならしたもの。
+   * 「どう変わるのか」を絵そのもので言っている
+   */
+  smooth: (
+    <>
+      <path d="M2.8 8.2c3.4 0 4.6-3 8.6-3s5.6 3 9.8 3" />
+      <path d="M2.8 17.4l2-2.4 1.6 2.4 2-2.4 1.7 2.4 1.9-2.6 1.7 2.6 2-2.4 1.7 2.4 1.8-2.4 1.6 2.4" opacity="0.5" />
+    </>
+  ),
 
   /* ------------------------------------------------------------- 生地 */
 

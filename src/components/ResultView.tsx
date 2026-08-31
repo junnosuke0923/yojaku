@@ -10,7 +10,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { bounds } from '../lib/geom'
 import { cm, cm2 } from '../lib/format'
 import type { AnalyzeResult, PatternPart } from '../lib/pipeline'
-import { Icon } from './Icon'
+import { SMOOTH_LEVELS, type SmoothLevel } from '../lib/smooth'
+import { Hint, Icon } from './Icon'
 
 const PAD = 26
 
@@ -224,12 +225,64 @@ function PhotoOverlay({ bitmap, result, excluded }: {
   )
 }
 
-export function ResultView({ bitmap, result, excluded, onToggle }: {
+/**
+ * 輪郭のガタガタをならす強さ。
+ *
+ * 入り／切りの2つではなく、素直な段階1組にしてある。
+ * 「なめらかにする機能」を別に付けるのではなく、
+ * 同じひとつの軸の上でどこに置くかを選んでもらう。
+ *
+ * 選んだところがすぐ下のカードに出るので、
+ * 押しては見て、を繰り返して決められる（依頼者の指示・2026-08-31）。
+ */
+function SmoothPicker({ value, onChange }: {
+  value: SmoothLevel
+  onChange: (v: SmoothLevel) => void
+}) {
+  return (
+    <div className="flex flex-col gap-2.5 rounded-xl border border-ink-100 bg-white px-4 py-3.5">
+      <span className="flex items-center gap-2 text-sm font-bold text-ink-700">
+        <Icon name="smooth" className="h-4 w-4 shrink-0 text-mat-600" />
+        線のなめらかさ
+      </span>
+      <div className="grid grid-cols-4 gap-2">
+        {SMOOTH_LEVELS.map((lv) => (
+          <button
+            key={lv.key}
+            type="button"
+            onClick={() => onChange(lv.key)}
+            aria-pressed={value === lv.key}
+            className={`rounded-lg px-2 py-2 text-sm font-bold ${
+              value === lv.key ? 'bg-mat-500 text-white' : 'border border-ink-100 text-ink-700'
+            }`}
+          >
+            {lv.label}
+          </button>
+        ))}
+      </div>
+      <Hint
+        icon="smooth"
+        summary={<>紙のふちの<b className="text-ink-700">ガタガタ</b>をならします。大きさは変わりません</>}
+      >
+        写真から切り抜いた線は、紙のふちのけばと画素の階段で、1mm ほどこまかく波打ちます。
+        ここを上げると、その波だけをならします。
+        型紙の角と、アームホールのようにきつく曲がっているところは動かさないので、
+        最大丈・最大幅はほとんど変わりません（このアプリで試したかぎり 0.6mm 以内）。
+        実物の線がほんとうに波打っているとき——たとえば手で裁って端が波になっているとき——も、
+        いっしょにならされます。そこまで写し取りたいときは「なし」にしてください。
+      </Hint>
+    </div>
+  )
+}
+
+export function ResultView({ bitmap, result, excluded, onToggle, smooth, onSmooth }: {
   bitmap: ImageBitmap
   result: AnalyzeResult
   /** 取り込まないことにした形の id */
   excluded: Set<string>
   onToggle: (id: string) => void
+  smooth: SmoothLevel
+  onSmooth: (v: SmoothLevel) => void
 }) {
   return (
     <div className="flex flex-col gap-5">
@@ -246,6 +299,8 @@ export function ResultView({ bitmap, result, excluded, onToggle }: {
           </p>
         </div>
       </div>
+
+      {result.parts.length > 0 && <SmoothPicker value={smooth} onChange={onSmooth} />}
 
       {result.parts.length === 0 ? (
         <div className="flex gap-2.5 rounded-xl border border-seam bg-white px-4 py-4 text-sm leading-relaxed text-seam">
