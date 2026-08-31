@@ -1374,7 +1374,12 @@ function SectionCanvas({
         折り山の端で下の一枚と同じ頂点に集まり、半円に回り込む。
 
         みみの帯は面の外側にあるので、折り返した一枚の端も
-        `SEL_BW` ぶん外まで伸ばす。そうしないと帯が下の一枚の上に浮く
+        `SEL_BW` ぶん外まで伸ばす。そうしないと帯が下の一枚の上に浮く。
+
+        横に折ったとき、折り返した一枚の先の端は**裁ち端**なので、
+        ここにも `EDGE_GAP` の余白を見せる（依頼者の指示・2026-08-31
+        「折り返った上側の生地の生地端のところは少し余白を見せておきたい」）。
+        縦に折ったときの先の端は裁ち端ではなく**みみ**なので、そのままでよい
       */
       return flaps.map((f) => (
         f.side === 'left'
@@ -1382,8 +1387,8 @@ function SectionCanvas({
           : f.side === 'right'
             ? sheet(W - f.w - SEL_BW, by0, bx1, by1, cutTop, cutBottom, leadApex, ['right'])
             : f.side === 'top'
-              ? sheet(bx0, by0, bx1, f.h, cutTop, true, leadApex, ['top'])
-              : sheet(bx0, L - f.h, bx1, by1, true, cutBottom, leadApex, ['bottom'])
+              ? sheet(bx0, by0, bx1, f.h + EDGE_GAP, cutTop, true, leadApex, ['top'])
+              : sheet(bx0, L - f.h - EDGE_GAP, bx1, by1, true, cutBottom, leadApex, ['bottom'])
       )).join(' ')
     }
     return sheet(bx0, by0, bx1, by1, cutTop, cutBottom, leadApex)
@@ -1913,7 +1918,9 @@ function SectionCanvas({
             const horiz = f.side === 'left' || f.side === 'right'
             // 影は、折り返した生地の「端」から、下の一枚のほうへ伸びる
             const sx = f.side === 'left' ? f.w : f.side === 'right' ? W - f.w - shade : 0
-            const sy = f.side === 'top' ? f.h : f.side === 'bottom' ? L - f.h - shade : 0
+            // 横に折ったときの端は、余白のぶんだけ外に描いてある（`topPath` と同じ）
+            const fe = allDoubled ? 0 : EDGE_GAP
+            const sy = f.side === 'top' ? f.h + fe : f.side === 'bottom' ? L - f.h - fe - shade : 0
             const flip = f.side === 'right' || f.side === 'bottom'
             /*
               みみとみみが出会っているところに影を落とすと、みみの帯が影で暗くなり、
