@@ -58,6 +58,14 @@ const MIN_SIDE = 12
  * 8倍あれば、幅 350px の画面でも写真の 1px が指先より大きくなる
  */
 const MAX_ZOOM = 8
+/** 寄ったとき、窓の上に残すすき間（画面の px） */
+const TOP_GAP = 10
+/**
+ * 寄ったとき、窓の下に残す高さ（画面の px）。
+ * ここを 0 にすると画面がそこで終わっているように見えるので、
+ * 次の操作の頭が少しだけのぞくようにしてある
+ */
+const BOTTOM_KEEP = 76
 /**
  * 1本目の指が着いてから、これだけの間に2本目が来たら
  * 「はじめから2本で広げるつもりだった」とみなす（ミリ秒）
@@ -122,11 +130,23 @@ export function CornerPicker({ bitmap, imageWidth, imageHeight, quad, mode, onCh
   const [grab, setGrab] = useState<Grab | null>(null)
   const [zoom, setZoom] = useState<Zoom>({ z: 1, ox: 0, oy: 0 })
   /**
-   * 端末の画面の高さ。窓をどこまで伸ばせるかを、ここから決める。
-   * 横向きにしたときに取り直したいので、state に置いて resize で拾う
+   * 窓を伸ばせる高さ。**寄り始めた瞬間に測って、等倍に戻るまで動かさない**。
+   *
+   * 「画面の高さの何割」と決め打ちにしていたが、依頼者から
+   * 「もっと縦長にまで伸びるのはやりすぎになりますか」と問われて考え直した。
+   * やりすぎになる境目は割合ではなく、**窓の下端が画面から出るところ**にある。
+   * 出てしまえば、見たかった下の端を見るためにまた指を動かすことになり、
+   * 伸ばした意味が消える。
+   *
+   * そこで、寄り始めたときに窓を画面の上へ送り、
+   * その下に残る高さをそのまま上限にしている。下に少しだけ残すのは、
+   * 画面がそこで終わっているように見えないようにするため。
+   * 割合で決めるより 5 割ほど大きく取れて、しかもはみ出さない。
+   *
+   * 測るのを寄り始めの一度きりにしているのは、
+   * 画面を上下させるたびに窓の高さが変わると、落ち着かないため
    */
-  const [screenH, setScreenH] = useState(() =>
-    typeof window === 'undefined' ? 800 : window.innerHeight)
+  const [room, setRoom] = useState(0)
   /** いま触れている指（pointerId → 画面の座標）。2本になったら広げ縮めに切り替える */
   const pointers = useRef(new Map<number, Point>())
   /** 広げ始めたときの、指の間の長さ・まん中・そのときの見せ方 */
@@ -146,7 +166,8 @@ export function CornerPicker({ bitmap, imageWidth, imageHeight, quad, mode, onCh
     const observer = new ResizeObserver(([entry]) => setBoxWidth(entry.contentRect.width))
     observer.observe(el)
     setBoxWidth(el.clientWidth)
-    const onResize = () => setScreenH(window.innerHeight)
+    // 横向きにしたら高さが変わるので、測り直させる
+    const onResize = () => setRoom(0)
     window.addEventListener('resize', onResize)
     return () => {
       observer.disconnect()
@@ -164,6 +185,7 @@ export function CornerPicker({ bitmap, imageWidth, imageHeight, quad, mode, onCh
   if (lastBitmap !== bitmap) {
     setLastBitmap(bitmap)
     setZoom({ z: 1, ox: 0, oy: 0 })
+    setRoom(0)
   }
 
   const view = boxWidth || imageWidth
@@ -188,7 +210,7 @@ export function CornerPicker({ bitmap, imageWidth, imageHeight, quad, mode, onCh
    * いまは絵の高さ（`viewHeight * z`）まで伸ばし、画面に収まるところで止める。
    * 等倍では `viewHeight` そのものなので、寄る前の見え方は何も変わらない。
    */
-  const capH = Math.max(viewHeight, Math.round(screenH * 0.58))
+  const capH = Math.max(viewHeight, room)
   const boxH = Math.min(capH, viewHeight * zoom.z)
   /** 写真の px → 画面の px（いまの倍率で） */
   const s = k * zoom.z
@@ -198,6 +220,27 @@ export function CornerPicker({ bitmap, imageWidth, imageHeight, quad, mode, onCh
   /** その倍率のときの窓の高さ。止め位置は「これから変える倍率」で見る必要がある */
   const boxHOf = (z: number) => Math.min(capH, viewHeight * z)
 
+  /**
+   * 寄り始めたら、窓を画面の上へ送って、その下に残る高さを上限として覚える。
+   * 等倍に戻ったら忘れる（次に寄ったときに測り直す）
+   */
+  const measureRoom = () => {
+    if (room > 0) return
+    setRoom(Math.max(0, window.innerHeight - TOP_GAP - BOTTOM_KEEP))
+  }
+
+  /*
+    窓を画面の上へ送る。**伸びたあと**でないと送れない——
+    伸びる前のページはまだ短いので、送りたいところまで巻けない
+    （先に送ろうとしたら、45px しか動かず下端が画面から出た）。
+    高さが決まってから動かすので、ここは描き終わったあとに置く
+  */
+  useLayoutEffect(() => {
+    const el = wrapRef.current
+    if (!el || room === 0) return
+    const top = el.getBoundingClientRect().top + window.scrollY
+    window.scrollTo({ top: Math.max(0, top - TOP_GAP), behavior: 'smooth' })
+  }, [room])
   /** 倍率とずれを、行きすぎないところまで戻す */
   const fit = (next: Zoom): Zoom => {
     const z = Math.min(Math.max(next.z, 1), MAX_ZOOM)
@@ -279,7 +322,10 @@ export function CornerPicker({ bitmap, imageWidth, imageHeight, quad, mode, onCh
     e.currentTarget.setPointerCapture(e.pointerId)
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
     if (pointers.current.size >= 2) {
-      if (pointers.current.size === 2) startPinch(e.timeStamp)
+      if (pointers.current.size === 2) {
+        measureRoom()
+        startPinch(e.timeStamp)
+      }
       return
     }
 
@@ -398,6 +444,8 @@ export function CornerPicker({ bitmap, imageWidth, imageHeight, quad, mode, onCh
     pointers.current.delete(e.pointerId)
     if (pointers.current.size === 0) began.current = null
     if (pointers.current.size < 2) pinch.current = null
+    // 指が離れて等倍に戻っていたら忘れる。次に寄るときに、そのときの画面で測り直す
+    if (pointers.current.size === 0 && zoom.z <= 1) setRoom(0)
     setGrab(null)
   }
 
@@ -412,6 +460,10 @@ export function CornerPicker({ bitmap, imageWidth, imageHeight, quad, mode, onCh
     const onWheel = (e: WheelEvent) => {
       if (!e.ctrlKey) return
       e.preventDefault()
+      // 寄せる向きのときだけ。room を見ているので、この繋ぎ直しは deps に入れてある
+      if (e.deltaY < 0 && room === 0) {
+        setRoom(Math.max(0, window.innerHeight - TOP_GAP - BOTTOM_KEEP))
+      }
       const rect = el.getBoundingClientRect()
       const atX = e.clientX - rect.left
       const atY = e.clientY - rect.top
@@ -427,7 +479,7 @@ export function CornerPicker({ bitmap, imageWidth, imageHeight, quad, mode, onCh
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [view, viewHeight, capH])
+  }, [view, viewHeight, capH, room])
 
   const path = quad.map((p, i) => `${i === 0 ? 'M' : 'L'}${X(p.x)},${Y(p.y)}`).join(' ') + ' Z'
   const grabbedCorner = grab?.kind === 'corner' ? grab.index : -1
@@ -506,7 +558,7 @@ export function CornerPicker({ bitmap, imageWidth, imageHeight, quad, mode, onCh
       {zoom.z > 1 && (
         <button
           type="button"
-          onClick={() => setZoom({ z: 1, ox: 0, oy: 0 })}
+          onClick={() => { setZoom({ z: 1, ox: 0, oy: 0 }); setRoom(0) }}
           className="tnum absolute right-2 top-2 rounded-lg border border-ink-100 bg-white/90 px-2.5 py-1.5 text-xs font-bold text-ink-700"
         >
           {zoom.z.toFixed(1)}倍 ／ ぜんぶ見る
