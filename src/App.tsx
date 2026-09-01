@@ -35,7 +35,7 @@ import { applyWarp, isWarped, NO_WARP, type Keystone } from './lib/warp'
   もとは生地幅と差し込みが「縫い代」の中に、折り方が「並べる」の上にあった。
   生地についての判断だけを1画面に集めてある
 */
-type Step = 'photo' | 'ruler' | 'result' | 'parts' | 'fabric' | 'layout'
+type Step = 'photo' | 'ruler' | 'parts' | 'fabric' | 'layout'
 
 const RULER_KEY = 'yojaku.ruler'
 
@@ -448,7 +448,6 @@ export function App() {
       } else {
         setResult(out)
         setExcluded(new Set())
-        setStep('result')
       }
       setBusy(false)
     }, 30)
@@ -495,6 +494,8 @@ export function App() {
     })
     setKept(replace ? added.map((p) => p.id) : [...kept, ...added.map((p) => p.id)])
     setAskAgain(false)
+    // 確認の状態から出る。定規の画面は「四隅を合わせる」ほうに戻っている
+    setResult(null)
     setStep('parts')
   }
 
@@ -589,7 +590,6 @@ export function App() {
     switch (to) {
       case 'photo': return true
       case 'ruler': return !!(image && quad)
-      case 'result': return !!(image && result)
       case 'parts': return parts.parts.length > 0
       case 'fabric': return parts.parts.length > 0
       case 'layout': return parts.parts.length > 0
@@ -612,11 +612,11 @@ export function App() {
           <h1 className="text-base font-bold tracking-wide text-ink-900">要尺シミュレーター</h1>
           <span className="text-xs text-ink-300">
             {step === 'fabric' || step === 'layout'
-              ? '第4段階：生地を決めて、上に並べる'
+              ? '第3段階：生地を決めて、上に並べる'
               : step === 'parts'
                 ? seamIncluded
-                  ? '第2段階：取り込んで、わの辺を決める'
-                  : '第2・3段階：取り込んで、縫い代を付ける'
+                  ? '第2段階：わの辺を決める'
+                  : '第2段階：縫い代を付ける'
                 : '第1段階：実寸をつかむ'}
           </span>
         </div>
@@ -1061,7 +1061,23 @@ export function App() {
           </section>
         )}
 
-        {step === 'ruler' && image && quad && (
+        {/*
+          「定規」の画面には状態が2つある（依頼者の指示・2026-09-01）。
+
+            まだ計算していない … 四隅を合わせる（この節）
+            計算したあと     … 見つかった形を確かめて取り込む（次の節）
+
+          もとは後者が「実寸」という別の段階だった。段階が多いという指摘を受けて
+          畳んだのだが、**畳む先は「縫い代」ではなく、ここ**である。
+          一度は縫い代の画面へ畳んで失敗している——
+          「よりわかりづらくなりました。縫い代をつけるパートということが
+            全然伝わらないですね」。段階名から「縫い代」の語が消えたためだった。
+
+          ここなら、その失敗は起きない。定規の画面はもともと同じ写真を
+          出しているので、四隅を合わせて「実寸に直す」を押したら、
+          その場に輪郭が重なるだけ。**縫い代の画面には何も足していない**
+        */}
+        {step === 'ruler' && image && quad && !shown && (
           <section className="flex flex-col gap-5">
             {/*
               こちらで四隅を当てられたときは、頼むことが変わる（依頼者の質問・2026-09-01）。
@@ -1200,7 +1216,7 @@ export function App() {
           </section>
         )}
 
-        {step === 'result' && image && shown && (
+        {step === 'ruler' && image && shown && (
           <section className="flex flex-col gap-5">
             <ResultView
               bitmap={image.bitmap}
@@ -1348,7 +1364,7 @@ export function App() {
             <div className="flex gap-3">
               <button
                 type="button"
-                onClick={() => { setAskAgain(false); setStep('ruler') }}
+                onClick={() => { setAskAgain(false); setResult(null) }}
                 className="flex flex-1 items-center justify-center gap-2 rounded-xl border-2 border-mat-500 px-5 py-4 text-base font-bold text-mat-700"
               >
                 <Icon name="ruler" className="h-5 w-5 shrink-0" />
@@ -1414,7 +1430,6 @@ export function App() {
 const STEPS: Array<{ id: Step; label: string; icon: IconName }> = [
   { id: 'photo', label: '撮る', icon: 'camera' },
   { id: 'ruler', label: '定規', icon: 'ruler' },
-  { id: 'result', label: '実寸', icon: 'measure' },
   { id: 'parts', label: '縫い代', icon: 'seam' },
   { id: 'fabric', label: '生地', icon: 'cloth' },
   { id: 'layout', label: '並べる', icon: 'layout' },
