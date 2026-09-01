@@ -1,8 +1,9 @@
 /**
  * ゆがみを手で直す画面（依頼者の相談・2026-09-01）。
  *
- * 型紙の**四つ角**をつまんで引くと、形ぜんぶがそれに合わせてゆがむ。
- * なぜ四つ角なのか、なぜ任意の点ではないのかは
+ * つまみ2本——**上下のゆがみ**と**左右のゆがみ**——で台形に直す。
+ * プロジェクターの台形補正と同じ考えかたで、
+ * なぜ四つ角をつまむやり方をやめたのかは
  * [src/lib/warp.ts](../lib/warp.ts) の頭に書いてある。
  *
  * ここが「実寸」の画面にあるのは、
@@ -14,25 +15,41 @@
  * ゆがみの本当の直し場所は定規の四隅で、そちらを直せば全部いっぺんに直る。
  * だから入口は小さく、ふだんは畳んである。
  *
- * 引いている最中の寸法は、図の**下の帯**に出す
- * （図の中に数字を置かない、という約束事のとおり）。
- * 引く目当ては「実物を測った寸法と合わせる」ことなので、
- * この数字が出ていないと、そもそも何を目指して引けばよいのか分からない。
+ * ## うすいマス目
+ *
+ * 依頼者の指摘（2026-09-01）——
+ *
+ *   「背景に基準となるマス目がうっすらあると補正しやすいように感じました」
+ *
+ * そのとおりだった。ゆがみは**それ自体では見えない**。
+ * 「まっすぐ」がとなりに無いと、脇線が傾いているのか、
+ * もともとそういう形なのかが分からない。
+ * マス目は絵の飾りではなく、**曲がっていないことが分かっている唯一の線**として置いてある。
+ * だから型紙といっしょにゆがませてはいけない——マス目はいつでもまっすぐのまま。
+ *
+ * 5cm ごとなので、目分量の物差しにもなる。
+ * ただし「5cm ごと」と書くのは図の中ではなく下の帯（図の中に文字を置かない約束）。
+ *
+ * 引いている最中の寸法も、同じ帯に出す。
+ * 直す目当ては「実物を測った寸法と合わせる」ことなので、
+ * この数字が出ていないと、そもそも何を目指して動かせばよいのか分からない。
  */
 
-import { useMemo, useRef, useState, type PointerEvent } from 'react'
-import { bounds, dist, type Quad } from '../lib/geom'
-import { applyHToPolygon, type Homography } from '../lib/homography'
+import { useMemo } from 'react'
+import { bounds } from '../lib/geom'
+import { applyHToPolygon } from '../lib/homography'
 import type { PatternPart } from '../lib/pipeline'
-import { handlesOf, isWarped, NO_WARP, warpFromHandles, warpPart } from '../lib/warp'
+import {
+  isWarped, keystoneH, keystoneQuad, NO_WARP, warpPart, WARP_MAX, type Keystone,
+} from '../lib/warp'
 import { Icon } from './Icon'
 
 type Props = {
-  /** 持ち手を出す型紙。直す前の形（`result` のほう） */
+  /** つまみを当てる型紙。直す前の形（`result` のほう） */
   part: PatternPart
-  /** 直す前の寸法。帯に「もと → いま」で出す */
-  H: Homography
-  onChange: (H: Homography) => void
+  /** いまの直し */
+  warp: Keystone
+  onChange: (warp: Keystone) => void
   /** 何枚めか／全部で何枚か。切り替えの矢印に使う */
   index: number
   count: number
@@ -43,34 +60,58 @@ type Props = {
   onClose: () => void
 }
 
-/** 持ち手の大きさ（図の短いほうに対する割合） */
-const HANDLE = 0.055
+/** うすいマス目の間隔（mm） */
+const GRID_MM = 50
+
+/** つまみの目盛りの細かさ。ふり幅を 80 段に割る */
+const STEPS = 80
 
 const cm = (mm: number) => (mm / 10).toFixed(1)
 
-export function WarpEditor({
-  part, H, onChange, index, count, onIndex, all, onAll, onClose,
-}: Props) {
-  const svgRef = useRef<SVGSVGElement>(null)
-  const [grab, setGrab] = useState<number | null>(null)
+const path = (poly: { x: number; y: number }[]) =>
+  poly.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ') + ' Z'
 
-  /** いまの持ち手（＝外接四角を、いまの直しに通したもの） */
-  const quad = handlesOf(H, part.widthMm, part.heightMm)
+/**
+ * つまみの両端に置く、台形の小さな絵。
+ * どちらへ動かすとどうなるのかを、言葉ではなく形で見せる
+ */
+function Trapezoid({ narrow }: { narrow: 'top' | 'bottom' | 'left' | 'right' }) {
+  const points = {
+    top: '5,3 11,3 15,13 1,13',
+    bottom: '1,3 15,3 11,13 5,13',
+    left: '3,5 13,1 13,15 3,11',
+    right: '3,1 13,5 13,11 3,15',
+  }[narrow]
+  return (
+    <svg viewBox="0 0 16 16" className="h-4 w-4 shrink-0" aria-hidden="true">
+      <polygon points={points} fill="none" stroke="#9aa69e" strokeWidth="1.4"
+        strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+export function WarpEditor({
+  part, warp, onChange, index, count, onIndex, all, onAll, onClose,
+}: Props) {
   /*
     絵に描くのは、**寄せ直す前**の形。
     `warpPart` は左上を原点へ寄せ直すが、寄せる量は形の外まわりから出しているので、
-    持ち手（外接四角を通したもの）の寄せる量とは一致しない。
+    外接四角を通したもののほうとは一致しない。
     絵の中では両方を同じ座標で描き、寄せ直しは数字を出すときだけにする
   */
-  const line = useMemo(
-    () => applyHToPolygon(H, part.outlineMm) ?? part.outlineMm, [H, part],
+  const line = useMemo(() => {
+    const H = keystoneH(part.widthMm, part.heightMm, warp)
+    return (H && applyHToPolygon(H, part.outlineMm)) ?? part.outlineMm
+  }, [warp, part])
+  const quad = useMemo(
+    () => keystoneQuad(part.widthMm, part.heightMm, warp), [warp, part],
   )
   /** 直したあとの寸法。帯に出すためだけに使う */
-  const size = useMemo(() => warpPart(H, part) ?? part, [H, part])
+  const size = useMemo(() => warpPart(warp, part) ?? part, [warp, part])
 
   const view = useMemo(() => {
-    const b = bounds(quad ? [...line, ...quad] : line)
-    const pad = Math.max(b.maxX - b.minX, b.maxY - b.minY) * 0.16 + 10
+    const b = bounds([...line, ...quad])
+    const pad = Math.max(b.maxX - b.minX, b.maxY - b.minY) * 0.14 + 10
     return {
       x: b.minX - pad, y: b.minY - pad,
       w: b.maxX - b.minX + pad * 2, h: b.maxY - b.minY + pad * 2,
@@ -78,53 +119,48 @@ export function WarpEditor({
     }
   }, [line, quad])
 
-  /**
-   * 画面の指の位置を、図の中の座標（mm）に直す。
-   *
-   * 枠の左上からの割合で割り算してはいけない。
-   * 図には高さの上限があるので、縦長の型紙では**絵が枠の中で横に寄せて置かれる**。
-   * 割合で割ると、その余白のぶんだけ指の位置がずれる
-   * （四つ角をつまんでも、どの角にも届かなかった）。
-   * ブラウザが実際に使っている変換（`getScreenCTM`）で戻せば、
-   * 余白があっても寄せて置かれていても、そのまま合う
-   */
-  const atSvg = (e: PointerEvent) => {
-    const svg = svgRef.current
-    const m = svg?.getScreenCTM()
-    if (!m) return null
-    const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(m.inverse())
-    return { x: p.x, y: p.y }
-  }
+  /*
+    マス目は、型紙といっしょにゆがませない。
+    まっすぐだと分かっている線が1組あるからこそ、ゆがみが見える
+  */
+  const grid = useMemo(() => {
+    const at = (from: number, to: number) => {
+      const out: number[] = []
+      for (let v = Math.ceil(from / GRID_MM) * GRID_MM; v <= to; v += GRID_MM) out.push(v)
+      return out
+    }
+    return {
+      xs: at(view.x, view.x + view.w),
+      ys: at(view.y, view.y + view.h),
+    }
+  }, [view])
 
-  const down = (e: PointerEvent) => {
-    const p = atSvg(e)
-    if (!p || !quad) return
-    let near = -1
-    let best = view.unit * 0.18
-    quad.forEach((q, i) => {
-      const d = dist(q, p)
-      if (d < best) { best = d; near = i }
-    })
-    if (near < 0) return
-    e.stopPropagation()
-    try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* 合成の指では投げる */ }
-    setGrab(near)
-  }
+  const warped = isWarped(warp)
+  const hair = view.w * 0.0022
 
-  const move = (e: PointerEvent) => {
-    if (grab === null || !quad) return
-    const p = atSvg(e)
-    if (!p) return
-    const next = quad.map((q, i) => (i === grab ? p : q)) as Quad
-    const H2 = warpFromHandles(part.widthMm, part.heightMm, next)
-    // つぶれる引き方（角を裏返す等）は、計算が立たないので黙って見送る
-    if (H2 && warpPart(H2, part)) onChange(H2)
-  }
-
-  const up = () => setGrab(null)
-
-  const warped = isWarped(H)
-  const hs = view.unit * HANDLE
+  /** つまみ1本ぶん。値は段数（整数）でやりとりする */
+  const slider = (
+    label: string, value: number,
+    lo: 'top' | 'left', hi: 'bottom' | 'right',
+    onValue: (k: number) => void,
+  ) => (
+    <label className="flex flex-col gap-0.5">
+      <span className="px-0.5 text-xs font-bold text-ink-700">{label}</span>
+      <span className="flex items-center gap-2">
+        <Trapezoid narrow={lo} />
+        <input
+          type="range"
+          min={-STEPS / 2}
+          max={STEPS / 2}
+          step={1}
+          value={Math.round((value / WARP_MAX) * (STEPS / 2))}
+          onChange={(e) => onValue((Number(e.target.value) / (STEPS / 2)) * WARP_MAX)}
+          className="range-mid min-w-0 flex-1"
+        />
+        <Trapezoid narrow={hi} />
+      </span>
+    </label>
+  )
 
   return (
     <div className="flex flex-col gap-2.5 rounded-xl border-2 border-mat-500 bg-mat-50 p-3">
@@ -164,41 +200,39 @@ export function WarpEditor({
 
       <div className="rounded-xl bg-white">
         <svg
-          ref={svgRef}
           viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
           className="block h-auto w-full"
-          style={{ maxHeight: '22rem', touchAction: 'none' }}
-          onPointerDown={down}
-          onPointerMove={move}
-          onPointerUp={up}
-          onPointerCancel={up}
+          style={{ maxHeight: '20rem' }}
         >
+          {/*
+            型紙の地色を先に敷き、そのうえにマス目を通す。
+            マス目の下に隠れてしまうと、いちばん見たい脇線のそばで比べられない
+          */}
+          <path d={path(line)} fill="#faf8f2" stroke="none" />
+
+          {/* うすいマス目。5cm ごと、10cm ごとだけ少し濃い */}
+          {grid.xs.map((x) => (
+            <line key={`x${x}`} x1={x} y1={view.y} x2={x} y2={view.y + view.h}
+              stroke={x % (GRID_MM * 2) === 0 ? '#cdd6cd' : '#e3e8e2'} strokeWidth={hair} />
+          ))}
+          {grid.ys.map((y) => (
+            <line key={`y${y}`} x1={view.x} y1={y} x2={view.x + view.w} y2={y}
+              stroke={y % (GRID_MM * 2) === 0 ? '#cdd6cd' : '#e3e8e2'} strokeWidth={hair} />
+          ))}
+
+          {/* 台形になっている枠。型紙の輪郭が丸いときでも、傾きが読めるように */}
           <path
-            d={line.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ') + ' Z'}
-            fill="#faf8f2" stroke="#2b332d" strokeWidth={view.unit * 0.008}
+            d={path(quad)}
+            fill="none" stroke="#35664e" strokeWidth={view.unit * 0.006}
+            strokeDasharray={`${view.unit * 0.035} ${view.unit * 0.03}`}
           />
-          {quad && (
-            <>
-              <path
-                d={quad.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ') + ' Z'}
-                fill="none" stroke="#35664e" strokeWidth={view.unit * 0.008}
-                strokeDasharray={`${view.unit * 0.035} ${view.unit * 0.03}`}
-              />
-              {quad.map((p, i) => (
-                <circle
-                  key={i}
-                  cx={p.x} cy={p.y} r={grab === i ? hs * 1.25 : hs}
-                  fill="#ffffff" stroke="#35664e" strokeWidth={view.unit * 0.011}
-                />
-              ))}
-            </>
-          )}
+          <path d={path(line)} fill="none" stroke="#2b332d" strokeWidth={view.unit * 0.008} />
         </svg>
       </div>
 
       {/*
-        引いている目当ての数字。図の中には置かない（図から切り離せるように）。
-        「もと → いま」で並べるのは、どれだけ動かしたのかが分かるようにするため
+        目当ての数字と、マス目の読みかた。図の中には置かない（図から切り離せるように）。
+        「もと → いま」で並べるのは、どれだけ動いたのかが分かるようにするため
       */}
       <div className="tnum flex flex-wrap items-center gap-x-3 gap-y-1 px-0.5 text-xs text-ink-500">
         <span className="flex items-center gap-1">
@@ -211,10 +245,18 @@ export function WarpEditor({
           幅 {warped && <span className="text-ink-300">{cm(part.widthMm)} →</span>}
           <b className="text-ink-700">{cm(size.widthMm)} cm</b>
         </span>
+        <span className="text-ink-300">うすい線は {GRID_MM / 10} cm ごと</span>
+      </div>
+
+      <div className="flex flex-col gap-2 rounded-xl border border-ink-100 bg-white px-2.5 py-2">
+        {slider('上下のゆがみ', warp.ky, 'top', 'bottom',
+          (ky) => onChange({ ...warp, ky }))}
+        {slider('左右のゆがみ', warp.kx, 'left', 'right',
+          (kx) => onChange({ ...warp, kx }))}
       </div>
 
       <p className="px-0.5 text-xs leading-relaxed text-ink-500">
-        <b className="text-ink-700">四つ角をつまんで、実物を測った寸法に合うまで引きます。</b>
+        <b className="text-ink-700">脇線や裾線が、うすい線とそろうまで動かします。</b>
         <br />
         まっすぐな線は、まっすぐなまま動きます。
       </p>

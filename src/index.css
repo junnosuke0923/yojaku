@@ -57,6 +57,51 @@ body {
 input[type="range"] { accent-color: var(--color-mat-500); }
 
 /*
+  まん中が「何もしない」つまみ（ゆがみの手直し）。
+
+  ふつうのつまみは左端からつまみまでが色で埋まるので、
+  「左端が 0」に見えてしまう。ここは**まん中が 0**なので、
+  レールの色分けをやめて、代わりにまん中へ縦の目印を立ててある。
+  つまみがその目印に重なっているとき＝直していないとき
+*/
+.range-mid {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 1.5rem;
+  background: transparent;
+}
+.range-mid::-webkit-slider-runnable-track {
+  height: 16px;
+  background:
+    linear-gradient(var(--color-ink-300), var(--color-ink-300)) center / 2px 14px no-repeat,
+    linear-gradient(var(--color-ink-100), var(--color-ink-100)) center / 100% 6px no-repeat;
+}
+.range-mid::-moz-range-track {
+  height: 16px;
+  background:
+    linear-gradient(var(--color-ink-300), var(--color-ink-300)) center / 2px 14px no-repeat,
+    linear-gradient(var(--color-ink-100), var(--color-ink-100)) center / 100% 6px no-repeat;
+}
+.range-mid::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 24px;
+  height: 24px;
+  margin-top: -4px;
+  border: 3px solid #fff;
+  border-radius: 999px;
+  background: var(--color-mat-500);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.28);
+}
+.range-mid::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  border: 3px solid #fff;
+  border-radius: 999px;
+  background: var(--color-mat-500);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.28);
+}
+
+/*
   選んだ型紙の操作メニュー（依頼者の指摘・2026-08-30）。
 
   白い枠が画面の下にただ出るだけだと、出たことに気づけない。

@@ -28,8 +28,7 @@ import { findRulerQuad } from './lib/findRuler'
 import { loadSaves, removeSave, whenOf, type Save } from './lib/saves'
 import { EMPTY, load as loadParts, save as saveParts, toStored, type PartsState } from './lib/store'
 import type { Quad } from './lib/geom'
-import type { Homography } from './lib/homography'
-import { applyWarp, isWarped, NO_WARP } from './lib/warp'
+import { applyWarp, isWarped, NO_WARP, type Keystone } from './lib/warp'
 
 /*
   生地は独立した段階（依頼者の指示・2026-09-01）。
@@ -136,7 +135,7 @@ export function App() {
    * 既定は**写真ぜんぶに当てる**——ゆがみの原因（定規の枠のずれ・斜め撮り）は
    * たいてい写真に共通なので、1枚直せば残りも同じだけずれている
    */
-  const [warpH, setWarpH] = useState<Homography>(NO_WARP)
+  const [warp, setWarp] = useState<Keystone>(NO_WARP)
   /** 直しを当てる先。true なら写真ぜんぶ、false なら下の1枚だけ */
   const [warpAll, setWarpAll] = useState(true)
   /** いま持ち手を出している型紙（`smoothed.parts` の何番め） */
@@ -146,8 +145,8 @@ export function App() {
   const shown = useMemo(() => {
     if (!smoothed) return null
     const only = warpAll ? null : (smoothed.parts[warpIndex]?.id ?? null)
-    return applyWarp(smoothed, warpH, only)
-  }, [smoothed, warpH, warpAll, warpIndex])
+    return applyWarp(smoothed, warp, only)
+  }, [smoothed, warp, warpAll, warpIndex])
   /**
    * 見つかったが、取り込まないことにした形の id。
    *
@@ -309,7 +308,7 @@ export function App() {
       setPerspective(!!found?.tilted)
       setResult(null)
       setKept([])
-      setWarpH(NO_WARP)
+      setWarp(NO_WARP)
       setWarpOpen(false)
       setStep('ruler')
     } catch {
@@ -1191,8 +1190,8 @@ export function App() {
             {warpOpen && smoothed && smoothed.parts[warpIndex] ? (
               <WarpEditor
                 part={smoothed.parts[warpIndex]}
-                H={warpH}
-                onChange={setWarpH}
+                warp={warp}
+                onChange={setWarp}
                 index={warpIndex}
                 count={smoothed.parts.length}
                 onIndex={setWarpIndex}
@@ -1206,10 +1205,10 @@ export function App() {
                 onClick={() => setWarpOpen(true)}
                 className="flex items-center gap-1.5 self-start text-xs font-bold text-mat-700"
               >
-                <Icon name={isWarped(warpH) ? 'back' : 'hint'} className="h-4 w-4 shrink-0" />
-                {isWarped(warpH)
+                <Icon name={isWarped(warp) ? 'back' : 'hint'} className="h-4 w-4 shrink-0" />
+                {isWarped(warp)
                   ? 'ゆがみを直してあります（もう一度開く）'
-                  : '形がゆがんで見える（四つ角で直す）'}
+                  : '形がゆがんで見える（台形で直す）'}
               </button>
             )}
 
