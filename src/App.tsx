@@ -204,6 +204,23 @@ export function App() {
   /** 取り込み直しの問いを出しているか */
   const [askAgain, setAskAgain] = useState(false)
   /**
+   * まだ通していない写真（依頼者の指示・2026-09-01）。
+   *
+   * 型紙を1枚の写真に収める必要はない。何枚に分けて撮ってもよく、
+   * **換算率は写真ごとに読み直す**ので、近くで撮った1枚と
+   * 遠くから撮った1枚が混ざっていても構わない。
+   * それまでは1枚ずつ「撮り足す」で往復してもらっていたが、
+   * 選ぶところで何枚もまとめて渡せるようにした。
+   *
+   * ただし**「測る」の画面だけは、写真の数だけ通ってもらう**。
+   * 定規の四隅は、こちらが当てた枠を人が承認する場所なので、
+   * ここを飛ばすと数字の裏づけが無くなる。
+   * 省けたのは「撮る画面へ戻って、次の1枚を選び直す」往復のほうである
+   */
+  const [queue, setQueue] = useState<File[]>([])
+  /** 何枚まとめて渡されたか。0 なら行列を組んでいない */
+  const [queueTotal, setQueueTotal] = useState(0)
+  /**
    * 「はじめから」を押したあと、本当に消してよいかを聞いている最中か。
    *
    * 取り込んだものは端末の中に残るので、閉じても次に開いたとき続きから触れる。
@@ -339,6 +356,52 @@ export function App() {
     }
   }
 
+  /** いま何枚目か（1から数える）。行列を組んでいなければ 0 */
+  const queueNo = queueTotal > 0 ? queueTotal - queue.length : 0
+
+  /**
+   * 選ばれた写真を受け取る。1枚なら今までどおり、何枚もなら行列にする。
+   *
+   * `value` を空にしているのは、**同じ写真をもう一度選べるようにする**ため。
+   * これをしないと、撮り足すで戻ってさっきと同じ1枚を選んでも、
+   * 値が変わらないので何も起きない（実機で気づきにくい）
+   */
+  const pickFiles = (input: HTMLInputElement) => {
+    const list = Array.from(input.files ?? [])
+    input.value = ''
+    const [head, ...rest] = list
+    if (!head) return
+    setQueue(rest)
+    setQueueTotal(rest.length > 0 ? list.length : 0)
+    void pickFile(head)
+  }
+
+  /**
+   * 行列の次の1枚へ。もう無ければ縫い代の画面へ送る。
+   * 取り込んだあとと、「この写真は使わない」を押したときの、両方から来る
+   */
+  const nextPhoto = (imported = false) => {
+    const [head, ...rest] = queue
+    setAskAgain(false)
+    setResult(null)
+    if (!head) {
+      setQueue([])
+      setQueueTotal(0)
+      /*
+        1枚も取り込まないまま終わったなら、縫い代の画面には何も無い。撮るところへ戻す。
+
+        `imported` をわざわざ受け取っているのは、取り込んだ直後に
+        `parts.parts.length` を見ても**まだ増えていない**ため。
+        `updateParts` はこの描画では反映されないので、
+        「いま入れた」ことは呼ぶ側から教えてもらうしかない
+      */
+      setStep(imported || parts.parts.length > 0 ? 'parts' : 'photo')
+      return
+    }
+    setQueue(rest)
+    void pickFile(head)
+  }
+
   const guess = useMemo(
     () => {
       // こちらで当てたときは、台形ではなく、均した長方形で見分ける
@@ -460,6 +523,8 @@ export function App() {
     setStep('photo')
     setResult(null)
     setExcluded(new Set())
+    setQueue([])
+    setQueueTotal(0)
   }
 
   /**
@@ -493,10 +558,9 @@ export function App() {
         : parts.placements,
     })
     setKept(replace ? added.map((p) => p.id) : [...kept, ...added.map((p) => p.id)])
-    setAskAgain(false)
-    // 確認の状態から出る。定規の画面は「四隅を合わせる」ほうに戻っている
-    setResult(null)
-    setStep('parts')
+    // 確認の状態から出る。定規の画面は「四隅を合わせる」ほうに戻っている。
+    // 行列を組んでいれば、そのまま次の1枚の「測る」画面へ続く
+    nextPhoto(true)
   }
 
   /**
@@ -572,6 +636,8 @@ export function App() {
     setQuadAdjusted(false)
     setError(null)
     setStep('photo')
+    setQueue([])
+    setQueueTotal(0)
   }
 
   /**
@@ -920,6 +986,8 @@ export function App() {
                   写真の実寸も地の目の向きも、この定規1本から決めています。
                   1本あれば写っているパーツは全部測れます。
                   地の目の向きが違うものが混ざっていると斜めに読まれるので、分けて撮ってください。
+                  型紙を1枚の写真に収める必要はありません。何枚に分けても構いませんし、
+                  「写真を選ぶ」ならまとめて選べます。写真ごとに定規を1本ずつ入れてください。
                 </Hint>
               </div>
             </div>
@@ -930,14 +998,19 @@ export function App() {
               accept="image/*"
               capture="environment"
               className="hidden"
-              onChange={(e) => pickFile(e.target.files?.[0])}
+              onChange={(e) => pickFiles(e.target)}
             />
+            {/*
+              **選ぶほうだけ multiple**。カメラは1枚ずつ撮るものなので付けない。
+              何枚も撮ってから選ぶなら、こちらの口から入れてもらう
+            */}
             <input
               ref={galleryRef}
               type="file"
               accept="image/*"
+              multiple
               className="hidden"
-              onChange={(e) => pickFile(e.target.files?.[0])}
+              onChange={(e) => pickFiles(e.target)}
             />
 
             <button
@@ -955,7 +1028,7 @@ export function App() {
               className="flex items-center justify-center gap-2 rounded-xl border-2 border-mat-500 px-5 py-4 text-base font-bold text-mat-700"
             >
               <Icon name="photo" className="h-5 w-5 shrink-0" />
-              写真を選ぶ
+              写真を選ぶ（何枚でも）
             </button>
 
             {parts.parts.length > 0 && (
@@ -1091,6 +1164,7 @@ export function App() {
         */}
         {step === 'ruler' && image && quad && !shown && (
           <section className="flex flex-col gap-5">
+            <QueueBar no={queueNo} total={queueTotal} onSkip={() => nextPhoto()} />
             {/*
               こちらで四隅を当てられたときは、頼むことが変わる（依頼者の質問・2026-09-01）。
               「合わせてください」のままだと、もう合っている枠を
@@ -1230,6 +1304,7 @@ export function App() {
 
         {step === 'ruler' && image && shown && (
           <section className="flex flex-col gap-5">
+            <QueueBar no={queueNo} total={queueTotal} onSkip={() => nextPhoto()} />
             <ResultView
               bitmap={image.bitmap}
               result={shown}
@@ -1369,9 +1444,11 @@ export function App() {
               className="flex items-center justify-center gap-2 rounded-xl bg-mat-500 px-5 py-4 text-base font-bold text-white active:bg-mat-600 disabled:opacity-50"
             >
               <Icon name="part" className="h-5 w-5 shrink-0" />
-              {chosenCount === shown.parts.length
-                ? `このパーツを取り込む（${chosenCount}）`
-                : `選んだ ${chosenCount} 個を取り込む`}
+              {queue.length > 0
+                ? `取り込んで、次の写真へ（${chosenCount}）`
+                : chosenCount === shown.parts.length
+                  ? `このパーツを取り込む（${chosenCount}）`
+                  : `選んだ ${chosenCount} 個を取り込む`}
             </button>
             <div className="flex gap-3">
               <button
@@ -1430,6 +1507,37 @@ export function App() {
       <footer className="safe-b px-4 pt-1 text-center text-[10px] tracking-wide text-ink-300">
         制作：Junnosuke Kato
       </footer>
+    </div>
+  )
+}
+
+/**
+ * 何枚目を測っているかの帯（依頼者の指示・2026-09-01）。
+ * 写真をまとめて渡したときだけ出る。1枚だけなら何も出ない。
+ *
+ * 「この写真は使わない」を添えてあるのは、**行き止まりを作らないため**。
+ * 定規が写っていない1枚や、何も見つからなかった1枚が混ざっていても、
+ * そこで止まらずに次へ行ける。最後の1枚で押せば、そのまま縫い代の画面へ出る
+ */
+function QueueBar({ no, total, onSkip }: {
+  no: number
+  total: number
+  onSkip: () => void
+}) {
+  if (total < 2) return null
+  return (
+    <div className="flex items-center gap-2.5 rounded-xl border border-mat-300 bg-mat-50 px-3 py-2">
+      <Icon name="photo" className="h-4 w-4 shrink-0 text-mat-600" />
+      <span className="tnum min-w-0 flex-1 text-sm font-bold text-mat-700">
+        {total} 枚のうち {no} 枚目
+      </span>
+      <button
+        type="button"
+        onClick={onSkip}
+        className="shrink-0 rounded-lg border border-mat-300 px-2.5 py-1 text-xs font-bold text-mat-700 active:bg-mat-100"
+      >
+        この写真は使わない
+      </button>
     </div>
   )
 }
