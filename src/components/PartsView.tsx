@@ -6,7 +6,7 @@
  * 名前は付けなくても計算は進む。
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { PlacedPart } from '../lib/fabric'
 import { bounds } from '../lib/geom'
 import {
@@ -27,8 +27,6 @@ type Props = {
 }
 
 export function PartsView({ state, onChange, onAddMore, onLayout }: Props) {
-  const [editing, setEditing] = useState<string | null>(null)
-
   /*
     後で裁つぶんの余白は、ここには出さない。
     写真から取り込んだものではないし、縫い代も枚数も無い。
@@ -36,117 +34,36 @@ export function PartsView({ state, onChange, onAddMore, onLayout }: Props) {
   */
   const patterns = state.parts.filter((p) => !isReserve(p))
 
+  /**
+   * いま開いている型紙。**はじめから1つ目が開いている**（依頼者の指示・2026-09-01）。
+   *
+   * もとは一覧と編集画面が別々で、カードを押して中に入る作りだった。
+   * 依頼者の指摘——「一度そのパートをタップしないと縫い代付けの中に
+   * 入っていけないんですけれども、これがもしかしたら分かりづらいのかも」。
+   *
+   * はじめは矢じりを付けて**入口を見えるように**しただけだったが、
+   * それでも「入る」という動作そのものは残っていた。
+   * そこで入るのをやめ、**その場で開く**ことにした。
+   * 画面を開いた瞬間に縫い代のパネルが目に入るので、
+   * ここが何をするところなのかが、字ではなく絵で分かる。
+   *
+   * 全部を開いたままにはしない。パネル1つで縦 736px あり（実測）、
+   * 3つ並べれば 2100px を超えて、一覧としては読めなくなる。
+   * 開くのは1つだけで、ほかは畳んだ行のまま置く。
+   * もう一度押せば閉じられるので、多いときは全部畳んで見渡せる。
+   *
+   * この画面に入り直すたびに1つ目から開く。
+   * 「撮り足す」で戻ってきたときも同じで、
+   * どこを開いていたかを覚えているより、いつも同じ形で始まるほうが迷わない
+   */
+  const [openId, setOpenId] = useState<string | null>(() => patterns[0]?.id ?? null)
+
   const patch = (id: string, over: Partial<StoredPart>) =>
     onChange({ ...state, parts: state.parts.map((p) => (p.id === id ? { ...p, ...over } : p)) })
 
   /** まるごと差しかえる。まわしたときのように、いくつもの値が同時に変わるとき */
   const replace = (next: StoredPart) =>
     onChange({ ...state, parts: state.parts.map((p) => (p.id === next.id ? next : p)) })
-
-  const part = state.parts.find((p) => p.id === editing)
-  /** 縫い代の画面で、隣の型紙へ移るための前後 */
-  const at = state.parts.findIndex((p) => p.id === editing)
-  const prev = at > 0 ? state.parts[at - 1] : null
-  const next = at >= 0 && at < state.parts.length - 1 ? state.parts[at + 1] : null
-
-  if (part) {
-    return (
-      <section className="flex flex-col gap-2.5">
-        <Tour id="seam" />
-        {/*
-          1画面に収めたいので、戻る・名前・隣の型紙への送りを1段にまとめてある
-          （依頼者の指示・2026-08-27）。送りは右上。
-        */}
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setEditing(null)}
-            aria-label="パーツの一覧へ"
-            className="flex h-9 w-8 shrink-0 items-center justify-center text-mat-700"
-          >
-            <Icon name="back" className="h-5 w-5 shrink-0" />
-          </button>
-          <Icon
-            name={part.seamIncluded ? 'scissors' : 'seam'}
-            className="h-5 w-5 shrink-0 text-mat-600"
-          />
-          <h2 className="truncate text-base font-bold text-ink-900">{part.name}</h2>
-          <span className="tnum shrink-0 text-xs text-ink-300">
-            {(part.widthMm / 10).toFixed(1)} × {(part.heightMm / 10).toFixed(1)}
-          </span>
-
-          <div
-            data-tour="seam-next"
-            className="ml-auto flex shrink-0 overflow-hidden rounded-lg border border-ink-100 bg-white"
-          >
-            <button
-              type="button"
-              onClick={() => prev && setEditing(prev.id)}
-              disabled={!prev}
-              aria-label={prev ? `前の型紙：${prev.name}` : '前の型紙はありません'}
-              className="flex h-9 w-10 items-center justify-center text-ink-700 active:bg-chalk disabled:text-ink-100"
-            >
-              <Icon name="back" className="h-4 w-4 shrink-0" />
-            </button>
-            {next ? (
-              <button
-                type="button"
-                onClick={() => setEditing(next.id)}
-                aria-label={`次の型紙：${next.name}`}
-                className="flex h-9 w-10 items-center justify-center border-l border-ink-100 text-ink-700 active:bg-chalk"
-              >
-                <Icon name="back" className="h-4 w-4 shrink-0 rotate-180" />
-              </button>
-            ) : (
-              /* 最後の1枚まで来たら、そのまま並べるところへ進める */
-              <button
-                type="button"
-                onClick={onLayout}
-                aria-label="生地に並べる"
-                className="flex h-9 w-10 items-center justify-center border-l border-ink-100 bg-mat-500 text-white active:bg-mat-600"
-              >
-                <Icon name="layout" className="h-4 w-4 shrink-0" />
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/*
-          説明はひと言だけ。続きは「？」の中（依頼者の指示・2026-08-27）。
-          絵は「？」の印そのものにしてある。この画面には縫い代の絵が
-          いくつも出るので、同じ絵を並べない（依頼者の指摘・2026-08-27）
-        */}
-        {part.seamIncluded ? (
-          <Hint icon="fold" summary={<>辺を押して、<b className="text-seam">わ</b>の辺だけ選びます</>}>
-            この型紙にはもう縫い代が付いているので、足す量は聞きません。
-            折り山に当てる辺だけ教えてください。
-          </Hint>
-        ) : (
-          <Hint summary={<>辺を押して、<b className="text-ink-700">縫い代</b>を決めます</>}>
-            型紙は出来上がり線で切ってあるので、ここで縫い代を足します。
-            足したぶんだけが青で出ます。縫い代 0 は「ここは折り山（わ）」の意味です。
-          </Hint>
-        )}
-
-        <SeamEditor
-          plan={planOf(part)}
-          hasNap={state.hasNap}
-          name={part.name}
-          seamIncluded={part.seamIncluded}
-          turnDeg={part.turnDeg}
-          /*
-            まわすと外まわりの大きさも変わるので、`withTurn` に通して
-            幅と丈を測り直してもらう（依頼者の指示・2026-09-01）
-          */
-          onTurn={(turnDeg) => replace(withTurn(part, turnDeg))}
-          onChange={(plan) => patch(part.id, { allowancesMm: plan.allowancesMm })}
-        />
-
-        <OpenFoldOption part={part} onPatch={(over) => patch(part.id, over)} />
-
-      </section>
-    )
-  }
 
   return (
     <section className="flex flex-col gap-2.5">
@@ -185,11 +102,20 @@ export function PartsView({ state, onChange, onAddMore, onLayout }: Props) {
                 part={p}
                 first={i === 0}
                 hasNap={state.hasNap}
-                onOpen={() => setEditing(p.id)}
+                open={p.id === openId}
+                onOpen={() => setOpenId(p.id === openId ? null : p.id)}
                 onPatch={(over) => patch(p.id, over)}
                 onRemove={() =>
                   onChange({ ...state, parts: state.parts.filter((x) => x.id !== p.id) })
                 }
+                body={p.id === openId ? (
+                  <SeamBody
+                    part={p}
+                    hasNap={state.hasNap}
+                    onPatch={(over) => patch(p.id, over)}
+                    onReplace={replace}
+                  />
+                ) : null}
               />
             ))}
           </ul>
@@ -386,17 +312,90 @@ function OpenedPreview({ placed }: { placed: PlacedPart }) {
   )
 }
 
+/**
+ * 開いているカードの中身。辺を押して、その辺の縫い代を決めるところ。
+ *
+ * もとは画面ごと切りかわる作りで、ここに戻る・名前・前後の型紙への送りが
+ * 並んでいた。カードの中に置いたので、そのどれも要らなくなった——
+ * 名前と大きさはカードの頭にもう出ているし、
+ * 隣の型紙へは、その行を押せば開く
+ */
+function SeamBody({ part, hasNap, onPatch, onReplace }: {
+  part: StoredPart
+  hasNap: boolean
+  onPatch: (over: Partial<StoredPart>) => void
+  onReplace: (next: StoredPart) => void
+}) {
+  return (
+    <div className="flex flex-col gap-2.5">
+      <Tour id="seam" />
+
+      {/*
+        説明はひと言だけ。続きは「？」の中（依頼者の指示・2026-08-27）。
+        絵は「？」の印そのものにしてある。ここには縫い代の絵が
+        いくつも出るので、同じ絵を並べない（依頼者の指摘・2026-08-27）
+      */}
+      {part.seamIncluded ? (
+        <Hint icon="fold" summary={<>辺を押して、<b className="text-seam">わ</b>の辺だけ選びます</>}>
+          この型紙にはもう縫い代が付いているので、足す量は聞きません。
+          折り山に当てる辺だけ教えてください。
+        </Hint>
+      ) : (
+        <Hint summary={<>辺を押して、<b className="text-ink-700">縫い代</b>を決めます</>}>
+          型紙は出来上がり線で切ってあるので、ここで縫い代を足します。
+          足したぶんだけが青で出ます。縫い代 0 は「ここは折り山（わ）」の意味です。
+        </Hint>
+      )}
+
+      <SeamEditor
+        plan={planOf(part)}
+        hasNap={hasNap}
+        name={part.name}
+        seamIncluded={part.seamIncluded}
+        turnDeg={part.turnDeg}
+        /*
+          まわすと外まわりの大きさも変わるので、`withTurn` に通して
+          幅と丈を測り直してもらう（依頼者の指示・2026-09-01）
+        */
+        onTurn={(turnDeg) => onReplace(withTurn(part, turnDeg))}
+        onChange={(plan) => onPatch({ allowancesMm: plan.allowancesMm })}
+      />
+
+      <OpenFoldOption part={part} onPatch={onPatch} />
+    </div>
+  )
+}
+
 function PartRow({
-  part, hasNap, first, onOpen, onPatch, onRemove,
+  part, hasNap, first, open, body, onOpen, onPatch, onRemove,
 }: {
   part: StoredPart
   hasNap: boolean
   /** はじめて開いたときの案内は、先頭の1行だけを指す */
   first?: boolean
+  /** いまこのカードが開いているか */
+  open: boolean
+  /** 開いているときに、カードの中に出すもの（縫い代のパネル） */
+  body: ReactNode
   onOpen: () => void
   onPatch: (over: Partial<StoredPart>) => void
   onRemove: () => void
 }) {
+  const liRef = useRef<HTMLLIElement>(null)
+  const wasOpen = useRef(open)
+
+  /*
+    別のカードを開くと、上で開いていたぶんが畳まれて中身が上へ動く。
+    押した行が画面の外へ逃げてしまうので、開いたほうを画面に呼び戻す。
+    はじめから開いている1つ目では動かさない（もう画面の上にいる）
+  */
+  useEffect(() => {
+    if (open && !wasOpen.current) {
+      liRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    }
+    wasOpen.current = open
+  }, [open])
+
   /*
     一覧に出すのは「生地の上で実際に置く形」。
     「わ」で開いて裁つ設定なら、そのぶん倍になった形でないと絵も数字も合わない
@@ -409,94 +408,110 @@ function PartRow({
 
   return (
     <li
+      ref={liRef}
       data-tour={first ? 'part-row' : undefined}
-      className="flex gap-3 rounded-xl border border-ink-100 bg-white p-3"
+      className={`flex flex-col rounded-xl border bg-white p-3 ${
+        open ? 'border-mat-500' : 'border-ink-100'
+      }`}
     >
-      <button type="button" onClick={onOpen} className="shrink-0" aria-label={`${part.name}の縫い代`}>
-        <Thumb part={part} hasNap={hasNap} placed={placed} />
-      </button>
+      <div className="flex gap-3">
+        <button type="button" onClick={onOpen} className="shrink-0" aria-label={`${part.name}の縫い代`}>
+          <Thumb part={part} hasNap={hasNap} placed={placed} />
+        </button>
 
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
-        {/* 1画面に近づけるため、行を折り返させない（依頼者の指示・2026-08-27） */}
-        <div className="flex items-center gap-1.5">
-          <select
-            value={NAME_CHOICES.includes(part.name) ? part.name : ''}
-            onChange={(e) => onPatch({ name: e.target.value || part.name })}
-            className="min-w-0 flex-1 rounded-lg border border-ink-100 px-2 py-1.5 text-sm"
-          >
-            <option value="">{part.name}</option>
-            {NAME_CHOICES.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-          <button
-            type="button"
-            onClick={onRemove}
-            className="flex h-8 w-6 shrink-0 items-center justify-center text-ink-300"
-            aria-label="このパーツを消す"
-          >
-            <Icon name="trash" className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          <Icon name="part" className="h-3.5 w-3.5 shrink-0 text-ink-300" />
-          {[1, 2, 4].map((k) => (
-            <button
-              key={k}
-              type="button"
-              onClick={() => onPatch({ needed: k })}
-              className={`tnum rounded-lg px-2.5 py-1 text-sm font-bold ${
-                part.needed === k ? 'bg-mat-500 text-white' : 'border border-ink-100 text-ink-700'
-              }`}
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          {/* 1画面に近づけるため、行を折り返させない（依頼者の指示・2026-08-27） */}
+          <div className="flex items-center gap-1.5">
+            <select
+              value={NAME_CHOICES.includes(part.name) ? part.name : ''}
+              onChange={(e) => onPatch({ name: e.target.value || part.name })}
+              className="min-w-0 flex-1 rounded-lg border border-ink-100 px-2 py-1.5 text-sm"
             >
-              {k}
+              <option value="">{part.name}</option>
+              {NAME_CHOICES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <button
+              type="button"
+              onClick={onRemove}
+              className="flex h-8 w-6 shrink-0 items-center justify-center text-ink-300"
+              aria-label="このパーツを消す"
+            >
+              <Icon name="trash" className="h-4 w-4" />
             </button>
-          ))}
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <Icon name="part" className="h-3.5 w-3.5 shrink-0 text-ink-300" />
+            {[1, 2, 4].map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => onPatch({ needed: k })}
+                className={`tnum rounded-lg px-2.5 py-1 text-sm font-bold ${
+                  part.needed === k ? 'bg-mat-500 text-white' : 'border border-ink-100 text-ink-700'
+                }`}
+              >
+                {k}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={onOpen}
+              className="tnum ml-auto flex min-w-0 items-center gap-1 truncate text-[11px] text-ink-500"
+            >
+              <Icon name="scissors" className="h-3.5 w-3.5 shrink-0" />
+              {size
+                ? `${(size.widthMm / 10).toFixed(1)} × ${(size.heightMm / 10).toFixed(1)}`
+                : '—'}
+            </button>
+          </div>
+
+          {/*
+            縫い代の画面への入口（依頼者の指摘・2026-09-01
+            「一度そのパートをタップしないと縫い代付けの中に入っていけないのが、
+              もしかしたら分かりづらいのかも」）。
+
+            もともと絵も大きさもこの行も押せば開いたのだが、
+            **押せると分かる印が何も無かった**。名前と枚数だけ決めて、
+            縫い代を一度も見ないまま次へ進めてしまう。
+
+            そこで、行き先の矢じりを付けたうえで、いまの縫い代を文字で出す。
+            既定は全辺 1cm なので、開かなくても計算自体は進む——
+            だからこそ「1.0 cm のまま」と見えていないと、
+            裾を 3cm にする、「わ」の辺を 0 にする、といった直す機会に気づけない。
+            禁じたり止めたりはせず、いまどうなっているかを言うだけにしてある
+          */}
           <button
             type="button"
             onClick={onOpen}
-            className="tnum ml-auto flex min-w-0 items-center gap-1 truncate text-[11px] text-ink-500"
+            aria-expanded={open}
+            data-tour={first ? 'seam-open' : undefined}
+            className="-mx-1 flex items-center gap-1.5 rounded-b-lg border-t border-ink-100 px-1 pt-2 pb-0.5 text-left active:bg-table"
           >
-            <Icon name="scissors" className="h-3.5 w-3.5 shrink-0" />
-            {size
-              ? `${(size.widthMm / 10).toFixed(1)} × ${(size.heightMm / 10).toFixed(1)}`
-              : '—'}
+            <Icon name="seam" className="h-3.5 w-3.5 shrink-0 text-ink-300" />
+            <span className="min-w-0 truncate text-[11px] font-bold text-ink-700">
+              縫い代を決める
+            </span>
+            {folds > 0 && (
+              <span className="flex shrink-0 items-center gap-1 text-[11px] font-bold text-seam">
+                <Icon name="fold" className="h-3.5 w-3.5 shrink-0" />
+                {opened ? 'わで開いて裁つ' : `わ ${folds}本`}
+              </span>
+            )}
+            <span className="tnum ml-auto shrink-0 text-[11px] text-ink-500">{seam}</span>
+            {/* 開いていれば下向き。「この先」ではなく「ここが開いている」を言う */}
+            <Icon
+              name="chevron"
+              className={`h-4 w-4 shrink-0 transition-transform ${
+                open ? 'rotate-90 text-mat-600' : 'text-ink-300'
+              }`}
+            />
           </button>
         </div>
-
-        {/*
-          縫い代の画面への入口（依頼者の指摘・2026-09-01
-          「一度そのパートをタップしないと縫い代付けの中に入っていけないのが、
-            もしかしたら分かりづらいのかも」）。
-
-          もともと絵も大きさもこの行も押せば開いたのだが、
-          **押せると分かる印が何も無かった**。名前と枚数だけ決めて、
-          縫い代を一度も見ないまま次へ進めてしまう。
-
-          そこで、行き先の矢じりを付けたうえで、いまの縫い代を文字で出す。
-          既定は全辺 1cm なので、開かなくても計算自体は進む——
-          だからこそ「1.0 cm のまま」と見えていないと、
-          裾を 3cm にする、「わ」の辺を 0 にする、といった直す機会に気づけない。
-          禁じたり止めたりはせず、いまどうなっているかを言うだけにしてある
-        */}
-        <button
-          type="button"
-          onClick={onOpen}
-          className="-mx-1 flex items-center gap-1.5 rounded-b-lg border-t border-ink-100 px-1 pt-2 pb-0.5 text-left active:bg-table"
-        >
-          <Icon name="seam" className="h-3.5 w-3.5 shrink-0 text-ink-300" />
-          <span className="min-w-0 truncate text-[11px] font-bold text-ink-700">
-            縫い代を決める
-          </span>
-          {folds > 0 && (
-            <span className="flex shrink-0 items-center gap-1 text-[11px] font-bold text-seam">
-              <Icon name="fold" className="h-3.5 w-3.5 shrink-0" />
-              {opened ? 'わで開いて裁つ' : `わ ${folds}本`}
-            </span>
-          )}
-          <span className="tnum ml-auto shrink-0 text-[11px] text-ink-500">{seam}</span>
-          <Icon name="chevron" className="h-4 w-4 shrink-0 text-ink-300" />
-        </button>
       </div>
+
+      {/* 開いているときだけ、縫い代のパネルがカードの中に出る */}
+      {body && <div className="pt-3">{body}</div>}
     </li>
   )
 }
