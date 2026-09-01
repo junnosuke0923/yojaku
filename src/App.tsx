@@ -876,26 +876,38 @@ export function App() {
                 askCarry ? 'hidden' : 'flex'
               }`}
             >
-              <p className="flex items-center gap-2 text-sm text-ink-500">
+              {/*
+                **これが見本であることを、先に言う**（依頼者の指示・2026-09-01）。
+                絵だけ置いておくと、もう写真が読み込まれているようにも、
+                ただの飾りにも見える。見出しで一度言い、絵の上の札でもう一度言う。
+                札を絵の中に置いているのは、絵だけを見た人にも届かせるため
+              */}
+              <p className="flex items-center gap-2 text-sm font-bold text-ink-700">
                 <Icon name="camera" className="h-4 w-4 shrink-0 text-mat-600" />
-                <span className="min-w-0 flex-1">
-                  無地で色のついた台に型紙と
-                  <span className="font-bold text-ink-700">方眼定規</span>
-                  を置いて、真上から
-                </span>
+                撮り方の見本
               </p>
-              <img
-                src={`${import.meta.env.BASE_URL}sample-photo.jpg`}
-                alt="緑の台の上に、スカートの後ろ・方眼定規・前・ベルトを、すべて縦向きにそろえて並べた見本の写真"
-                width={937}
-                height={751}
-                /*
-                  丈を抑えてあるのは、撮るボタンを画面の中に残すため。
-                  絵は横長なので、幅いっぱいに広げると縦を 280px 使ってしまい、
-                  小さい端末で「カメラで撮る」が下に押し出される
-                */
-                className="mx-auto h-[240px] w-auto rounded-lg border border-ink-100 bg-chalk"
-              />
+              <div className="relative mx-auto w-fit">
+                <img
+                  src={`${import.meta.env.BASE_URL}sample-photo.jpg`}
+                  alt="緑の台の上に、スカートの後ろ・方眼定規・前・ベルトを、すべて縦向きにそろえて並べた見本の写真"
+                  width={937}
+                  height={751}
+                  /*
+                    丈を抑えてあるのは、撮るボタンを画面の中に残すため。
+                    絵は横長なので、幅いっぱいに広げると縦を 280px 使ってしまい、
+                    小さい端末で「カメラで撮る」が下に押し出される
+                  */
+                  className="block h-[210px] w-auto rounded-lg border border-ink-100 bg-chalk"
+                />
+                <span className="absolute left-2 top-2 rounded-md bg-ink-900/75 px-1.5 py-0.5 text-[11px] font-bold text-white">
+                  見本
+                </span>
+              </div>
+              <p className="text-sm text-ink-500">
+                無地で色のついた台に型紙と
+                <span className="font-bold text-ink-700">方眼定規</span>
+                を置いて、真上から撮ってください。
+              </p>
               {/*
                 「定規は1本でいい」「地の目はそろえる」は、
                 何枚も一度に撮るときにいちばん間違えやすいところ（依頼者の質問・2026-08-26）。
@@ -1044,7 +1056,7 @@ export function App() {
                   開発用（?dev を付けて開いたときだけ出ます）
                 </p>
                 <p className="text-sm text-ink-500">
-                  見本の写真を、いま撮ったものとして読み込みます。定規から先は学生と同じ道です。
+                  見本の写真を、いま撮ったものとして読み込みます。ここから先は学生と同じ道です。
                 </p>
                 <button
                   type="button"
