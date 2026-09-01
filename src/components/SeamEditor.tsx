@@ -86,13 +86,22 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded, turnDeg
   const turning = useRef<{ from: number; base: number } | null>(null)
 
   /** 画面の位置を、図の中の位置（mm）に直す */
+  /**
+   * 画面の指の位置を、図の中の座標（mm）に直す。
+   *
+   * 枠の左上からの割合で割り算してはいけない。
+   * 図には高さの上限があるので、縦長の型紙では**絵が枠の中で横に寄せて置かれる**。
+   * 割合で割ると、その余白のぶんだけ指の位置がずれる
+   * （四つ角をつまんでも、どの角にも届かなかった）。
+   * ブラウザが実際に使っている変換（`getScreenCTM`）で戻せば、
+   * 余白があっても寄せて置かれていても、そのまま合う
+   */
   const atSvg = (e: PointerEvent) => {
-    const box = svgRef.current?.getBoundingClientRect()
-    if (!box || box.width === 0) return null
-    return {
-      x: view.x + ((e.clientX - box.left) / box.width) * view.w,
-      y: view.y + ((e.clientY - box.top) / box.height) * view.h,
-    }
+    const svg = svgRef.current
+    const m = svg?.getScreenCTM()
+    if (!m) return null
+    const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(m.inverse())
+    return { x: p.x, y: p.y }
   }
 
   /** -180 度から 180 度のあいだに直す。何周も回っても数が育たないように */

@@ -121,6 +121,12 @@ export function CornerPicker({ bitmap, imageWidth, imageHeight, quad, mode, onCh
   const [boxWidth, setBoxWidth] = useState(0)
   const [grab, setGrab] = useState<Grab | null>(null)
   const [zoom, setZoom] = useState<Zoom>({ z: 1, ox: 0, oy: 0 })
+  /**
+   * 端末の画面の高さ。窓をどこまで伸ばせるかを、ここから決める。
+   * 横向きにしたときに取り直したいので、state に置いて resize で拾う
+   */
+  const [screenH, setScreenH] = useState(() =>
+    typeof window === 'undefined' ? 800 : window.innerHeight)
   /** いま触れている指（pointerId → 画面の座標）。2本になったら広げ縮めに切り替える */
   const pointers = useRef(new Map<number, Point>())
   /** 広げ始めたときの、指の間の長さ・まん中・そのときの見せ方 */
@@ -140,7 +146,12 @@ export function CornerPicker({ bitmap, imageWidth, imageHeight, quad, mode, onCh
     const observer = new ResizeObserver(([entry]) => setBoxWidth(entry.contentRect.width))
     observer.observe(el)
     setBoxWidth(el.clientWidth)
-    return () => observer.disconnect()
+    const onResize = () => setScreenH(window.innerHeight)
+    window.addEventListener('resize', onResize)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', onResize)
+    }
   }, [])
 
   /*
@@ -158,11 +169,34 @@ export function CornerPicker({ bitmap, imageWidth, imageHeight, quad, mode, onCh
   const view = boxWidth || imageWidth
   /** 写真の px → 画面の px（等倍のとき） */
   const k = view / imageWidth
+  /** 等倍のときの写真の高さ。倍率をかければ、いま描いている絵の高さになる */
   const viewHeight = imageHeight * k
+  /**
+   * **窓の高さ。寄ったときだけ縦に伸びる**（依頼者の指摘・2026-09-01）。
+   *
+   *   「定規のセクションでは図を拡大した際に、
+   *     もっと縦長のウィンドウとして見れると定規の位置をとりやすく感じる」
+   *
+   * もとは窓の形が写真の形そのままだった。等倍ではそれで正しい——
+   * 写真をまるごと見せる必要があるので、写真の形をしているほかない。
+   * けれど**寄った時点で、写真ぜんぶはもう見えていない**。
+   * 窓が写真の形をしている理由は消えているのに、形だけ残っていた。
+   *
+   * 横長の写真だと、窓は横に広く縦に短い。定規は細長いものなので、
+   * 寄るほど両端が同時に見えなくなる。合わせたいものが窓からはみ出す。
+   *
+   * いまは絵の高さ（`viewHeight * z`）まで伸ばし、画面に収まるところで止める。
+   * 等倍では `viewHeight` そのものなので、寄る前の見え方は何も変わらない。
+   */
+  const capH = Math.max(viewHeight, Math.round(screenH * 0.58))
+  const boxH = Math.min(capH, viewHeight * zoom.z)
   /** 写真の px → 画面の px（いまの倍率で） */
   const s = k * zoom.z
   const X = (v: number) => v * s + zoom.ox
   const Y = (v: number) => v * s + zoom.oy
+
+  /** その倍率のときの窓の高さ。止め位置は「これから変える倍率」で見る必要がある */
+  const boxHOf = (z: number) => Math.min(capH, viewHeight * z)
 
   /** 倍率とずれを、行きすぎないところまで戻す */
   const fit = (next: Zoom): Zoom => {
@@ -171,7 +205,7 @@ export function CornerPicker({ bitmap, imageWidth, imageHeight, quad, mode, onCh
     return {
       z,
       ox: Math.min(0, Math.max(view * (1 - z), next.ox)),
-      oy: Math.min(0, Math.max(viewHeight * (1 - z), next.oy)),
+      oy: Math.min(0, Math.max(boxHOf(z) - viewHeight * z, next.oy)),
     }
   }
 
@@ -180,13 +214,13 @@ export function CornerPicker({ bitmap, imageWidth, imageHeight, quad, mode, onCh
     if (!canvas || !boxWidth) return
     const dpr = Math.min(window.devicePixelRatio || 1, 2)
     canvas.width = Math.round(view * dpr)
-    canvas.height = Math.round(viewHeight * dpr)
+    canvas.height = Math.round(boxH * dpr)
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    ctx.clearRect(0, 0, view, viewHeight)
+    ctx.clearRect(0, 0, view, boxH)
     ctx.drawImage(bitmap, zoom.ox, zoom.oy, view * zoom.z, viewHeight * zoom.z)
-  }, [bitmap, boxWidth, view, viewHeight, zoom])
+  }, [bitmap, boxWidth, view, viewHeight, boxH, zoom])
 
   const toImage = (clientX: number, clientY: number): Point => {
     const rect = wrapRef.current!.getBoundingClientRect()
@@ -386,13 +420,14 @@ export function CornerPicker({ bitmap, imageWidth, imageHeight, quad, mode, onCh
         return {
           z,
           ox: Math.min(0, Math.max(view * (1 - z), atX - ((atX - now.ox) / now.z) * z)),
-          oy: Math.min(0, Math.max(viewHeight * (1 - z), atY - ((atY - now.oy) / now.z) * z)),
+          oy: Math.min(0, Math.max(Math.min(capH, viewHeight * z) - viewHeight * z,
+            atY - ((atY - now.oy) / now.z) * z)),
         }
       })
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [view, viewHeight])
+  }, [view, viewHeight, capH])
 
   const path = quad.map((p, i) => `${i === 0 ? 'M' : 'L'}${X(p.x)},${Y(p.y)}`).join(' ') + ' Z'
   const grabbedCorner = grab?.kind === 'corner' ? grab.index : -1
@@ -401,13 +436,13 @@ export function CornerPicker({ bitmap, imageWidth, imageHeight, quad, mode, onCh
     <div
       ref={wrapRef}
       className="relative w-full touch-none select-none overflow-hidden rounded-xl bg-ink-100"
-      style={{ height: viewHeight || undefined }}
+      style={{ height: boxH || undefined }}
     >
-      <canvas ref={canvasRef} style={{ width: view, height: viewHeight }} className="block" />
+      <canvas ref={canvasRef} style={{ width: view, height: boxH }} className="block" />
       <svg
         className="absolute inset-0"
         width={view}
-        height={viewHeight}
+        height={boxH}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={stop}

@@ -22,6 +22,8 @@ import {
 } from '../src/lib/fabric'
 import { isSquare, outlineOf, placedPartOf, planOf, squaredTurn, toStored, withTurn } from '../src/lib/store'
 import { turnPoly } from '../src/lib/marks'
+import { applyHToPolygon } from '../src/lib/homography'
+import { handlesOf, isWarped, NO_WARP, srcRectOf, warpFromHandles, warpPart } from '../src/lib/warp'
 
 let failures = 0
 
@@ -734,5 +736,86 @@ function turnChecks() {
 
 turnChecks()
 
+
+/*
+  ゆがみの手直し（src/lib/warp.ts）。
+
+  ここで守らせたいのは「四つ角の引きは、射影変換であって、それ以上ではない」こと。
+  まっすぐな辺がまっすぐなまま残る、というのが四つ角を選んだ理由なので、
+  そこが崩れているなら、任意の点を触らせるのと変わらない。
+*/
+function warpChecks() {
+  console.log('')
+  console.log('■ ゆがみを四つ角で直す')
+
+  // 400 × 700 の長方形の、右の辺のまん中に出っぱりを付けたもの。
+  // 上下の辺はまっすぐなので、まっすぐなまま残るかを見られる
+  const poly: Point[] = [
+    { x: 0, y: 0 }, { x: 200, y: 0 }, { x: 400, y: 0 },
+    { x: 440, y: 350 }, { x: 400, y: 700 }, { x: 200, y: 700 }, { x: 0, y: 700 },
+  ]
+  const part = { id: 'a', name: 'A', outlineMm: poly, outlinePx: poly, rawPx: poly,
+    widthMm: 440, heightMm: 700, areaMm2: 0, perimeterMm: 0 }
+
+  ok('引く前は「直していない」', !isWarped(NO_WARP), '変換は素通し')
+
+  {
+    const same = warpPart(NO_WARP, part)
+    near('素通しなら大きさは変わらない (mm)', same?.widthMm ?? 0, 440, 0.01)
+  }
+
+  // 右上の角だけを外へ 60mm 引く
+  const rect = srcRectOf(part.widthMm, part.heightMm)
+  const pulled = [rect[0], { x: rect[1].x + 60, y: rect[1].y }, rect[2], rect[3]] as typeof rect
+  const H = warpFromHandles(part.widthMm, part.heightMm, pulled)
+  ok('四つ角から変換を組み立てられる', !!H && isWarped(H), H ? 'できた' : 'できなかった')
+
+  const warped = H ? warpPart(H, part) : null
+  ok('引いたら形が変わる', !!warped && Math.abs(warped.widthMm - 440) > 1,
+    warped ? `${warped.widthMm.toFixed(0)} x ${warped.heightMm.toFixed(0)} mm` : 'なし')
+
+  {
+    // 上の辺は 3 点（0,0）(200,0)(400,0) が一直線。引いたあとも一直線であること
+    const line = H ? applyHToPolygon(H, [poly[0], poly[1], poly[2]]) : null
+    const off = line
+      ? Math.abs((line[1].x - line[0].x) * (line[2].y - line[0].y)
+        - (line[1].y - line[0].y) * (line[2].x - line[0].x))
+        / Math.hypot(line[2].x - line[0].x, line[2].y - line[0].y)
+      : Infinity
+    ok('まっすぐな辺は、まっすぐなまま', off < 0.01, `そり ${off.toFixed(4)} mm`)
+  }
+
+  {
+    // 持ち手は、引いた四つ角そのものに戻ってくる（往復しても同じところ）
+    const back = H ? handlesOf(H, part.widthMm, part.heightMm) : null
+    const worst = back
+      ? Math.max(...back.map((q, i) => Math.hypot(q.x - pulled[i].x, q.y - pulled[i].y)))
+      : Infinity
+    ok('持ち手は引いたところに戻る', worst < 0.01, `ずれ ${worst.toFixed(4)} mm`)
+  }
+
+  {
+    // 小さい型紙は、同じ変換でも動く量が小さい。
+    // 変換は平面ぜんぶに掛かるものなので、原点に近いほど動かないのが正しい
+    const small = { ...part, id: 'b', outlineMm: poly.map((q) => ({ x: q.x / 4, y: q.y / 4 })),
+      widthMm: 110, heightMm: 175 }
+    const a = H ? warpPart(H, part) : null
+    const b = H ? warpPart(H, small) : null
+    const da = a ? a.widthMm - part.widthMm : 0
+    const db = b ? b.widthMm - small.widthMm : 0
+    ok('小さい型紙は、同じ直しでも動く量が小さい', db > 0 && db < da,
+      `大 +${da.toFixed(0)} mm / 小 +${db.toFixed(0)} mm`)
+  }
+
+  {
+    // つぶれる引き方（角を反対側まで送る）は、通さない
+    const bad = [rect[0], { x: -500, y: 0 }, rect[2], rect[3]] as typeof rect
+    const H2 = warpFromHandles(part.widthMm, part.heightMm, bad)
+    ok('つぶれる引き方は通さない', !H2 || !warpPart(H2, part),
+      H2 && warpPart(H2, part) ? '通してしまった' : '止めた')
+  }
+}
+
+warpChecks()
 console.log(failures === 0 ? '\nすべて通りました。' : `\n${failures} 件、期待どおりになりませんでした。`)
 process.exit(failures === 0 ? 0 : 1)

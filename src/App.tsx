@@ -17,6 +17,7 @@ import { FabricView } from './components/FabricView'
 import { PartsView } from './components/PartsView'
 import { ResultView } from './components/ResultView'
 import { RulerToggle } from './components/RulerToggle'
+import { WarpEditor } from './components/WarpEditor'
 import { replayTour, Tour, TOUR_ON } from './components/Tour'
 import { DEFAULT_GREEN, estimateHueCenter, type GreenParams } from './lib/hsv'
 import { loadImageFile, type LoadedImage } from './lib/image'
@@ -27,6 +28,8 @@ import { findRulerQuad } from './lib/findRuler'
 import { loadSaves, removeSave, whenOf, type Save } from './lib/saves'
 import { EMPTY, load as loadParts, save as saveParts, toStored, type PartsState } from './lib/store'
 import type { Quad } from './lib/geom'
+import type { Homography } from './lib/homography'
+import { applyWarp, isWarped, NO_WARP } from './lib/warp'
 
 /*
   生地は独立した段階（依頼者の指示・2026-09-01）。
@@ -125,7 +128,26 @@ export function App() {
    * 画面に出す結果。なめらかさを変えたときは、
    * 写真の読み直しはせず、輪郭の作り直しだけをする（そのほうが速い）
    */
-  const shown = useMemo(() => (result ? resmooth(result, smooth) : null), [result, smooth])
+  const smoothed = useMemo(() => (result ? resmooth(result, smooth) : null), [result, smooth])
+  /**
+   * ゆがみの手直し（依頼者の相談・2026-09-01。詳しくは lib/warp.ts）。
+   *
+   * 型紙の四つ角を引いて、形ぜんぶをゆがませ直す。
+   * 既定は**写真ぜんぶに当てる**——ゆがみの原因（定規の枠のずれ・斜め撮り）は
+   * たいてい写真に共通なので、1枚直せば残りも同じだけずれている
+   */
+  const [warpH, setWarpH] = useState<Homography>(NO_WARP)
+  /** 直しを当てる先。true なら写真ぜんぶ、false なら下の1枚だけ */
+  const [warpAll, setWarpAll] = useState(true)
+  /** いま持ち手を出している型紙（`smoothed.parts` の何番め） */
+  const [warpIndex, setWarpIndex] = useState(0)
+  const [warpOpen, setWarpOpen] = useState(false)
+  /** 画面に出す結果。ならしたあと、手直しを当てたもの */
+  const shown = useMemo(() => {
+    if (!smoothed) return null
+    const only = warpAll ? null : (smoothed.parts[warpIndex]?.id ?? null)
+    return applyWarp(smoothed, warpH, only)
+  }, [smoothed, warpH, warpAll, warpIndex])
   /**
    * 見つかったが、取り込まないことにした形の id。
    *
@@ -287,6 +309,8 @@ export function App() {
       setPerspective(!!found?.tilted)
       setResult(null)
       setKept([])
+      setWarpH(NO_WARP)
+      setWarpOpen(false)
       setStep('ruler')
     } catch {
       setError('写真を読み込めませんでした。別の写真で試してください。')
@@ -1156,6 +1180,38 @@ export function App() {
                 return next
               })}
             />
+
+            {/*
+              ゆがみの手直し（依頼者の相談・2026-09-01）。
+
+              **最後の手段**なので、ふだんは1行の入口だけにしてある。
+              ゆがみの本当の直し場所は定規の四隅で、そちらを直せば全部いっぺんに直る。
+              ここを大きく出すと、上流で直せるものを下流で直しに行かせてしまう
+            */}
+            {warpOpen && smoothed && smoothed.parts[warpIndex] ? (
+              <WarpEditor
+                part={smoothed.parts[warpIndex]}
+                H={warpH}
+                onChange={setWarpH}
+                index={warpIndex}
+                count={smoothed.parts.length}
+                onIndex={setWarpIndex}
+                all={warpAll}
+                onAll={setWarpAll}
+                onClose={() => setWarpOpen(false)}
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setWarpOpen(true)}
+                className="flex items-center gap-1.5 self-start text-xs font-bold text-mat-700"
+              >
+                <Icon name={isWarped(warpH) ? 'back' : 'hint'} className="h-4 w-4 shrink-0" />
+                {isWarped(warpH)
+                  ? 'ゆがみを直してあります（もう一度開く）'
+                  : '形がゆがんで見える（四つ角で直す）'}
+              </button>
+            )}
 
             {/*
               持ってくる型紙は、出来上がり線で切ってあるとは限らない（依頼者の指摘）。
