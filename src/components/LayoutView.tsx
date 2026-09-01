@@ -18,17 +18,17 @@ import { useMemo, useRef, useState, type PointerEvent, type ReactNode, type RefO
 import { cutSizeOf, isReserve, RESERVE_CHOICES, toReserve } from '../lib/store'
 import { cm } from '../lib/format'
 import {
-  canHalfFold, computeYardage, foldEdgeSides, FOLD_LABELS, FOLD_MARK_REF_MM, foldOfSides,
+  computeYardage, foldEdgeSides, FOLD_LABELS, FOLD_MARK_REF_MM,
   foldSidesOf, turnBy, turnOf,
-  isHalfFold, isHorizontalFold, isVerticalSide, newPlacement, orientedPair,
+  isHalfFold, isHorizontalFold, newPlacement, orientedPair,
   PURCHASE_MARGIN_MM, SELVAGE_MM, SNAP_MM, toggleFoldSide,
   type Fabric, type FoldMark, type FoldMode, type PlacedPart, type Placement,
   type Section, type Side,
 } from '../lib/fabric'
 import { defaultName, MAX_SAVES, putSave, type Save } from '../lib/saves'
 import { renderLayoutImage, saveImage, type Sheet } from '../lib/exportImage'
-import { FoldPicker, type EdgeAction } from './FoldPicker'
-import { placedPartOf, type PartsState, type StoredPart } from '../lib/store'
+import { FoldSetup } from './FoldSetup'
+import { applyFoldChange, placedPartOf, type PartsState, type StoredPart } from '../lib/store'
 import { FoldDiagram } from './FoldDiagram'
 import { Heading, Hint, Icon, Note } from './Icon'
 import { PatternMarks } from './PatternMarks'
@@ -323,52 +323,7 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
           onActivate={() => setActiveSection(section.id)}
           onSelect={setSelectedId}
           onMove={patch}
-          onFold={(fold, halfFold) => {
-            /*
-              折り山を移したら、そこに当てていた型紙も付け替える
-              （依頼者の指示・2026-08-28）。実物でも、折る側を変えたら
-              型紙はその折り山に当て直す。
-
-              左から右へ移す手つきは「右を押して両側にし、左を押して外す」。
-              その2手目で左の折り山が消えるので、そこに当てていた型紙を
-              残っている右の折り山へ移す。付け替えないと
-              「その側に折り山がありません」が出て、置き直しからやり直しになる。
-
-              同じ向きの折り山がもう1本も残っていないとき（縦から横へ変えたときなど）は、
-              当てる先が無いので当てるのをやめる。図の上では、
-              押した辺と両立しない指定がその場で外れる、という同じ動きに見える
-            */
-            const to = foldSidesOf(fold)
-            onChange({
-              ...state,
-              sections: state.sections.map((s) =>
-                s.id === section.id
-                  ? { ...s, fold, ...(halfFold === undefined ? {} : { halfFold }) }
-                  : s,
-              ),
-              placements: state.placements.map((pl) => {
-                if (pl.sectionId !== section.id) return pl
-                const was = pl.snapTo
-                if (was && to.includes(was)) return pl
-                /*
-                  まだどこにも当てていない「わ」つきの型紙は、
-                  折り山ができた時点で当てる（依頼者の指摘・2026-08-31）。
-                  「置く → 折り方を決める」の順で触ると、
-                  折り方を決めたのに「折り山に当ててください」が出たままになり、
-                  結局ボタンを押しに行くことになっていた
-                */
-                if (!was) {
-                  const part = partMap.get(pl.partId)
-                  const want = part
-                    ? foldEdgeSides(part, pl).find((sd) => to.includes(sd)) ?? null
-                    : null
-                  return want ? { ...pl, snapTo: want } : pl
-                }
-                const same = to.filter((t) => isVerticalSide(t) === isVerticalSide(was))
-                return { ...pl, snapTo: same.length === 1 ? same[0] : null }
-              }),
-            })
-          }}
+          onFold={(fold, halfFold) => onChange(applyFoldChange(state, section.id, fold, halfFold))}
           onHalf={(halfFold) =>
             onChange({
               ...state,
@@ -766,7 +721,12 @@ function SectionCanvas({
       bottomY: number
     } | null
   >(null)
-  /** 辺を引きずっている最中に出す、いま何をしているのかのひと言 */
+  /**
+   * 型紙を折り山へ当てた（離した）ときに出す、ひと言。
+   *
+   * もとは絵の上の折り方の枠に出していた。その枠は区間が1つのときは
+   * 出さなくなった（依頼者の指示・2026-09-01）ので、絵のすぐ下に移してある
+   */
   const [hint, setHint] = useState<string | null>(null)
 
   /*
@@ -830,8 +790,14 @@ function SectionCanvas({
   const shade = W * 0.025
   /** 下になっている一枚が、耳の側からのぞく量 */
   const RIM = W * 0.045
-  /** 枠の外に取る余白。ふくらんだ折り山と、端の名前を書くぶん */
-  const PAD = W * 0.115
+  /**
+   * 枠の外に取る余白。ふくらんだ折り山と、端の札を書くぶん。
+   *
+   * 札を生地の**外側**に出すことにしたので（`tagAt`）、
+   * いちばん大きい札（縦に置く「わ・折り山」＝幅 0.16）が
+   * まるごと入るだけの幅が要る。0.16 ＋ すき間 0.012 ＝ 0.172
+   */
+  const PAD = W * 0.185
   /** 折り山の内側にできる翳りの幅 */
   const CR = W * 0.06
   /** みみの帯の幅 */
@@ -902,30 +868,22 @@ function SectionCanvas({
   const bodyW = bx1 - bx0
   /** 生地の左右の真ん中。図の上の文字はここへそろえる */
   const bxMid = (bx0 + bx1) * 0.5
+  /**
+   * 端の札を、生地の**外側**へ置く。
+   *
+   * これまでは端からの距離を決め打ちにしていたので、札の大きさによっては
+   * 生地に食い込んでいた（横わのとき「わ（折り山）」の札が折り山の線に乗っていた）。
+   * 札の大きさから逆に決めれば、どの札でも同じだけ外に出る
+   */
+  const tagAt = (side: Side, w: number, h: number) => ({
+    left: { lx: -(w / 2) - W * 0.012, ly: (L + OPEN) * 0.5 },
+    right: { lx: W + OPENX + w / 2 + W * 0.012, ly: (L + OPEN) * 0.5 },
+    top: { lx: bxMid, ly: -(h / 2) - W * 0.012 },
+    bottom: { lx: bxMid, ly: L + OPEN + h / 2 + W * 0.012 },
+  }[side])
   const badPlacements = new Set(
     report.problems.flatMap((p) => (p.placementId ? [p.placementId] : [])),
   )
-  /**
-   * 辺をさわり終えたときの処理（依頼者の指示・2026-08-28）。
-   *
-   * 押しただけなら「わ」が付いたり外れたりするだけ。
-   * 内側へ引きずったときは、引いた深さで「きっちり折るか」まで決まる。
-   * 半分の位置に吸い付くので、いちばん多いたたみ方はそこで止めれば出る。
-   */
-  const applyEdge = (side: Side, action: EdgeAction) => {
-    if (action === 'toggle') { onFold(toggleFoldSide(section.fold, side)); return }
-    if (action === 'off') {
-      const left = new Set(foldSidesOf(section.fold))
-      left.delete(side)
-      onFold(foldOfSides(left))
-      return
-    }
-    // まだ「わ」でなければ付ける。縦と横は両立しないので、通し方は押したときと同じ
-    const next = foldSidesOf(section.fold).includes(side)
-      ? section.fold
-      : toggleFoldSide(section.fold, side)
-    onFold(next, action === 'half')
-  }
 
   /**
    * 大きい裁ち合わせ図の、端の札（「わ」「みみ」）も押せるようにする
@@ -942,7 +900,9 @@ function SectionCanvas({
       key={`tag-${side}`}
       role="button"
       tabIndex={0}
-      aria-label={`${SIDE_LABELS[side]}の端を「わ」にする`}
+      aria-label={foldSidesOf(section.fold).includes(side)
+        ? `${SIDE_LABELS[side]}の端の「わ」をやめる`
+        : `${SIDE_LABELS[side]}の端を「わ」にする`}
       style={{ cursor: 'pointer' }}
       onPointerDown={(e) => {
         e.stopPropagation()
@@ -1484,6 +1444,8 @@ function SectionCanvas({
 
   /** 上下の端が、はさみで切った裁ち端かどうか（横わでそちらを折るときだけ違う） */
   const cutTop = !foldSides.includes('top')
+  /** はさみで裁つ端＝折り山でもみみでもない辺。ここも押せば折り山になる */
+  const cutSides: Side[] = (['top', 'bottom'] as Side[]).filter((sd) => !foldSides.includes(sd))
   const cutBottom = !foldSides.includes('bottom')
 
   /**
@@ -1811,60 +1773,27 @@ function SectionCanvas({
   return (
     <div className="flex flex-col gap-2">
       {/*
-        折り方は、名前を並べたプルダウンではなく
-        **生地を上から見た小さな図の辺を押して**決める（依頼者の指示・2026-08-28）。
-        「縦わ・片側」という名前は、頭の中でいったん図に直さないと選べない。
-        辺を押すなら、その手間が要らない。
-        ただし名前そのものにも意味がある（学校で使う言葉なので）ので、
-        図のとなりに結果を文字で出して、押して決めて名前で覚える順にしてある。
+        折り方の枠は、区間が2つ以上あるときだけ出す（依頼者の指示・2026-09-01）。
+
+        ふだん（区間1つ）の折り方は「生地」の画面で決まっているので、
+        ここに同じものを出すと、上と下で内容がかぶる。パーツが増えると
+        画面が縦に伸びていくので、そのぶんの圧迫も避けたい。
+        大きい裁ち合わせ図の端の札からは、区間が1つでも変えられる。
+
+        2つ以上になったら話が別で、**どの区間の話なのか**を言う必要が出る。
+        そもそも切り分けたということは折り方を変えたいということなので、
+        そのときはここに操作があるのが筋になる
       */}
-      <div className="flex items-start gap-2 rounded-xl border border-ink-100 bg-white px-2 py-1.5">
-        <FoldPicker
-          fold={section.fold}
+      {canDrop && (
+        <FoldSetup
+          section={section}
           half={half}
-          onHint={setHint}
-          onEdge={(side, action) => { onActivate(); applyEdge(side, action) }}
+          prefix={`${index + 1} つめ・`}
+          onFold={onFold}
+          onHalf={onHalf}
+          onActivate={onActivate}
         />
-        <div className="flex min-w-0 flex-1 flex-col gap-1.5 pt-1">
-          <span className="flex items-center gap-1.5 text-sm font-bold text-ink-700">
-            <Icon name="layout" className="h-4 w-4 shrink-0 text-mat-600" />
-            {state.sections.length > 1 ? `${index + 1} つめ・` : ''}
-            {FOLD_LABELS[section.fold]}
-          </span>
-          {/* 引きずっている最中は、いま何をしているのかをここに出す */}
-          <span className={`text-xs leading-relaxed ${hint ? 'font-bold text-mat-700' : 'text-ink-300'}`}>
-            {hint ?? '辺を押すか、内側へ引きずります'}
-          </span>
-          {canHalfFold(section.fold) && (
-            <select
-              value={half ? 'half' : 'partial'}
-              onChange={(e) => onHalf(e.target.value === 'half')}
-              className="min-w-0 rounded-lg border border-ink-100 bg-white px-1.5 py-1.5 text-sm"
-            >
-              <option value="half">
-                {section.fold === 'vBoth' || section.fold === 'hBoth'
-                  ? '両端が出会うまで折る' : '半分に折る'}
-              </option>
-              <option value="partial">型紙に合わせて折る</option>
-            </select>
-          )}
-          {/* 折ったあとに実際に置ける幅。折り方で変わるので、区間ごとに出す */}
-          <span className="tnum flex items-center gap-2 text-[11px] leading-tight text-ink-300">
-            <span>幅 {(W / 10).toFixed(0)} cm</span>
-            <span>長さ {(report.yardageMm / 10).toFixed(0)} cm</span>
-            {canDrop && (
-              <button
-                type="button"
-                onClick={onDrop}
-                className="ml-auto flex shrink-0 items-center gap-1 text-xs text-ink-300"
-              >
-                <Icon name="trash" className="h-3.5 w-3.5 shrink-0" />
-                消す
-              </button>
-            )}
-          </span>
-        </div>
-      </div>
+      )}
 
       {/* 平面図に線を引くだけでは、折っていることが伝わらない。横から見た形を添える */}
       <FoldDiagram
@@ -2065,16 +1994,6 @@ function SectionCanvas({
               selvageOn({ x0: bx0, y0: by0, x1: bx1, y1: by1 }, s as 'left' | 'right', SELVAGE, `sv-${s}`)
             ))}
           </g>
-          {/* 裁ち端の名前。はさみの印を添える */}
-          {cutTop && (
-            <g>
-              {iconScissors(Math.max(bx1, under.x1) - W * 0.026,
-                Math.min(0, under.y0) - W * 0.042, W * 0.042, '#8a9188')}
-              <text x={Math.max(bx1, under.x1) - W * 0.072} y={Math.min(0, under.y0) - W * 0.042}
-                fontSize={W * 0.03} fill="#8a9188" textAnchor="end"
-                dominantBaseline="middle">裁ち端</text>
-            </g>
-          )}
 
           {/*
             折り返して上に乗っているぶん。面の一部だけを覆うときは、端に影を落とす。
@@ -2428,8 +2347,8 @@ function SectionCanvas({
             // 下の一枚がいちばん外へ出ているところより、さらに外に書く。
             // 横わでは回り込んだぶん右へ出ているので、それも数に入れる
             const x = s === 'left'
-              ? Math.min(bx0, under.x0) - PAD * 0.4
-              : Math.max(bx1, under.x1) + PAD * 0.4
+              ? Math.min(bx0, under.x0) - W * 0.077
+              : Math.max(bx1, under.x1) + W * 0.077
             const size = W * 0.036
             // 押すとこちら側が「わ」になる。上の小さな図で押すのと同じこと
             const my = (L + OPEN) * 0.5
@@ -2468,14 +2387,6 @@ function SectionCanvas({
               top: [bx0 + TIP, 0, leadApex, 0],
               bottom: [bx0 + TIP, L + OPEN, leadApex, L + OPEN],
             }[side]
-            const lx = {
-              left: -PAD * 0.42, right: W + OPENX + PAD * 0.42,
-              top: bxMid, bottom: bxMid,
-            }[side]
-            const ly = {
-              left: (L + OPEN) * 0.5, right: (L + OPEN) * 0.5,
-              top: -PAD * 0.36, bottom: L + OPEN + PAD * 0.36,
-            }[side]
             /*
               横わ（上下が折り山）の札は、ヘアピンの印と「わ（折り山）」の文字を
               横に並べる。印と文字が重なっていたので、間を取り直した
@@ -2486,6 +2397,7 @@ function SectionCanvas({
             const tag = horiz
               ? { w: W * 0.16, h: W * 0.34 }
               : { w: W * 0.36, h: W * 0.16 }
+            const { lx, ly } = tagAt(side, tag.w, tag.h)
             return (
               <g key={side}>
                 <line x1={apex[0]} y1={apex[1]} x2={apex[2]} y2={apex[3]}
@@ -2510,6 +2422,34 @@ function SectionCanvas({
                       fill={CREASE} textAnchor="middle" dominantBaseline="middle">
                       わ（折り山）
                     </text>
+                  </>
+                ))}
+              </g>
+            )
+          })}
+
+          {/*
+            裁ち端の札。これも押せる（依頼者の指示・2026-09-01）。
+
+            これまで押せたのは「みみ」と「わ」の札だけだった。
+            縦わのときの上下は裁ち端で札が無かったので、
+            **大きい図からは縦わ→横わに変えられなかった**（逆はできた）。
+            大きい図を「第二の入口」と言っておきながら片道しか開いていない状態だったので、
+            四辺ぜんぶを押せるようにしてある。
+            押すとその辺で折る＝そこが折り山になる。実物でやることと同じ。
+
+            上端だけに出していた「裁ち端」の名前は、この札が兼ねている
+          */}
+          {cutSides.map((side) => {
+            const tag = { w: W * 0.3, h: W * 0.13 }
+            const { lx, ly } = tagAt(side, tag.w, tag.h)
+            return (
+              <g key={`cut-${side}`}>
+                {edgeTag(side, lx, ly, tag.w, tag.h, (
+                  <>
+                    {iconScissors(lx - W * 0.098, ly, W * 0.042, '#8a9188')}
+                    <text x={lx + W * 0.03} y={ly} fontSize={W * 0.032} fill="#8a9188"
+                      textAnchor="middle" dominantBaseline="middle">裁ち端</text>
                   </>
                 ))}
               </g>
@@ -2604,6 +2544,37 @@ function SectionCanvas({
           </Note>
         )}
         </div>
+      </div>
+
+      {/*
+        折ったあとに実際に置ける幅。
+
+        もとは絵の**上**にあった。だがこれは絵を見て分かることの答えなので、
+        操作したところより後ろに置く（依頼者の指示・2026-08-27）。
+        長さのほうは、すぐ下の「？」と、いちばん下の「買ってくる長さ」にある
+      */}
+      <div className="tnum flex items-center gap-2 px-1 text-[11px] leading-tight text-ink-300">
+        {hint ? (
+          <>
+            <Icon name="fold" className="h-3.5 w-3.5 shrink-0 text-mat-600" />
+            <span className="font-bold text-mat-700">{hint}</span>
+          </>
+        ) : (
+          <>
+            <Icon name="clothWidth" className="h-3.5 w-3.5 shrink-0" />
+            <span>置ける幅 {(W / 10).toFixed(0)} cm</span>
+          </>
+        )}
+        {canDrop && (
+          <button
+            type="button"
+            onClick={onDrop}
+            className="ml-auto flex shrink-0 items-center gap-1 text-xs text-ink-300 active:text-seam"
+          >
+            <Icon name="trash" className="h-3.5 w-3.5 shrink-0" />
+            この生地を消す
+          </button>
+        )}
       </div>
 
       {/*

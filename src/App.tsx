@@ -13,6 +13,7 @@ import { CornerPicker, rectifyQuad } from './components/CornerPicker'
 import { Heading, Hint, Icon, Note, type IconName } from './components/Icon'
 import { LayoutView } from './components/LayoutView'
 import { GreenTuner } from './components/GreenTuner'
+import { FabricView } from './components/FabricView'
 import { PartsView } from './components/PartsView'
 import { ResultView } from './components/ResultView'
 import { RulerToggle } from './components/RulerToggle'
@@ -27,7 +28,12 @@ import { loadSaves, removeSave, whenOf, type Save } from './lib/saves'
 import { EMPTY, load as loadParts, save as saveParts, toStored, type PartsState } from './lib/store'
 import type { Quad } from './lib/geom'
 
-type Step = 'photo' | 'ruler' | 'result' | 'parts' | 'layout'
+/*
+  生地は独立した段階（依頼者の指示・2026-09-01）。
+  もとは生地幅と差し込みが「縫い代」の中に、折り方が「並べる」の上にあった。
+  生地についての判断だけを1画面に集めてある
+*/
+type Step = 'photo' | 'ruler' | 'result' | 'parts' | 'fabric' | 'layout'
 
 const RULER_KEY = 'yojaku.ruler'
 
@@ -149,6 +155,22 @@ export function App() {
    */
   const [askCarry, setAskCarry] = useState(parts.parts.length > 0)
   /**
+   * **いま写っている写真から**取り込んだパーツの id（依頼者の指摘・2026-09-01）。
+   *
+   * 「定規へ戻って四隅を直し、もう一度取り込む」をすると、
+   * 前のぶんが残ったまま同じパーツがもう一組増えていた。
+   * 直したくて戻ったのに増える、というのは筋が通らない。
+   *
+   * とはいえ**足したい**ときもある——大きいパーツを1枚ずつ撮り足していく使い方や、
+   * さっきは選ばなかったパーツを追加で取り込む、という道もあるので、
+   * こちらで決めずに一度たずねる。
+   *
+   * 写真を選び直したら空にする。別の写真から足すのは、ふつうの「足す」なので
+   */
+  const [kept, setKept] = useState<string[]>([])
+  /** 取り込み直しの問いを出しているか */
+  const [askAgain, setAskAgain] = useState(false)
+  /**
    * 「はじめから」を押したあと、本当に消してよいかを聞いている最中か。
    *
    * 取り込んだものは端末の中に残るので、閉じても次に開いたとき続きから触れる。
@@ -264,6 +286,7 @@ export function App() {
       */
       setPerspective(!!found?.tilted)
       setResult(null)
+      setKept([])
       setStep('ruler')
     } catch {
       setError('写真を読み込めませんでした。別の写真で試してください。')
@@ -389,6 +412,7 @@ export function App() {
   }, [image, quad, rulerId, green, perspective, smooth])
 
   const restart = () => {
+    setAskAgain(false)
     setStep('photo')
     setResult(null)
     setExcluded(new Set())
@@ -401,13 +425,31 @@ export function App() {
    * 縫い代つきなら何も足さず、「わ」の辺の指定だけを聞く（依頼者の指示）。
    */
   const keep = () => {
+    // 同じ写真からもう一度取り込もうとしている。置きかえるのか足すのかを聞く
+    if (kept.length > 0) setAskAgain(true)
+    else doKeep(false)
+  }
+
+  /** @param replace この写真から前に取り込んだぶんを、いったん消してから入れる */
+  const doKeep = (replace: boolean) => {
     if (!shown) return
+    const gone = replace ? new Set(kept) : new Set<string>()
+    const left = parts.parts.filter((p) => !gone.has(p.id))
     const added = shown.parts
       .filter((p) => !excluded.has(p.id))
       .map((p, i) =>
-        toStored(p.outlineMm, p.widthMm, p.heightMm, parts.parts.length + i, seamIncluded),
+        toStored(p.outlineMm, p.widthMm, p.heightMm, left.length + i, seamIncluded),
       )
-    updateParts({ ...parts, parts: [...parts.parts, ...added] })
+    updateParts({
+      ...parts,
+      parts: [...left, ...added],
+      // 置きかえたパーツを指していた配置は、行き先が無くなるのでいっしょに外す
+      placements: replace
+        ? parts.placements.filter((pl) => !gone.has(pl.partId))
+        : parts.placements,
+    })
+    setKept(replace ? added.map((p) => p.id) : [...kept, ...added.map((p) => p.id)])
+    setAskAgain(false)
     setStep('parts')
   }
 
@@ -478,6 +520,7 @@ export function App() {
   const clearAll = () => {
     updateParts(EMPTY)
     setResult(null)
+    setKept([])
     setImage(null)
     setQuad(null)
     setQuadAdjusted(false)
@@ -503,6 +546,7 @@ export function App() {
       case 'ruler': return !!(image && quad)
       case 'result': return !!(image && result)
       case 'parts': return parts.parts.length > 0
+      case 'fabric': return parts.parts.length > 0
       case 'layout': return parts.parts.length > 0
       default: return false
     }
@@ -522,8 +566,8 @@ export function App() {
         <div className="flex min-w-0 flex-col gap-0.5">
           <h1 className="text-base font-bold tracking-wide text-ink-900">要尺シミュレーター</h1>
           <span className="text-xs text-ink-300">
-            {step === 'layout'
-              ? '第4段階：生地の上に並べる'
+            {step === 'fabric' || step === 'layout'
+              ? '第4段階：生地を決めて、上に並べる'
               : step === 'parts'
                 ? seamIncluded
                   ? '第2段階：取り込んで、わの辺を決める'
@@ -1154,10 +1198,55 @@ export function App() {
               </div>
             </div>
 
+            {/*
+              同じ写真から二度目の取り込み（依頼者の指示・2026-09-01）。
+
+              四隅を直しに戻ってきたのなら「置きかえる」が求めていること。
+              選ばなかったパーツを足しに戻ってきたのなら「足す」。
+              どちらも実際にある道なので、こちらでは決めない。
+
+              ここに出すのは、押す直前に読めるようにするため。
+              取り込みボタンの上に置いて、答えるまでボタンは押せないままにしてある
+            */}
+            {askAgain && (
+              <div className="flex flex-col gap-3 rounded-xl border-2 border-mat-500 bg-mat-50 px-4 py-4">
+                <p className="flex gap-2 text-sm leading-relaxed text-mat-700">
+                  <Icon name="part" className="mt-[0.2em] h-[1.15em] w-[1.15em] shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    <span className="font-bold">
+                      この写真からは、もう {kept.length} 個 取り込んであります。
+                    </span>
+                    四隅を直しに戻ってきたのなら「取り込み直す」。
+                    <span className="text-mat-600">
+                      縫い代を付けたぶんは、取り込み直すと消えます。
+                    </span>
+                  </span>
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => doKeep(true)}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-mat-500 px-3 py-3 text-sm font-bold text-white active:bg-mat-600"
+                  >
+                    <Icon name="undo" className="h-4 w-4 shrink-0" />
+                    取り込み直す
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => doKeep(false)}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl border-2 border-mat-500 bg-white px-3 py-3 text-sm font-bold text-mat-700"
+                  >
+                    <Icon name="plus" className="h-4 w-4 shrink-0" />
+                    そのまま足す
+                  </button>
+                </div>
+              </div>
+            )}
+
             <button
               type="button"
               onClick={keep}
-              disabled={chosenCount === 0}
+              disabled={chosenCount === 0 || askAgain}
               className="flex items-center justify-center gap-2 rounded-xl bg-mat-500 px-5 py-4 text-base font-bold text-white active:bg-mat-600 disabled:opacity-50"
             >
               <Icon name="part" className="h-5 w-5 shrink-0" />
@@ -1168,7 +1257,7 @@ export function App() {
             <div className="flex gap-3">
               <button
                 type="button"
-                onClick={() => setStep('ruler')}
+                onClick={() => { setAskAgain(false); setStep('ruler') }}
                 className="flex flex-1 items-center justify-center gap-2 rounded-xl border-2 border-mat-500 px-5 py-4 text-base font-bold text-mat-700"
               >
                 <Icon name="ruler" className="h-5 w-5 shrink-0" />
@@ -1185,19 +1274,22 @@ export function App() {
             </div>
           </section>
         )}
+        {step === 'fabric' && (
+          <FabricView state={parts} onChange={updateParts} onLayout={() => setStep('layout')} />
+        )}
         {step === 'parts' && (
           <PartsView
             state={parts}
             onChange={updateParts}
             onAddMore={restart}
-            onLayout={() => setStep('layout')}
+            onLayout={() => setStep('fabric')}
           />
         )}
         {step === 'layout' && (
           <LayoutView
             state={parts}
             onChange={updateParts}
-            onBack={() => setStep('parts')}
+            onBack={() => setStep('fabric')}
             saveName={saveName}
             onSaveName={setSaveName}
             onSaved={setSaves}
@@ -1233,6 +1325,7 @@ const STEPS: Array<{ id: Step; label: string; icon: IconName }> = [
   { id: 'ruler', label: '定規', icon: 'ruler' },
   { id: 'result', label: '実寸', icon: 'measure' },
   { id: 'parts', label: '縫い代', icon: 'seam' },
+  { id: 'fabric', label: '生地', icon: 'cloth' },
   { id: 'layout', label: '並べる', icon: 'layout' },
 ]
 

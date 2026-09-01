@@ -11,9 +11,8 @@ import type { PlacedPart } from '../lib/fabric'
 import { bounds } from '../lib/geom'
 import {
   canOpenFold, cutSizeOf, isReserve, NAME_CHOICES, outlineOf, placedPartOf, planOf,
-  type PartsState, type StoredPart,
+  type PartsState, type StoredPart, withTurn,
 } from '../lib/store'
-import { FabricSetup } from './FabricSetup'
 import { Heading, Hint, Icon } from './Icon'
 import { PatternMarks } from './PatternMarks'
 import { SeamEditor } from './SeamEditor'
@@ -39,6 +38,10 @@ export function PartsView({ state, onChange, onAddMore, onLayout }: Props) {
 
   const patch = (id: string, over: Partial<StoredPart>) =>
     onChange({ ...state, parts: state.parts.map((p) => (p.id === id ? { ...p, ...over } : p)) })
+
+  /** まるごと差しかえる。まわしたときのように、いくつもの値が同時に変わるとき */
+  const replace = (next: StoredPart) =>
+    onChange({ ...state, parts: state.parts.map((p) => (p.id === next.id ? next : p)) })
 
   const part = state.parts.find((p) => p.id === editing)
   /** 縫い代の画面で、隣の型紙へ移るための前後 */
@@ -130,6 +133,12 @@ export function PartsView({ state, onChange, onAddMore, onLayout }: Props) {
           hasNap={state.hasNap}
           name={part.name}
           seamIncluded={part.seamIncluded}
+          turnDeg={part.turnDeg}
+          /*
+            まわすと外まわりの大きさも変わるので、`withTurn` に通して
+            幅と丈を測り直してもらう（依頼者の指示・2026-09-01）
+          */
+          onTurn={(turnDeg) => replace(withTurn(part, turnDeg))}
           onChange={(plan) => patch(part.id, { allowancesMm: plan.allowancesMm })}
         />
 
@@ -142,13 +151,6 @@ export function PartsView({ state, onChange, onAddMore, onLayout }: Props) {
   return (
     <section className="flex flex-col gap-2.5">
       <Tour id="parts" />
-      <FabricSetup
-        widthMm={state.fabricWidthMm}
-        hasNap={state.hasNap}
-        onWidth={(fabricWidthMm) => onChange({ ...state, fabricWidthMm })}
-        onNap={(hasNap) => onChange({ ...state, hasNap })}
-      />
-
       <Heading
         icon="part"
         right={
@@ -206,18 +208,19 @@ export function PartsView({ state, onChange, onAddMore, onLayout }: Props) {
 
           {/*
             定規は地の目の「向き」までは教えてくれない。上下対称だから。
-            まっすぐ縦にするところまでは自動、どちらが上かは学生に決めてもらう
+            まっすぐ縦にするところまでは自動、どちらが上かは学生に決めてもらう。
+
+            この文は前まで、生地に上下の向きがあるかどうかで言い分けていた。
+            その設定が「生地」の画面（この次）へ移った（依頼者の指示・2026-09-01）ので、
+            まだ決まっていない。だから向きの話はせず、直し方だけを言う
           */}
           <Hint
             icon="grain"
-            summary={state.hasNap
-              ? <>上下が逆なら「上下」で直してください</>
-              : <>上下が逆でも、買う長さは変わりません</>}
+            summary={<>向きがちがっていたら、<b className="text-ink-700">パーツを開いてまわせます</b></>}
           >
             定規は上下対称なので、どちらが上かまでは写真から決められません。
-            {state.hasNap
-              ? '向きのある生地では、上下がそのまま買う長さに効きます。'
-              : '向きのない生地では、180 度回して差し込めるので上下を問いません。'}
+            地の目の縦横をとりちがえて撮ってしまったときも、撮り直さずに直せます。
+            パーツを押して開くと、図の右上につまみが出ます。
           </Hint>
 
           <button
@@ -226,8 +229,8 @@ export function PartsView({ state, onChange, onAddMore, onLayout }: Props) {
             onClick={onLayout}
             className="flex items-center justify-center gap-2 rounded-xl bg-mat-500 px-4 py-2.5 text-base font-bold text-white active:bg-mat-600"
           >
-            <Icon name="layout" className="h-5 w-5 shrink-0" />
-            生地の上に並べる →
+            <Icon name="cloth" className="h-5 w-5 shrink-0" />
+            生地を決める →
           </button>
         </>
       )}
@@ -407,14 +410,6 @@ function PartRow({
             <option value="">{part.name}</option>
             {NAME_CHOICES.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
-          <button
-            type="button"
-            onClick={() => onPatch({ flipped: !part.flipped })}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-ink-100 text-ink-700"
-            aria-label="地の目の上下を入れかえる"
-          >
-            <Icon name="flip" className="h-4 w-4 shrink-0" />
-          </button>
           <button
             type="button"
             onClick={onRemove}

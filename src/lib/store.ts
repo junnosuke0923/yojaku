@@ -11,10 +11,13 @@
 
 import type { EdgeGroup } from './edges'
 import { bounds, centroid, clipLineToBox, type Point, type Polygon } from './geom'
-import { rotate180 } from './marks'
+import { turnPoly } from './marks'
 import { unionWithMirror } from './openFold'
 import { buildSeam, DEFAULT_SEAM_MM, initialPlan, SEAM_INCLUDED_MM, type SeamPlan } from './seam'
-import { FOLD_MARK_REF_MM, type FoldMark, type PlacedPart, type Placement, type Section } from './fabric'
+import {
+  foldEdgeSides, foldSidesOf, FOLD_MARK_REF_MM, isVerticalSide,
+  type FoldMark, type FoldMode, type PlacedPart, type Placement, type Section,
+} from './fabric'
 
 const KEY = 'yojaku.parts.v1'
 
@@ -65,13 +68,24 @@ export type StoredPart = {
   /** 必要な枚数。2枚必要なパーツを1枚と数えると要尺が丸ごと狂う（判断2） */
   needed: number
   /**
-   * 上下を入れかえてあるか。
+   * まわしてある角度（度）。時計まわりが正。
    *
-   * 定規は地の目の**向き**までは教えてくれない（上下対称なので）。
-   * 回転して地の目を縦にするところまでは自動でできるが、どちらが上かは決まらない。
-   * 外すと向きあり生地で要尺が丸ごと狂うので、当てにいかず学生の手に残す。
+   * もとは `flipped: true/false`（上下の入れかえだけ）だった。
+   * だが 180 度というのはただの角度で、入り／切りに分ける理由が無い。
+   * 学生が撮り直さずに直したい向きのちがいは、実際には3種類ある
+   * （依頼者の指示・2026-09-01）。
+   *
+   *   90 度  … 地の目の縦横をとりちがえて置いて撮ってしまった
+   *   180 度 … 上下だけ逆（もとからあったもの）
+   *   数度   … 定規の枠が少しずれて、形が斜めに取り込まれた
+   *
+   * どれも同じ「まわす」という1つの軸の上にあるので、ひとつの数にまとめてある。
+   *
+   * 形そのもの（`outlineMm`）は書きかえない。ここに角度だけを持って、
+   * 画面に出すときに `outlineOf` がまわす。だからいつでも 0 に戻せるし、
+   * 何度もまわしても形が少しずつ崩れていくことがない。
    */
-  flipped: boolean
+  turnDeg: number
   widthMm: number
   heightMm: number
   addedAt: number
@@ -105,7 +119,13 @@ export function load(): PartsState {
     return {
       parts: Array.isArray(parsed.parts)
         ? parsed.parts.map((p) => ({
-            ...p, flipped: p.flipped ?? false, seamIncluded: p.seamIncluded ?? false,
+            ...p,
+            /*
+              しまってある古いぶんの読みかえ。
+              `flipped: true` は「180 度まわしてある」ということ
+            */
+            turnDeg: p.turnDeg ?? ((p as { flipped?: boolean }).flipped ? 180 : 0),
+            seamIncluded: p.seamIncluded ?? false,
             kind: p.kind ?? 'pattern', openFold: p.openFold ?? false,
           }))
         : [],
@@ -128,6 +148,58 @@ export function save(state: PartsState): void {
   }
 }
 
+/**
+ * 折り方を変える。折り山に当てていた型紙も、いっしょに付け替える。
+ *
+ * もとは「並べる」の画面の中にだけ書いてあった。折り方を決める口が
+ * 「生地」の画面にもできた（依頼者の指示・2026-09-01）ので、
+ * どちらから変えても同じことが起きるように、ここへ出してある。
+ *
+ * 付け替えの理由（依頼者の指示・2026-08-28）——
+ * 実物でも、折る側を変えたら型紙はその折り山に当て直す。
+ * 左から右へ移す手つきは「右を押して両側にし、左を押して外す」で、
+ * その2手目で左の折り山が消える。付け替えないと
+ * 「その側に折り山がありません」が出て、置き直しからやり直しになる。
+ *
+ * 同じ向きの折り山がもう1本も残っていないとき（縦から横へ変えたときなど）は、
+ * 当てる先が無いので当てるのをやめる。
+ */
+export function applyFoldChange(
+  state: PartsState, sectionId: string, fold: FoldMode, halfFold?: boolean,
+): PartsState {
+  const to = foldSidesOf(fold)
+  return {
+    ...state,
+    sections: state.sections.map((s) =>
+      s.id === sectionId
+        ? { ...s, fold, ...(halfFold === undefined ? {} : { halfFold }) }
+        : s,
+    ),
+    placements: state.placements.map((pl) => {
+      if (pl.sectionId !== sectionId) return pl
+      const was = pl.snapTo
+      if (was && to.includes(was)) return pl
+      /*
+        まだどこにも当てていない「わ」つきの型紙は、
+        折り山ができた時点で当てる（依頼者の指摘・2026-08-31）。
+        「置く → 折り方を決める」の順で触ると、
+        折り方を決めたのに「折り山に当ててください」が出たままになり、
+        結局ボタンを押しに行くことになっていた
+      */
+      if (!was) {
+        const stored = state.parts.find((x) => x.id === pl.partId)
+        const part = stored ? placedPartOf(stored) : null
+        const want = part
+          ? foldEdgeSides(part, pl).find((sd) => to.includes(sd)) ?? null
+          : null
+        return want ? { ...pl, snapTo: want } : pl
+      }
+      const same = to.filter((t) => isVerticalSide(t) === isVerticalSide(was))
+      return { ...pl, snapTo: same.length === 1 ? same[0] : null }
+    }),
+  }
+}
+
 /** 解析結果のパーツを、しまっておく形に直す。既定の縫い代を全周に付けておく */
 export function toStored(
   outlineMm: Polygon, widthMm: number, heightMm: number, index: number,
@@ -142,7 +214,7 @@ export function toStored(
     seamIncluded,
     allowancesMm: plan.allowancesMm,
     needed: 1,
-    flipped: false,
+    turnDeg: 0,
     widthMm,
     heightMm,
     addedAt: Date.now(),
@@ -179,7 +251,7 @@ export function toReserve(name: string, widthMm: number, heightMm: number): Stor
     seamIncluded: true,
     allowancesMm: plan.allowancesMm,
     needed: 1,
-    flipped: false,
+    turnDeg: 0,
     widthMm,
     heightMm,
     addedAt: Date.now(),
@@ -187,13 +259,31 @@ export function toReserve(name: string, widthMm: number, heightMm: number): Stor
 }
 
 /**
- * 実際に画面へ出す出来上がり線。上下を入れかえてあれば、まわしてから返す。
+ * 実際に画面へ出す出来上がり線。まわしてあれば、まわしてから返す。
  *
- * 180度の回転は形を変えないので、辺の切り分けも縫い代の並び順も変わらない。
- * だから `allowancesMm` はそのまま使える。
+ * まわしても点の並び順は変わらないので、辺の切り分けも縫い代の並び順も変わらない。
+ * だから `allowancesMm` も「わ」の指定も、そのまま使える。
  */
 export const outlineOf = (part: StoredPart): Polygon =>
-  part.flipped ? rotate180(part.outlineMm) : part.outlineMm
+  turnPoly(part.outlineMm, part.turnDeg)
+
+/**
+ * 角度を変えたパーツを返す。
+ *
+ * 外まわりの大きさ（`widthMm` / `heightMm`）も measure し直す。
+ * 斜めに置いた形は外まわりの四角が大きくなるので、
+ * まっすぐに直すとこの数字が小さくなる——直せたことが数字でも分かる。
+ */
+export function withTurn(part: StoredPart, turnDeg: number): StoredPart {
+  const b = bounds(turnPoly(part.outlineMm, turnDeg))
+  return { ...part, turnDeg, widthMm: b.maxX - b.minX, heightMm: b.maxY - b.minY }
+}
+
+/** いちばん近い直角へ丸めた角度。「直角に戻す」に使う */
+export const squaredTurn = (turnDeg: number) => Math.round(turnDeg / 90) * 90
+
+/** もう直角にそろっているか。1度の 100 分の1まで見れば、指のずれは拾わない */
+export const isSquare = (turnDeg: number) => Math.abs(turnDeg - squaredTurn(turnDeg)) < 0.01
 
 /**
  * しまってある値から、縫い代の計画を組み直す。

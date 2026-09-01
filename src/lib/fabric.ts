@@ -135,6 +135,37 @@ export function toggleFoldSide(fold: FoldMode, side: Side): FoldMode {
   return foldOfSides(now)
 }
 
+/** 折り図の辺をさわり終えたときに起きること */
+export type EdgeAction =
+  /** 押した。「わ」が付いていなければ付け、付いていれば外す */
+  | 'toggle'
+  /** 引きずって、折るのをやめた */
+  | 'off'
+  /** 引きずって、浅く折った＝折る深さは置いた型紙に合わせる */
+  | 'partial'
+  /** 引きずって、半分まで折った＝きっちり折る */
+  | 'half'
+
+/**
+ * 辺をさわった結果、折り方がどうなるか。
+ *
+ * 小さい折り図は「生地」の画面と「並べる」の画面の両方に出る（依頼者の指示・2026-09-01）。
+ * どちらでさわっても同じことが起きるように、決め方はここに1つだけ置いてある。
+ */
+export function foldFromEdge(
+  fold: FoldMode, side: Side, action: EdgeAction,
+): { fold: FoldMode; halfFold?: boolean } {
+  if (action === 'toggle') return { fold: toggleFoldSide(fold, side) }
+  if (action === 'off') {
+    const left = new Set(foldSidesOf(fold))
+    left.delete(side)
+    return { fold: foldOfSides(left) }
+  }
+  // まだ「わ」でなければ付ける。縦と横は両立しないので、通し方は押したときと同じ
+  const next = foldSidesOf(fold).includes(side) ? fold : toggleFoldSide(fold, side)
+  return { fold: next, halfFold: action === 'half' }
+}
+
 export type Fabric = {
   /** 生地幅(mm)。耳を含む */
   widthMm: number

@@ -10,9 +10,10 @@
  * 番号を読まなくても、押せば光る。
  */
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState, type PointerEvent } from 'react'
 import { bounds } from '../lib/geom'
 import { applyToAll, buildSeam, SEAM_INCLUDED_MM, SEAM_STEPS_CM, type SeamPlan } from '../lib/seam'
+import { isSquare, squaredTurn } from '../lib/store'
 import { Icon, Note } from './Icon'
 import { PatternMarks } from './PatternMarks'
 
@@ -24,6 +25,15 @@ type Props = {
   /** 型紙の中に書く名前 */
   name: string
   /**
+   * まわしてある角度（度）。時計まわりが正。
+   *
+   * **地の目線は縦のまま動かさず、形だけがその下でまわる。**
+   * このアプリでは実寸の座標系の縦が地の目そのものなので、
+   * 学生の手つきは「地の目線が実物の型紙の地の目線と重なるまで、形をまわす」になる。
+   */
+  turnDeg: number
+  onTurn: (turnDeg: number) => void
+  /**
    * 取り込んだ型紙に、もう縫い代が付いているか。
    * 付いているなら足す量は聞かず、「わ」の辺の指定だけになる。
    */
@@ -33,7 +43,7 @@ type Props = {
 /** 番号のふきだしを、辺からどれだけ外へ押し出すか(mm) */
 const LABEL_PUSH_MM = 22
 
-export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded }: Props) {
+export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded, turnDeg, onTurn }: Props) {
   const [selected, setSelected] = useState(0)
   const [bulkCm, setBulkCm] = useState(1)
   /** 一覧に無い幅を、自分で入れる欄。cm。空なら「まだ入れていない」 */
@@ -49,11 +59,61 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded }: Props
     return {
       x: b.minX - pad, y: b.minY - pad,
       w: b.maxX - b.minX + pad * 2, h: b.maxY - b.minY + pad * 2,
+      // まわすつまみと、まわす軸の置きどころに使う
+      right: b.maxX, top: b.minY,
+      cx: (b.minX + b.maxX) / 2, cy: (b.minY + b.maxY) / 2,
       // 出来上がり線を、裁ち切り線と同じ原点へずらすための差
       dx: seam ? seam.finishedLineMm[0].x - plan.path.points[0].x : 0,
       dy: seam ? seam.finishedLineMm[0].y - plan.path.points[0].y : 0,
     }
   }, [seam, plan])
+
+  /*
+    まわす操作（依頼者の指示・2026-09-01）。
+
+    **直角へは吸い付かせない。** はじめは吸い付かせるつもりでいたが、
+    この道具でいちばん多い使い道は「定規の枠が少しずれて、数度だけ斜めに
+    取り込まれた形を直す」ことなので、直角の近くを吸い込んでしまうと
+    その数度がそもそも入れられなくなる。
+    きっちりした 90 度は下の押しボタンで出す。つまみは細かい直しのためのもの。
+
+    つまみは型紙の外に置いてある。この画面は**辺を押して選ぶ**画面なので、
+    形そのものを指でひねらせると、押しと引きずりを見分けることになる。
+    つまむ場所を分けておけば、その見分けが要らない。
+  */
+  const svgRef = useRef<SVGSVGElement>(null)
+  /** つまみを持った時点の、指の角度と、そのときの回転量 */
+  const turning = useRef<{ from: number; base: number } | null>(null)
+
+  /** 画面の位置を、図の中の位置（mm）に直す */
+  const atSvg = (e: PointerEvent) => {
+    const box = svgRef.current?.getBoundingClientRect()
+    if (!box || box.width === 0) return null
+    return {
+      x: view.x + ((e.clientX - box.left) / box.width) * view.w,
+      y: view.y + ((e.clientY - box.top) / box.height) * view.h,
+    }
+  }
+
+  /** -180 度から 180 度のあいだに直す。何周も回っても数が育たないように */
+  const norm = (deg: number) => ((deg % 360) + 540) % 360 - 180
+
+  const turnStart = (e: PointerEvent) => {
+    const at = atSvg(e)
+    if (!at) return
+    try { (e.currentTarget as Element).setPointerCapture(e.pointerId) } catch { /* 捕まえられなくてよい */ }
+    turning.current = { from: Math.atan2(at.y - view.cy, at.x - view.cx), base: turnDeg }
+  }
+
+  const turnMove = (e: PointerEvent) => {
+    if (!turning.current) return
+    const at = atSvg(e)
+    if (!at) return
+    const now = Math.atan2(at.y - view.cy, at.x - view.cx)
+    onTurn(norm(turning.current.base + ((now - turning.current.from) * 180) / Math.PI))
+  }
+
+  const turnEnd = () => { turning.current = null }
 
   /**
    * 辺を選び直す。自分で入れた数字は、そのつど空にする。
@@ -167,13 +227,16 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded }: Props
         ただし縮みすぎると辺を押せなくなるので、下限も決めてある
       */}
       <svg
+        ref={svgRef}
         viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
         data-tour="seam-figure"
         className="w-full rounded-xl border border-ink-100 bg-table"
         style={{
           aspectRatio: `${view.w} / ${view.h}`,
           // 下に置く操作のぶんを引いた残り。自分で決める欄がある画面は、そのぶん深く引く
-          maxHeight: `max(140px, min(34vh, calc(100dvh - ${seamIncluded ? '33rem' : '35.5rem'})))`,
+          // まわす操作の1段ぶん（3rem）を足して引く
+          maxHeight: `max(140px, min(34vh, calc(100dvh - ${seamIncluded ? '36rem' : '38.5rem'})))`,
+          touchAction: 'none',
         }}
         role="img"
         aria-label="型紙と縫い代"
@@ -268,7 +331,89 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded }: Props
             </g>
           )
         })}
+        {/*
+          まわすつまみ。型紙の右上の外に置いてある。
+
+          番号のふきだしは辺の**まん中**から外へ出るので、角のあたりは空いている。
+          そこへ置けば、番号を押すつもりの指がつまみに当たることがない
+        */}
+        {(() => {
+          // 図のまわりの余白は 52mm。つまみの半径 15 を足しても、はみ出さない位置
+          const hx = view.right + 26
+          const hy = view.top - 26
+          const held = turnDeg !== 0
+          const color = held ? '#b4433a' : '#5c665f'
+          return (
+            <g
+              style={{ cursor: 'grab', touchAction: 'none' }}
+              onPointerDown={turnStart}
+              onPointerMove={turnMove}
+              onPointerUp={turnEnd}
+              onPointerCancel={turnEnd}
+              role="button"
+              tabIndex={0}
+              aria-label="型紙をまわす"
+            >
+              {/* 軸とつまみを結ぶ線。どこを軸にまわるのかが分かる */}
+              <line
+                x1={view.cx} y1={view.cy} x2={hx} y2={hy}
+                stroke={color} strokeOpacity={0.28} strokeWidth={1.4} strokeDasharray="5 5"
+              />
+              {/* 指で当てやすいように、見えない広い下地を敷く */}
+              <circle cx={hx} cy={hy} r={26} fill="transparent" />
+              <circle cx={hx} cy={hy} r={15} fill="#ffffff" stroke={color} strokeWidth={2} />
+              {/* まわる向きの矢。四分の三の弧に、先端の三角をひとつ */}
+              <path
+                d={`M${hx} ${hy - 8} A8 8 0 1 1 ${hx - 8} ${hy}`}
+                fill="none" stroke={color} strokeWidth={2.2} strokeLinecap="round"
+              />
+              <path d={`M${hx - 11.4} ${hy - 3} L${hx - 4.6} ${hy - 3} L${hx - 8} ${hy + 3.6} Z`} fill={color} />
+            </g>
+          )
+        })()}
       </svg>
+
+      {/*
+        まわす操作の段。
+
+        90 度ずつの押しボタンと、まっすぐでなくなったときだけ出る戻り道。
+        つまみ（図の上）は細かい直し、この押しボタンはきっちりした直角、
+        と役目を分けてある。小さい折り図の「押す／引きずる」と同じ二段構え
+      */}
+      <div className="flex items-center gap-2 rounded-xl border border-ink-100 bg-white px-3 py-2">
+        <Icon name="grain" className="h-4 w-4 shrink-0 text-ink-300" />
+        <span className="min-w-0 flex-1 text-xs leading-tight text-ink-300">
+          {isSquare(turnDeg)
+            ? '地の目線に合うまで、右上のつまみでまわせます'
+            : '斜めに直してあります'}
+        </span>
+        <button
+          type="button"
+          onClick={() => onTurn(((turnDeg - 90) % 360 + 540) % 360 - 180)}
+          aria-label="左へ90度まわす"
+          className="flex h-8 w-9 shrink-0 items-center justify-center rounded-lg border border-ink-100 text-ink-700 active:bg-chalk"
+        >
+          <Icon name="turnLeft" className="h-4 w-4 shrink-0" />
+        </button>
+        <button
+          type="button"
+          onClick={() => onTurn(((turnDeg + 90) % 360 + 540) % 360 - 180)}
+          aria-label="右へ90度まわす"
+          className="flex h-8 w-9 shrink-0 items-center justify-center rounded-lg border border-ink-100 text-ink-700 active:bg-chalk"
+        >
+          <Icon name="turnRight" className="h-4 w-4 shrink-0" />
+        </button>
+        {/* 回しすぎたときの帰り道。まっすぐなときは出さない */}
+        {!isSquare(turnDeg) && (
+          <button
+            type="button"
+            onClick={() => onTurn(squaredTurn(turnDeg))}
+            className="shrink-0 rounded-lg border border-ink-100 px-2 py-1.5 text-xs font-bold text-ink-700 active:bg-chalk"
+          >
+            直角に戻す
+          </button>
+        )}
+      </div>
 
       {/*
         まとめてと、1本ずつ。もとは別々の枠だったが、

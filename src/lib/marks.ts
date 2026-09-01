@@ -115,10 +115,37 @@ export function labelSpot(poly: Polygon): { x: number; y: number; width: number 
   return best ?? { x: (b.minX + b.maxX) / 2, y: b.minY + h * 0.3, width: b.maxX - b.minX }
 }
 
-/** 外接する四角のまん中を軸に、180度まわす。上下を入れかえるのに使う */
-export function rotate180(poly: Polygon): Polygon {
+/**
+ * 外接する四角のまん中を軸に、好きな角度だけまわす。
+ *
+ * もとは 180 度専用（`rotate180`）だった。上下の入れかえしか要らなかったため。
+ * いまは学生が任意の角度に回せる（依頼者の指示・2026-09-01）ので、角度を取る。
+ *
+ *   90 度  … 地の目の縦横をとりちがえて撮ってしまったとき
+ *   180 度 … 上下だけ逆のとき（もとからあったもの）
+ *   数度   … 定規の枠が少しずれて、形が斜めに取り込まれたとき
+ *
+ * 回す軸を外接する四角のまん中に取ってあるので、
+ * 回しても形はだいたい同じ場所に居続ける。画面の中で飛んでいかない。
+ *
+ * **地の目線のほうは回さない。** このアプリでは実寸の座標系の縦が地の目
+ * （`buildScale` が定規の長辺を縦に置いている）なので、
+ * 学生の手つきは「地の目線に重なるまで形のほうを回す」になる。
+ * 実物の型紙でやっていることと同じ。
+ *
+ * @param deg 時計まわりが正（画面の座標は下がプラスなので）
+ */
+export function turnPoly(poly: Polygon, deg: number): Polygon {
+  const d = ((deg % 360) + 360) % 360
+  if (d === 0) return poly
   const b = bounds(poly)
-  const cx = b.minX + b.maxX
-  const cy = b.minY + b.maxY
-  return poly.map((p) => ({ x: cx - p.x, y: cy - p.y }))
+  const cx = (b.minX + b.maxX) / 2
+  const cy = (b.minY + b.maxY) / 2
+  const r = (d * Math.PI) / 180
+  const cos = Math.cos(r)
+  const sin = Math.sin(r)
+  return poly.map((q) => ({
+    x: cx + (q.x - cx) * cos - (q.y - cy) * sin,
+    y: cy + (q.x - cx) * sin + (q.y - cy) * cos,
+  }))
 }

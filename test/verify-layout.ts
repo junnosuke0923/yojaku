@@ -20,7 +20,8 @@ import {
   toggleFoldSide, toPurchaseLength,
   type Fabric, type FoldMode, type Placement, type PlacedPart, type Side,
 } from '../src/lib/fabric'
-import { placedPartOf, planOf, toStored } from '../src/lib/store'
+import { isSquare, outlineOf, placedPartOf, planOf, squaredTurn, toStored, withTurn } from '../src/lib/store'
+import { turnPoly } from '../src/lib/marks'
 
 let failures = 0
 
@@ -658,6 +659,80 @@ console.log('\n■ 横わで、きっちり半分に折る（依頼者の指示�
     && !canHalfFold('none'),
     'none 以外はすべて可')
 }
+
+/*
+  パーツをまわす（依頼者の指示・2026-09-01）。
+
+  ここで守らせたいのは「まわしても、それまでに決めたことが壊れない」こと。
+  縫い代を辺ごとに決めたあとに向きを直したくなるのが、そもそもの使いどころなので、
+  まわしたら縫い代の指定が飛んだ、では意味がない。
+*/
+function turnChecks() {
+  console.log('')
+  console.log('■ パーツをまわす')
+
+  // 400 × 700 の長方形。縦横がはっきり違うので、90 度で入れかわるのが分かる
+  const rect: Point[] = [
+    { x: 0, y: 0 }, { x: 400, y: 0 }, { x: 400, y: 700 }, { x: 0, y: 700 },
+  ]
+  const base = toStored(rect, 400, 700, 0)
+
+  ok('まわす前は 0 度', base.turnDeg === 0, `${base.turnDeg} 度`)
+
+  {
+    const t = withTurn(base, 90)
+    near('90度で幅が入れかわる (mm)', t.widthMm, 700, 0.01)
+    near('90度で丈が入れかわる (mm)', t.heightMm, 400, 0.01)
+  }
+  {
+    // 180 度は、もとの flipped: true と同じ。形も大きさも変わらない
+    const t = withTurn(base, 180)
+    near('180度でも大きさは同じ (mm)', t.widthMm, 400, 0.01)
+    ok('180度でも面積は同じ',
+      Math.abs(Math.abs(signedArea(outlineOf(t))) - Math.abs(signedArea(rect))) < 0.5,
+      `${Math.abs(signedArea(outlineOf(t))).toFixed(0)} mm2`)
+  }
+  {
+    // 斜めのままだと外まわりの四角が大きくなる＝まっすぐに直すと数字が小さくなる
+    const t = withTurn(base, 20)
+    ok('斜めだと外まわりが大きくなる', t.widthMm > 400 && t.heightMm > 700,
+      `${t.widthMm.toFixed(0)} x ${t.heightMm.toFixed(0)} mm`)
+    near('まっすぐに戻せば元どおり (mm)', withTurn(t, 0).widthMm, 400, 0.01)
+  }
+
+  // 何度まわしても形そのものは変わらない（面積で見る）
+  const area0 = Math.abs(signedArea(rect))
+  ok('まわしても形は変わらない',
+    [7, 33, 90, 137, 180, 271, 355].every(
+      (d) => Math.abs(Math.abs(signedArea(turnPoly(rect, d))) - area0) < 0.5),
+    `${area0.toFixed(0)} mm2`)
+
+  // 辺ごとに決めた縫い代が、まわしても同じ辺に残る
+  {
+    const withSeam = { ...base, allowancesMm: [10, 0, 25, 15] }
+    const before = planOf(withSeam)
+    const after = planOf(withTurn(withSeam, 90))
+    ok('まわしても縫い代の並びは同じ',
+      before.groups.length === after.groups.length
+      && before.allowancesMm.every((a, i) => a === after.allowancesMm[i]),
+      after.allowancesMm.join(' / '))
+    ok('まわしても「わ」の辺は同じ番号',
+      before.allowancesMm.indexOf(0) === after.allowancesMm.indexOf(0),
+      `${after.allowancesMm.indexOf(0)} 番`)
+    // 縫い代を足した裁ち切り線も、ちゃんと組み上がる
+    ok('まわしても裁ち切り線が引ける', !!placedPartOf(withTurn(withSeam, 33)), 'あり')
+  }
+
+  // 「直角に戻す」は、いちばん近い直角へ。0 へ引き戻さない
+  ok('直角に戻すのは、いちばん近い直角へ',
+    squaredTurn(88) === 90 && squaredTurn(-2) === 0 && squaredTurn(178) === 180,
+    '88→90 / -2→0 / 178→180')
+  ok('まっすぐなら戻り道は出さない',
+    isSquare(0) && isSquare(90) && isSquare(-180) && !isSquare(2),
+    '0・90・-180 は直角、2 は斜め')
+}
+
+turnChecks()
 
 console.log(failures === 0 ? '\nすべて通りました。' : `\n${failures} 件、期待どおりになりませんでした。`)
 process.exit(failures === 0 ? 0 : 1)

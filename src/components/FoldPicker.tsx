@@ -29,18 +29,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { foldSidesOf, isVerticalSide, type FoldMode, type Side } from '../lib/fabric'
-
-/** 辺をさわり終えたときに起きること */
-export type EdgeAction =
-  /** 押した。「わ」が付いていなければ付け、付いていれば外す */
-  | 'toggle'
-  /** 引きずって、折るのをやめた */
-  | 'off'
-  /** 引きずって、浅く折った＝折る深さは置いた型紙に合わせる */
-  | 'partial'
-  /** 引きずって、半分まで折った＝きっちり折る */
-  | 'half'
+import { foldSidesOf, isVerticalSide, type EdgeAction, type FoldMode, type Side } from '../lib/fabric'
 
 type Props = {
   fold: FoldMode
