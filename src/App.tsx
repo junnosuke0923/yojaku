@@ -1368,7 +1368,7 @@ export function App() {
                 className="flex flex-1 items-center justify-center gap-2 rounded-xl border-2 border-mat-500 px-5 py-4 text-base font-bold text-mat-700"
               >
                 <Icon name="ruler" className="h-5 w-5 shrink-0" />
-                四隅を直す
+                定規から測り直す
               </button>
               <button
                 type="button"
@@ -1425,11 +1425,21 @@ export function App() {
 /**
  * 段階ごとの絵。ここだけは、言葉より先に絵が目に入ってほしい。
  * いま自分が「撮るところ」なのか「並べるところ」なのかは、
- * 画面のいちばん上で一目で分かるべきだから
+ * 画面のいちばん上で一目で分かるべきだから。
+ *
+ * 2番目は「定規」ではなく **「測る」**（依頼者の選択・2026-09-01）。
+ * 「定規」は道具の名前で、そこで何をするかを言っていなかった。
+ * しかも実寸を畳んだあとは、この画面の後半は定規の話ではなく
+ * 「見つかった形を確かめて取り込む」話になっている。
+ * 動詞にすると、定規を当てる前半も、実寸が出る後半も、
+ * どちらも一語の下に入る。撮る・並べる とも形がそろう。
+ *
+ * 「定規の四隅を合わせる」という指示は、名前からは消えたが、
+ * 画面の見出し（「定規をさがして、枠を当てておきました」）が言っている
  */
 const STEPS: Array<{ id: Step; label: string; icon: IconName }> = [
   { id: 'photo', label: '撮る', icon: 'camera' },
-  { id: 'ruler', label: '定規', icon: 'ruler' },
+  { id: 'ruler', label: '測る', icon: 'ruler' },
   { id: 'parts', label: '縫い代', icon: 'seam' },
   { id: 'fabric', label: '生地', icon: 'cloth' },
   { id: 'layout', label: '並べる', icon: 'layout' },
