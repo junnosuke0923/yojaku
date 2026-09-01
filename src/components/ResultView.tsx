@@ -1,39 +1,9 @@
 /**
- * 撮ったばかりの写真から見つかった形を、確かめて取り込む帯。
+ * 解析結果の表示。
  *
- * ## もとは「実寸」という独立した段階だった（2026-09-01 に統合）
- *
- * 依頼者の指摘——
- *
- *   「実寸のパートと縫い代のパートは、それぞれパーツが表記されるところで
- *     似たような表記なんですけれども、ここをまとめられないのかな」
- *   「生地のセクションも増やしたので、セクション数が少し多いかな…
- *     最後まで行き着くまでに結構な段階を踏まないといけない印象です」
- *
- * 2つが似て見えたのには理由があった。**同じものを、別の瞬間に扱っていた**——
- * こちらは「いま撮った写真から見つかったぶん」、あちらは
- * 「これまでに取り込んだぶん」。並んでいる対象は同じで、時点だけが違う。
- * だから1つの画面の中の2つの状態にまとめ、段階を6つから5つに減らした。
- *
- * この帯は、取り込むまでのあいだだけ「パーツ」の画面の上に出る。
- * 取り込めば消えて、あとには一覧だけが残る。
- * 「撮り足す」で戻ってくる先も同じ画面なので、
- * 撮る→定規→ここ、を繰り返している構造がそのまま見える。
- *
- * ## まとめるにあたって、ここは削った
- *
- * ただ移すだけでは、パーツの画面が2つぶんの長さになって前より悪くなる。
- * いちばん場所を取っていたのは、形ひとつごとの大きな絵と、
- * 最大丈・最大幅の大きな数字だった（3つで縦1000pxを超えていた）。
- *
- * 絵は**写真に重ねた1枚に集約した**。もともと形ごとの絵と写真の絵とで
- * 似たものを2回見せていたし、「影を拾っていないか」「2つの型紙が繋がって
- * 1つになっていないか」を確かめられるのは、写真に重ねたほうだけである。
- *
- * 数字は行の中に小さく置き直した。小さくはしたが、消してはいない——
- * 実寸が正しく出ているかを学生自身が気づけること、
- * それがこの帯のいちばんの仕事だからで、
- * そのためには「何cmとして取り込まれるのか」が見えている必要がある。
+ * ここでいちばん大事なのは「実寸が正しく出ているか、学生自身が気づけること」。
+ * 定規を取り違えていれば数字が明らかにおかしくなるので、
+ * 最大丈と最大幅を大きく出して検算してもらう。
  */
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -43,17 +13,98 @@ import type { AnalyzeResult, PatternPart } from '../lib/pipeline'
 import { SMOOTH_LEVELS, type SmoothLevel } from '../lib/smooth'
 import { Hint, Icon } from './Icon'
 
-/**
- * 写真に重ねる絵の、縦の上限（画面の px）。
- *
- * 幅なりに伸ばすと、横長の写真でも縦 280px ほどを使ってしまう。
- * ここは「だいたい合っているか」を見るところなので、
- * 全体が入っていれば小さくてよい。細かく見たいときは定規の画面で寄れる
- */
-const OVERLAY_MAX_H = 210
+const PAD = 26
+
+function PartShape({ part }: { part: PatternPart }) {
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [w, setW] = useState(0)
+
+  useLayoutEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    const ro = new ResizeObserver(([e]) => setW(e.contentRect.width))
+    ro.observe(el)
+    setW(el.clientWidth)
+    return () => ro.disconnect()
+  }, [])
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || !w) return
+
+    const aspect = part.heightMm / Math.max(part.widthMm, 1)
+    const h = Math.min(Math.max(w * aspect * 0.9, 160), 340)
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2)
+    canvas.width = Math.round(w * dpr)
+    canvas.height = Math.round(h * dpr)
+    canvas.style.width = `${w}px`
+    canvas.style.height = `${h}px`
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.clearRect(0, 0, w, h)
+
+    const b = bounds(part.outlineMm)
+    const k = Math.min((w - PAD * 2) / Math.max(b.maxX - b.minX, 1), (h - PAD * 2) / Math.max(b.maxY - b.minY, 1))
+    const ox = (w - (b.maxX - b.minX) * k) / 2
+    const oy = (h - (b.maxY - b.minY) * k) / 2
+    const X = (mm: number) => ox + (mm - b.minX) * k
+    const Y = (mm: number) => oy + (mm - b.minY) * k
+
+    // 外接する四角（最大丈・最大幅の目安）
+    ctx.strokeStyle = '#9aa69e'
+    ctx.setLineDash([4, 4])
+    ctx.lineWidth = 1
+    ctx.strokeRect(X(b.minX), Y(b.minY), (b.maxX - b.minX) * k, (b.maxY - b.minY) * k)
+    ctx.setLineDash([])
+
+    // 型紙のシルエット
+    ctx.beginPath()
+    part.outlineMm.forEach((p, i) => (i === 0 ? ctx.moveTo(X(p.x), Y(p.y)) : ctx.lineTo(X(p.x), Y(p.y))))
+    ctx.closePath()
+    ctx.fillStyle = 'rgba(53,102,78,0.13)'
+    ctx.fill()
+    ctx.strokeStyle = '#35664e'
+    ctx.lineWidth = 2
+    ctx.stroke()
+
+    // 地の目の向き（実寸の座標系では、縦がそのまま地の目になる）
+    const ax = X(b.minX) - 12
+    ctx.strokeStyle = '#b4433a'
+    ctx.lineWidth = 1.5
+    ctx.beginPath()
+    ctx.moveTo(ax, Y(b.minY))
+    ctx.lineTo(ax, Y(b.maxY))
+    ctx.moveTo(ax - 4, Y(b.minY) + 7)
+    ctx.lineTo(ax, Y(b.minY))
+    ctx.lineTo(ax + 4, Y(b.minY) + 7)
+    ctx.moveTo(ax - 4, Y(b.maxY) - 7)
+    ctx.lineTo(ax, Y(b.maxY))
+    ctx.lineTo(ax + 4, Y(b.maxY) - 7)
+    ctx.stroke()
+
+    ctx.save()
+    ctx.translate(ax - 6, (Y(b.minY) + Y(b.maxY)) / 2)
+    ctx.rotate(-Math.PI / 2)
+    ctx.fillStyle = '#b4433a'
+    ctx.font = '11px system-ui, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText('地の目', 0, 0)
+    ctx.restore()
+  }, [part, w])
+
+  return (
+    <div ref={wrapRef} className="w-full">
+      <canvas ref={canvasRef} className="block" />
+    </div>
+  )
+}
 
 /**
- * 見つかった形ひとつぶんの行。押すと「取り込む／取り込まない」が切りかわる。
+ * 見つかった形ひとつぶん。押すと「取り込む／取り込まない」が切りかわる。
  *
  * 写真には型紙のほかに、消しゴムや紙片や手が写り込む。
  * それを機械に見分けさせようとはしない。細長い型紙を「これは道具でしょう」と
@@ -61,68 +112,59 @@ const OVERLAY_MAX_H = 210
  * というのがこのアプリの方針でもある。
  * 見分けるのは人がして、**外すのを1タップにする**（依頼者の指示・2026-08-31）。
  */
-function PartRow({ part, on, onToggle }: {
+function PartCard({ part, on, onToggle }: {
   part: PatternPart
   on: boolean
   onToggle: () => void
 }) {
-  const b = bounds(part.outlineMm)
-  const w = b.maxX - b.minX
-  const h = b.maxY - b.minY
-  const pad = Math.max(w, h) * 0.06
-
   return (
     <button
       type="button"
       onClick={onToggle}
       aria-pressed={on}
-      className={`flex w-full items-center gap-2.5 rounded-xl border bg-white px-2.5 py-2 text-left ${
-        on ? 'border-mat-500' : 'border-ink-100 opacity-45'
+      className={`flex w-full flex-col gap-3 rounded-xl border p-4 text-left transition-opacity ${
+        on ? 'border-mat-500 bg-white' : 'border-ink-100 bg-white opacity-45'
       }`}
     >
-      <span
-        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md ${
-          on ? 'bg-mat-500 text-white' : 'border border-ink-300 text-transparent'
-        }`}
-      >
-        <Icon name="check" className="h-3.5 w-3.5" />
-      </span>
-
-      <svg
-        viewBox={`${b.minX - pad} ${b.minY - pad} ${w + pad * 2} ${h + pad * 2}`}
-        className="h-11 w-11 shrink-0 rounded-lg bg-table"
-        preserveAspectRatio="xMidYMid meet"
-        role="img"
-        aria-hidden="true"
-      >
-        <polygon
-          points={part.outlineMm.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')}
-          fill="#FAF7F0"
-          stroke="#2b332d"
-          strokeWidth={Math.max(w, h) * 0.018}
-          strokeLinejoin="round"
-        />
-      </svg>
-
-      <span className="min-w-0 flex-1 truncate text-sm font-bold text-ink-700">{part.name}</span>
-
       {/*
         面積は出さない（依頼者の指示・2026-08-31）。
         要尺は「生地の上に並べたときの丈」で決まるので、面積は使いどころがない。
-        使わない数字を並べると、確かめるべき最大丈・最大幅がその中に埋もれる。
-
-        縦は地の目の矢印、横はその直交の印。
-        どちら向きの寸法なのかを、字ではなく印で言う
+        使わない数字を並べると、確かめるべき最大丈・最大幅がその中に埋もれる
       */}
-      <span className="flex shrink-0 flex-col items-end gap-0.5">
-        <span className="flex items-center gap-1 text-[11px] text-ink-500">
-          <Icon name="grain" className="h-3 w-3 shrink-0" />
-          丈 <span className="tnum font-bold text-ink-900">{cm(part.heightMm)}</span> cm
+      <span className="flex items-center gap-2 text-sm font-bold text-ink-700">
+        <span
+          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md ${
+            on ? 'bg-mat-500 text-white' : 'border border-ink-300 text-transparent'
+          }`}
+        >
+          <Icon name="check" className="h-3.5 w-3.5" />
         </span>
-        <span className="flex items-center gap-1 text-[11px] text-ink-500">
-          <Icon name="grainSide" className="h-3 w-3 shrink-0" />
-          幅 <span className="tnum font-bold text-ink-900">{cm(part.widthMm)}</span> cm
-        </span>
+        <Icon name="part" className="h-4 w-4 shrink-0 text-mat-600" />
+        {part.name}
+      </span>
+
+      <PartShape part={part} />
+
+      {/* 縦は地の目の矢印、横は寸法線。数字がどちら向きの寸法か、絵で分かる */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-lg bg-mat-50 px-3 py-2">
+          <span className="flex items-center gap-1.5 text-xs text-mat-600">
+            <Icon name="grain" className="h-3.5 w-3.5 shrink-0" />
+            最大丈（地の目方向）
+          </span>
+          <span className="tnum text-2xl font-bold text-mat-700">{cm(part.heightMm)}<span className="ml-1 text-sm">cm</span></span>
+        </div>
+        <div className="rounded-lg bg-mat-50 px-3 py-2">
+          <span className="flex items-center gap-1.5 text-xs text-mat-600">
+            <Icon name="grainSide" className="h-3.5 w-3.5 shrink-0" />
+            最大幅
+          </span>
+          <span className="tnum text-2xl font-bold text-mat-700">{cm(part.widthMm)}<span className="ml-1 text-sm">cm</span></span>
+        </div>
+      </div>
+
+      <span className={`text-xs font-bold ${on ? 'text-mat-600' : 'text-ink-300'}`}>
+        {on ? '取り込みます' : '取り込みません（押すと戻ります）'}
       </span>
     </button>
   )
@@ -149,20 +191,18 @@ function PhotoOverlay({ bitmap, result, excluded }: {
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || !w) return
-    // 幅と、縦の上限と、両方に収める。横長でも縦長でも全体が入る
-    const k = Math.min(w / bitmap.width, OVERLAY_MAX_H / bitmap.height)
-    const cw = bitmap.width * k
-    const ch = bitmap.height * k
+    const k = w / bitmap.width
+    const h = bitmap.height * k
     const dpr = Math.min(window.devicePixelRatio || 1, 2)
-    canvas.width = Math.round(cw * dpr)
-    canvas.height = Math.round(ch * dpr)
-    canvas.style.width = `${cw}px`
-    canvas.style.height = `${ch}px`
+    canvas.width = Math.round(w * dpr)
+    canvas.height = Math.round(h * dpr)
+    canvas.style.width = `${w}px`
+    canvas.style.height = `${h}px`
 
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    ctx.drawImage(bitmap, 0, 0, cw, ch)
+    ctx.drawImage(bitmap, 0, 0, w, h)
 
     // 外したものは、細い破線で塗りなし。写真の上でも「これは入れていない」と分かる
     for (const part of result.parts) {
@@ -181,8 +221,8 @@ function PhotoOverlay({ bitmap, result, excluded }: {
   }, [bitmap, result, excluded, w])
 
   return (
-    <div ref={wrapRef} className="flex w-full justify-center">
-      <canvas ref={canvasRef} className="block rounded-lg" />
+    <div ref={wrapRef} className="w-full overflow-hidden rounded-xl">
+      <canvas ref={canvasRef} className="block" />
     </div>
   )
 }
@@ -194,33 +234,33 @@ function PhotoOverlay({ bitmap, result, excluded }: {
  * 「なめらかにする機能」を別に付けるのではなく、
  * 同じひとつの軸の上でどこに置くかを選んでもらう。
  *
- * 選んだところがすぐ上の絵に出るので、押しては見て、を繰り返して決められる
- * （依頼者の指示・2026-08-31）。
+ * 選んだところがすぐ下のカードに出るので、
+ * 押しては見て、を繰り返して決められる（依頼者の指示・2026-08-31）。
  */
 function SmoothPicker({ value, onChange }: {
   value: SmoothLevel
   onChange: (v: SmoothLevel) => void
 }) {
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-2">
-        <Icon name="smooth" className="h-4 w-4 shrink-0 text-ink-300" />
-        <span className="shrink-0 text-xs font-bold text-ink-700">線のなめらかさ</span>
-        <div className="ml-auto flex overflow-hidden rounded-lg border border-ink-100">
-          {SMOOTH_LEVELS.map((lv) => (
-            <button
-              key={lv.key}
-              type="button"
-              onClick={() => onChange(lv.key)}
-              aria-pressed={value === lv.key}
-              className={`border-l border-ink-100 px-3 py-1.5 text-xs font-bold first:border-l-0 ${
-                value === lv.key ? 'bg-mat-500 text-white' : 'bg-white text-ink-700'
-              }`}
-            >
-              {lv.label}
-            </button>
-          ))}
-        </div>
+    <div className="flex flex-col gap-2.5 rounded-xl border border-ink-100 bg-white px-4 py-3.5">
+      <span className="flex items-center gap-2 text-sm font-bold text-ink-700">
+        <Icon name="smooth" className="h-4 w-4 shrink-0 text-mat-600" />
+        線のなめらかさ
+      </span>
+      <div className="grid grid-cols-4 gap-2">
+        {SMOOTH_LEVELS.map((lv) => (
+          <button
+            key={lv.key}
+            type="button"
+            onClick={() => onChange(lv.key)}
+            aria-pressed={value === lv.key}
+            className={`rounded-lg px-2 py-2 text-sm font-bold ${
+              value === lv.key ? 'bg-mat-500 text-white' : 'border border-ink-100 text-ink-700'
+            }`}
+          >
+            {lv.label}
+          </button>
+        ))}
       </div>
       <Hint
         icon="smooth"
@@ -243,28 +283,25 @@ export function ResultView({ bitmap, result, excluded, onToggle, smooth, onSmoot
   smooth: SmoothLevel
   onSmooth: (v: SmoothLevel) => void
 }) {
-  const found = result.parts.length
-
   return (
-    <div className="flex flex-col gap-2.5">
-      <div className="flex gap-2">
+    <div className="flex flex-col gap-5">
+      <div className="flex gap-2.5 rounded-xl border-2 border-mat-500 bg-mat-50 px-4 py-3">
         <Icon name="measure" className="mt-[0.15em] h-5 w-5 shrink-0 text-mat-600" />
         <div className="min-w-0 flex-1">
           <p className="text-sm leading-relaxed text-mat-700">
-            <span className="font-bold">
-              この写真から{' '}
-              <span className="tnum">{found}</span> つ 見つかりました。
-            </span>
+            <span className="font-bold">この数字が実物と近いか、確かめてください。</span>
             <br />
-            大きさが実物と近いか、確かめてください。
+            大きくちがうときは、定規の種類か、四隅の位置が合っていません。
           </p>
-          <p className="tnum pt-0.5 text-[11px] text-mat-600">
+          <p className="tnum mt-2 text-xs text-mat-600">
             換算率 1px ＝ {result.scale.mmPerPixel.toFixed(3)} mm
           </p>
         </div>
       </div>
 
-      {found === 0 ? (
+      {result.parts.length > 0 && <SmoothPicker value={smooth} onChange={onSmooth} />}
+
+      {result.parts.length === 0 ? (
         <div className="flex gap-2.5 rounded-xl border border-seam bg-white px-4 py-4 text-sm leading-relaxed text-seam">
           <Icon name="warn" className="mt-[0.15em] h-5 w-5 shrink-0" />
           <span className="min-w-0 flex-1">
@@ -283,32 +320,33 @@ export function ResultView({ bitmap, result, excluded, onToggle, smooth, onSmoot
         </div>
       ) : (
         <>
-          <PhotoOverlay bitmap={bitmap} result={result} excluded={excluded} />
-
-          {found > 1 && (
-            <p className="flex items-start gap-2 text-[11px] leading-relaxed text-ink-500">
+          {result.parts.length > 1 && (
+            <p className="flex items-start gap-2 text-xs leading-relaxed text-ink-500">
               <Icon name="hint" className="mt-[0.2em] h-[1.15em] w-[1.15em] shrink-0 text-mat-600" />
               <span className="min-w-0 flex-1">
-                型紙でないものが混じっていたら、その行を押して外してください
+                型紙でないものが混じっていたら、そのカードを押して外してください
                 （消しゴムや紙片も、3cmより大きければ出てきます）。
               </span>
             </p>
           )}
-
-          <div className="flex flex-col gap-1.5">
-            {result.parts.map((p) => (
-              <PartRow
-                key={p.id}
-                part={p}
-                on={!excluded.has(p.id)}
-                onToggle={() => onToggle(p.id)}
-              />
-            ))}
-          </div>
-
-          <SmoothPicker value={smooth} onChange={onSmooth} />
+          {result.parts.map((p) => (
+            <PartCard
+              key={p.id}
+              part={p}
+              on={!excluded.has(p.id)}
+              onToggle={() => onToggle(p.id)}
+            />
+          ))}
         </>
       )}
+
+      <div className="flex flex-col gap-2">
+        <span className="flex items-center gap-2 text-sm font-bold text-ink-700">
+          <Icon name="photo" className="h-4 w-4 shrink-0 text-mat-600" />
+          写真の上での切り抜き位置
+        </span>
+        <PhotoOverlay bitmap={bitmap} result={result} excluded={excluded} />
+      </div>
     </div>
   )
 }

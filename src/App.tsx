@@ -35,7 +35,7 @@ import { applyWarp, isWarped, NO_WARP, type Keystone } from './lib/warp'
   もとは生地幅と差し込みが「縫い代」の中に、折り方が「並べる」の上にあった。
   生地についての判断だけを1画面に集めてある
 */
-type Step = 'photo' | 'ruler' | 'parts' | 'fabric' | 'layout'
+type Step = 'photo' | 'ruler' | 'result' | 'parts' | 'fabric' | 'layout'
 
 const RULER_KEY = 'yojaku.ruler'
 
@@ -448,7 +448,7 @@ export function App() {
       } else {
         setResult(out)
         setExcluded(new Set())
-        setStep('parts')
+        setStep('result')
       }
       setBusy(false)
     }, 30)
@@ -495,8 +495,6 @@ export function App() {
     })
     setKept(replace ? added.map((p) => p.id) : [...kept, ...added.map((p) => p.id)])
     setAskAgain(false)
-    // 取り込んだら確認の帯は用済み。消すと、あとには一覧だけが残る
-    setResult(null)
     setStep('parts')
   }
 
@@ -591,8 +589,8 @@ export function App() {
     switch (to) {
       case 'photo': return true
       case 'ruler': return !!(image && quad)
-      // 取り込む前でも、確認の帯を出すために入れる
-      case 'parts': return parts.parts.length > 0 || !!result
+      case 'result': return !!(image && result)
+      case 'parts': return parts.parts.length > 0
       case 'fabric': return parts.parts.length > 0
       case 'layout': return parts.parts.length > 0
       default: return false
@@ -607,185 +605,6 @@ export function App() {
   /** この画面に、呼び戻せる案内があるか（いまは案内そのものを止めてある） */
   const hasTour = TOUR_ON && (step === 'photo' || step === 'parts' || step === 'layout')
 
-  /*
-    撮ったばかりの写真から見つかった形を、確かめて取り込む帯
-    （依頼者の指摘・2026-09-01「実寸のパートと縫い代のパートは
-      似たような表記なので、まとめられないのかな」「段階が少し多いかな」）。
-
-    もとは「実寸」という独立した段階だったが、パーツの画面と
-    同じものを別の瞬間に扱っているだけだったので、
-    1つの画面の中の2つの状態にまとめた（6段階 → 5段階）。
-
-    ここは「いま撮った写真の話」なので、緑の枠でひとまとまりにして、
-    取り込んだら丸ごと消える。残るのは下の一覧だけ。
-    削ったもの・残したものの理由は ResultView.tsx の説明を参照
-  */
-  const intake = image && shown ? (
-    <div className="flex flex-col gap-4 rounded-xl border-2 border-mat-500 bg-mat-50 p-3">
-      <ResultView
-        bitmap={image.bitmap}
-        result={shown}
-        smooth={smooth}
-        onSmooth={setSmooth}
-        excluded={excluded}
-        onToggle={(id) => setExcluded((prev) => {
-          const next = new Set(prev)
-          if (next.has(id)) next.delete(id)
-          else next.add(id)
-          return next
-        })}
-      />
-
-      {/*
-        ゆがみの手直し（依頼者の相談・2026-09-01）。
-
-        **最後の手段**なので、ふだんは1行の入口だけにしてある。
-        ゆがみの本当の直し場所は定規の四隅で、そちらを直せば全部いっぺんに直る。
-        ここを大きく出すと、上流で直せるものを下流で直しに行かせてしまう
-      */}
-      {warpOpen && smoothed && smoothed.parts[warpIndex] ? (
-        <WarpEditor
-          part={smoothed.parts[warpIndex]}
-          warp={warp}
-          onChange={setWarp}
-          index={warpIndex}
-          count={smoothed.parts.length}
-          onIndex={setWarpIndex}
-          all={warpAll}
-          onAll={setWarpAll}
-          onClose={() => setWarpOpen(false)}
-        />
-      ) : (
-        <button
-          type="button"
-          onClick={() => setWarpOpen(true)}
-          className="flex items-center gap-1.5 self-start text-xs font-bold text-mat-700"
-        >
-          <Icon name={isWarped(warp) ? 'back' : 'hint'} className="h-4 w-4 shrink-0" />
-          {isWarped(warp)
-            ? 'ゆがみを直してあります（もう一度開く）'
-            : '形がゆがんで見える（台形で直す）'}
-        </button>
-      )}
-
-      {/*
-        持ってくる型紙は、出来上がり線で切ってあるとは限らない（依頼者の指摘）。
-        先にここで聞いておけば、縫い代を足す画面は要る人にだけ出せる
-      */}
-      <div className="flex flex-col gap-3 rounded-xl border border-ink-100 bg-white px-4 py-4">
-        {/* 問いかけには「？」を付ける。答えを選ぶところだと、読む前に分かる */}
-        <Heading icon="question">この型紙は、どちらですか</Heading>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => setSeamIncluded(false)}
-            className={`rounded-lg px-3 py-3 text-left ${
-              seamIncluded ? 'border border-ink-100' : 'bg-mat-500 text-white'
-            }`}
-          >
-            <span className="flex items-center gap-1.5 text-sm font-bold">
-              <Icon name="seam" className="h-4 w-4 shrink-0" />
-              縫い代なし
-            </span>
-            <span className={`block pt-0.5 text-xs ${seamIncluded ? 'text-ink-500' : 'text-mat-50'}`}>
-              出来上がり線。取り込んでから足します
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setSeamIncluded(true)}
-            className={`rounded-lg px-3 py-3 text-left ${
-              seamIncluded ? 'bg-mat-500 text-white' : 'border border-ink-100'
-            }`}
-          >
-            <span className="flex items-center gap-1.5 text-sm font-bold">
-              <Icon name="scissors" className="h-4 w-4 shrink-0" />
-              縫い代つき
-            </span>
-            <span className={`block pt-0.5 text-xs ${seamIncluded ? 'text-mat-50' : 'text-ink-500'}`}>
-              このまま裁てる線。足しません
-            </span>
-          </button>
-        </div>
-      </div>
-
-      {/*
-        同じ写真から二度目の取り込み（依頼者の指示・2026-09-01）。
-
-        四隅を直しに戻ってきたのなら「置きかえる」が求めていること。
-        選ばなかったパーツを足しに戻ってきたのなら「足す」。
-        どちらも実際にある道なので、こちらでは決めない。
-
-        ここに出すのは、押す直前に読めるようにするため。
-        取り込みボタンの上に置いて、答えるまでボタンは押せないままにしてある
-      */}
-      {askAgain && (
-        <div className="flex flex-col gap-3 rounded-xl border-2 border-mat-500 bg-mat-50 px-4 py-4">
-          <p className="flex gap-2 text-sm leading-relaxed text-mat-700">
-            <Icon name="part" className="mt-[0.2em] h-[1.15em] w-[1.15em] shrink-0" />
-            <span className="min-w-0 flex-1">
-              <span className="font-bold">
-                この写真からは、もう {kept.length} 個 取り込んであります。
-              </span>
-              四隅を直しに戻ってきたのなら「取り込み直す」。
-              <span className="text-mat-600">
-                縫い代を付けたぶんは、取り込み直すと消えます。
-              </span>
-            </span>
-          </p>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => doKeep(true)}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-mat-500 px-3 py-3 text-sm font-bold text-white active:bg-mat-600"
-            >
-              <Icon name="undo" className="h-4 w-4 shrink-0" />
-              取り込み直す
-            </button>
-            <button
-              type="button"
-              onClick={() => doKeep(false)}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl border-2 border-mat-500 bg-white px-3 py-3 text-sm font-bold text-mat-700"
-            >
-              <Icon name="plus" className="h-4 w-4 shrink-0" />
-              そのまま足す
-            </button>
-          </div>
-        </div>
-      )}
-
-      <button
-        type="button"
-        onClick={keep}
-        disabled={chosenCount === 0 || askAgain}
-        className="flex items-center justify-center gap-2 rounded-xl bg-mat-500 px-5 py-4 text-base font-bold text-white active:bg-mat-600 disabled:opacity-50"
-      >
-        <Icon name="part" className="h-5 w-5 shrink-0" />
-        {chosenCount === shown.parts.length
-          ? `このパーツを取り込む（${chosenCount}）`
-          : `選んだ ${chosenCount} 個を取り込む`}
-      </button>
-      <div className="flex gap-3">
-        <button
-          type="button"
-          onClick={() => { setAskAgain(false); setStep('ruler') }}
-          className="flex flex-1 items-center justify-center gap-2 rounded-xl border-2 border-mat-500 px-5 py-4 text-base font-bold text-mat-700"
-        >
-          <Icon name="ruler" className="h-5 w-5 shrink-0" />
-          四隅を直す
-        </button>
-        <button
-          type="button"
-          onClick={restart}
-          className="flex items-center justify-center gap-2 rounded-xl border-2 border-ink-100 px-5 py-4 text-base font-bold text-ink-500"
-        >
-          <Icon name="camera" className="h-5 w-5 shrink-0" />
-          撮り直す
-        </button>
-      </div>
-    </div>
-  ) : null
-
   return (
     <div className="mx-auto flex min-h-full w-full max-w-xl flex-col">
       <header className="flex items-start justify-between gap-3 px-4 pt-5 pb-3">
@@ -793,11 +612,11 @@ export function App() {
           <h1 className="text-base font-bold tracking-wide text-ink-900">要尺シミュレーター</h1>
           <span className="text-xs text-ink-300">
             {step === 'fabric' || step === 'layout'
-              ? '第3段階：生地を決めて、上に並べる'
+              ? '第4段階：生地を決めて、上に並べる'
               : step === 'parts'
                 ? seamIncluded
                   ? '第2段階：取り込んで、わの辺を決める'
-                  : '第2段階：取り込んで、縫い代を付ける'
+                  : '第2・3段階：取り込んで、縫い代を付ける'
                 : '第1段階：実寸をつかむ'}
           </span>
         </div>
@@ -1381,6 +1200,171 @@ export function App() {
           </section>
         )}
 
+        {step === 'result' && image && shown && (
+          <section className="flex flex-col gap-5">
+            <ResultView
+              bitmap={image.bitmap}
+              result={shown}
+              smooth={smooth}
+              onSmooth={setSmooth}
+              excluded={excluded}
+              onToggle={(id) => setExcluded((prev) => {
+                const next = new Set(prev)
+                if (next.has(id)) next.delete(id)
+                else next.add(id)
+                return next
+              })}
+            />
+
+            {/*
+              ゆがみの手直し（依頼者の相談・2026-09-01）。
+
+              **最後の手段**なので、ふだんは1行の入口だけにしてある。
+              ゆがみの本当の直し場所は定規の四隅で、そちらを直せば全部いっぺんに直る。
+              ここを大きく出すと、上流で直せるものを下流で直しに行かせてしまう
+            */}
+            {warpOpen && smoothed && smoothed.parts[warpIndex] ? (
+              <WarpEditor
+                part={smoothed.parts[warpIndex]}
+                warp={warp}
+                onChange={setWarp}
+                index={warpIndex}
+                count={smoothed.parts.length}
+                onIndex={setWarpIndex}
+                all={warpAll}
+                onAll={setWarpAll}
+                onClose={() => setWarpOpen(false)}
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setWarpOpen(true)}
+                className="flex items-center gap-1.5 self-start text-xs font-bold text-mat-700"
+              >
+                <Icon name={isWarped(warp) ? 'back' : 'hint'} className="h-4 w-4 shrink-0" />
+                {isWarped(warp)
+                  ? 'ゆがみを直してあります（もう一度開く）'
+                  : '形がゆがんで見える（台形で直す）'}
+              </button>
+            )}
+
+            {/*
+              持ってくる型紙は、出来上がり線で切ってあるとは限らない（依頼者の指摘）。
+              先にここで聞いておけば、縫い代を足す画面は要る人にだけ出せる
+            */}
+            <div className="flex flex-col gap-3 rounded-xl border border-ink-100 bg-white px-4 py-4">
+              {/* 問いかけには「？」を付ける。答えを選ぶところだと、読む前に分かる */}
+              <Heading icon="question">この型紙は、どちらですか</Heading>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSeamIncluded(false)}
+                  className={`rounded-lg px-3 py-3 text-left ${
+                    seamIncluded ? 'border border-ink-100' : 'bg-mat-500 text-white'
+                  }`}
+                >
+                  <span className="flex items-center gap-1.5 text-sm font-bold">
+                    <Icon name="seam" className="h-4 w-4 shrink-0" />
+                    縫い代なし
+                  </span>
+                  <span className={`block pt-0.5 text-xs ${seamIncluded ? 'text-ink-500' : 'text-mat-50'}`}>
+                    出来上がり線。次の画面で縫い代を足します
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSeamIncluded(true)}
+                  className={`rounded-lg px-3 py-3 text-left ${
+                    seamIncluded ? 'bg-mat-500 text-white' : 'border border-ink-100'
+                  }`}
+                >
+                  <span className="flex items-center gap-1.5 text-sm font-bold">
+                    <Icon name="scissors" className="h-4 w-4 shrink-0" />
+                    縫い代つき
+                  </span>
+                  <span className={`block pt-0.5 text-xs ${seamIncluded ? 'text-mat-50' : 'text-ink-500'}`}>
+                    このまま裁てる線。足しません
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            {/*
+              同じ写真から二度目の取り込み（依頼者の指示・2026-09-01）。
+
+              四隅を直しに戻ってきたのなら「置きかえる」が求めていること。
+              選ばなかったパーツを足しに戻ってきたのなら「足す」。
+              どちらも実際にある道なので、こちらでは決めない。
+
+              ここに出すのは、押す直前に読めるようにするため。
+              取り込みボタンの上に置いて、答えるまでボタンは押せないままにしてある
+            */}
+            {askAgain && (
+              <div className="flex flex-col gap-3 rounded-xl border-2 border-mat-500 bg-mat-50 px-4 py-4">
+                <p className="flex gap-2 text-sm leading-relaxed text-mat-700">
+                  <Icon name="part" className="mt-[0.2em] h-[1.15em] w-[1.15em] shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    <span className="font-bold">
+                      この写真からは、もう {kept.length} 個 取り込んであります。
+                    </span>
+                    四隅を直しに戻ってきたのなら「取り込み直す」。
+                    <span className="text-mat-600">
+                      縫い代を付けたぶんは、取り込み直すと消えます。
+                    </span>
+                  </span>
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => doKeep(true)}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-mat-500 px-3 py-3 text-sm font-bold text-white active:bg-mat-600"
+                  >
+                    <Icon name="undo" className="h-4 w-4 shrink-0" />
+                    取り込み直す
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => doKeep(false)}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl border-2 border-mat-500 bg-white px-3 py-3 text-sm font-bold text-mat-700"
+                  >
+                    <Icon name="plus" className="h-4 w-4 shrink-0" />
+                    そのまま足す
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={keep}
+              disabled={chosenCount === 0 || askAgain}
+              className="flex items-center justify-center gap-2 rounded-xl bg-mat-500 px-5 py-4 text-base font-bold text-white active:bg-mat-600 disabled:opacity-50"
+            >
+              <Icon name="part" className="h-5 w-5 shrink-0" />
+              {chosenCount === shown.parts.length
+                ? `このパーツを取り込む（${chosenCount}）`
+                : `選んだ ${chosenCount} 個を取り込む`}
+            </button>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => { setAskAgain(false); setStep('ruler') }}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl border-2 border-mat-500 px-5 py-4 text-base font-bold text-mat-700"
+              >
+                <Icon name="ruler" className="h-5 w-5 shrink-0" />
+                四隅を直す
+              </button>
+              <button
+                type="button"
+                onClick={restart}
+                className="flex items-center justify-center gap-2 rounded-xl border-2 border-ink-100 px-5 py-4 text-base font-bold text-ink-500"
+              >
+                <Icon name="camera" className="h-5 w-5 shrink-0" />
+                撮り直す
+              </button>
+            </div>
+          </section>
+        )}
         {step === 'fabric' && (
           <FabricView state={parts} onChange={updateParts} onLayout={() => setStep('layout')} />
         )}
@@ -1390,7 +1374,6 @@ export function App() {
             onChange={updateParts}
             onAddMore={restart}
             onLayout={() => setStep('fabric')}
-            intake={intake}
           />
         )}
         {step === 'layout' && (
@@ -1431,7 +1414,8 @@ export function App() {
 const STEPS: Array<{ id: Step; label: string; icon: IconName }> = [
   { id: 'photo', label: '撮る', icon: 'camera' },
   { id: 'ruler', label: '定規', icon: 'ruler' },
-  { id: 'parts', label: 'パーツ', icon: 'part' },
+  { id: 'result', label: '実寸', icon: 'measure' },
+  { id: 'parts', label: '縫い代', icon: 'seam' },
   { id: 'fabric', label: '生地', icon: 'cloth' },
   { id: 'layout', label: '並べる', icon: 'layout' },
 ]

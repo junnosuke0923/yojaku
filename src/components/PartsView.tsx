@@ -6,7 +6,7 @@
  * 名前は付けなくても計算は進む。
  */
 
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState } from 'react'
 import type { PlacedPart } from '../lib/fabric'
 import { bounds } from '../lib/geom'
 import {
@@ -21,17 +21,12 @@ import { Tour } from './Tour'
 type Props = {
   state: PartsState
   onChange: (state: PartsState) => void
-  /** 「撮り足す」。写真を撮るところへ戻る */
+  /** 開発用：この型紙の縫い代の画面を、開いた状態で始める */
   onAddMore: () => void
   onLayout: () => void
-  /**
-   * いま撮った写真から見つかった形を、確かめて取り込む帯。
-   * 取り込むまでのあいだだけ渡ってくる（App.tsx の `intake`）
-   */
-  intake?: ReactNode
 }
 
-export function PartsView({ state, onChange, onAddMore, onLayout, intake }: Props) {
+export function PartsView({ state, onChange, onAddMore, onLayout }: Props) {
   const [editing, setEditing] = useState<string | null>(null)
 
   /*
@@ -156,19 +151,6 @@ export function PartsView({ state, onChange, onAddMore, onLayout, intake }: Prop
   return (
     <section className="flex flex-col gap-2.5">
       <Tour id="parts" />
-
-      {/*
-        いま撮った写真の確認。取り込むまでのあいだだけ、一覧の上に出る。
-        もとは「実寸」という別の段階だった（依頼者の指摘・2026-09-01）
-      */}
-      {intake}
-
-      {/*
-        取り込む前で、まだ1つも無いときは、一覧の見出しごと出さない。
-        「取り込んだパーツ 0」と「まだ1つもありません」を確認の帯の下に並べても、
-        いま何をすればよいかが薄まるだけ
-      */}
-      {(patterns.length > 0 || !intake) && (
       <Heading
         icon="part"
         right={
@@ -184,19 +166,16 @@ export function PartsView({ state, onChange, onAddMore, onLayout, intake }: Prop
       >
         取り込んだパーツ<span className="tnum pl-2 text-ink-300">{patterns.length}</span>
       </Heading>
-      )}
 
       {patterns.length === 0 ? (
-        !intake && (
-          <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-ink-100 px-4 py-8 text-center text-sm text-ink-300">
-            <Icon name="part" className="h-8 w-8" />
-            <p>
-              まだ1つもありません。
-              <br />
-              大きいパーツは1枚ずつ、小さいパーツは並べてまとめて撮ってください。
-            </p>
-          </div>
-        )
+        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-ink-100 px-4 py-8 text-center text-sm text-ink-300">
+          <Icon name="part" className="h-8 w-8" />
+          <p>
+            まだ1つもありません。
+            <br />
+            大きいパーツは1枚ずつ、小さいパーツは並べてまとめて撮ってください。
+          </p>
+        </div>
       ) : (
         <>
           <ul className="flex flex-col gap-2.5">
