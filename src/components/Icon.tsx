@@ -29,7 +29,7 @@ export type IconName =
   | 'cloth' | 'selvage' | 'clothWidth' | 'yardage' | 'layout' | 'hold'
   | 'grain' | 'grainSide' | 'nap' | 'napNone' | 'flip' | 'mirror' | 'nest'
   | 'question' | 'hint' | 'warn' | 'check'
-  | 'plus' | 'trash' | 'back' | 'undo' | 'redo' | 'save'
+  | 'plus' | 'trash' | 'back' | 'chevron' | 'undo' | 'redo' | 'save'
   | 'turnLeft' | 'turnRight'
 
 /**
@@ -116,6 +116,11 @@ const SHAPES: Record<IconName, ReactNode> = {
       <path d="M8.6 17.4V9.9a1.3 1.3 0 0 1 1.3-1.3h7.5" />
       <path d="M4.2 17.4V9.9A5.7 5.7 0 0 1 9.9 4.2h7.5" strokeDasharray="2.6 2.1" />
     </>
+  ),
+
+  /** 「この先に画面がある」ことを言う矢じり。カードの行末に置く */
+  chevron: (
+    <path d="M9.5 5.5L16 12l-6.5 6.5" />
   ),
 
   scissors: (

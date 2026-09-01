@@ -238,6 +238,22 @@ export function PartsView({ state, onChange, onAddMore, onLayout }: Props) {
   )
 }
 
+/**
+ * カードに出す、いまの縫い代のようす。
+ *
+ * 足す量として数えるのは 0 より大きい辺だけ。
+ * 0 は「わ」（折り山に当てる）、負の値は「型紙にもう付いている」という印で、
+ * どちらも足す量ではないので、cm の幅の話からは外す（lib/seam.ts を参照）
+ */
+function seamSummary(part: StoredPart): string {
+  const add = part.allowancesMm.filter((a) => a > 0)
+  const cm = (v: number) => (v / 10).toFixed(1)
+  if (add.length === 0) return part.seamIncluded ? '型紙についている' : 'なし'
+  const lo = Math.min(...add)
+  const hi = Math.max(...add)
+  return lo === hi ? `${cm(lo)} cm` : `${cm(lo)}〜${cm(hi)} cm`
+}
+
 /** 置く形の、外まわりの大きさ(mm) */
 const sizeOf = (placed: PlacedPart) => {
   const b = bounds(placed.cutLineMm)
@@ -389,6 +405,7 @@ function PartRow({
   const size = placed ? sizeOf(placed) : null
   const folds = part.allowancesMm.filter((a) => a === 0).length
   const opened = part.openFold === true && folds > 0
+  const seam = seamSummary(part)
 
   return (
     <li
@@ -446,19 +463,39 @@ function PartRow({
           </button>
         </div>
 
-        {(folds > 0 || part.seamIncluded) && (
-          <button type="button" onClick={onOpen} className="flex items-center gap-2 text-left">
-            {folds > 0 && (
-              <span className="flex items-center gap-1 text-[11px] font-bold text-seam">
-                <Icon name="fold" className="h-3.5 w-3.5 shrink-0" />
-                {opened ? 'わで開いて裁つ' : `わ ${folds}本`}
-              </span>
-            )}
-            {part.seamIncluded && (
-              <span className="text-[11px] text-ink-300">縫い代つき</span>
-            )}
-          </button>
-        )}
+        {/*
+          縫い代の画面への入口（依頼者の指摘・2026-09-01
+          「一度そのパートをタップしないと縫い代付けの中に入っていけないのが、
+            もしかしたら分かりづらいのかも」）。
+
+          もともと絵も大きさもこの行も押せば開いたのだが、
+          **押せると分かる印が何も無かった**。名前と枚数だけ決めて、
+          縫い代を一度も見ないまま次へ進めてしまう。
+
+          そこで、行き先の矢じりを付けたうえで、いまの縫い代を文字で出す。
+          既定は全辺 1cm なので、開かなくても計算自体は進む——
+          だからこそ「1.0 cm のまま」と見えていないと、
+          裾を 3cm にする、「わ」の辺を 0 にする、といった直す機会に気づけない。
+          禁じたり止めたりはせず、いまどうなっているかを言うだけにしてある
+        */}
+        <button
+          type="button"
+          onClick={onOpen}
+          className="-mx-1 flex items-center gap-1.5 rounded-b-lg border-t border-ink-100 px-1 pt-2 pb-0.5 text-left active:bg-table"
+        >
+          <Icon name="seam" className="h-3.5 w-3.5 shrink-0 text-ink-300" />
+          <span className="min-w-0 truncate text-[11px] font-bold text-ink-700">
+            縫い代を決める
+          </span>
+          {folds > 0 && (
+            <span className="flex shrink-0 items-center gap-1 text-[11px] font-bold text-seam">
+              <Icon name="fold" className="h-3.5 w-3.5 shrink-0" />
+              {opened ? 'わで開いて裁つ' : `わ ${folds}本`}
+            </span>
+          )}
+          <span className="tnum ml-auto shrink-0 text-[11px] text-ink-500">{seam}</span>
+          <Icon name="chevron" className="h-4 w-4 shrink-0 text-ink-300" />
+        </button>
       </div>
     </li>
   )
