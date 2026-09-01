@@ -104,6 +104,18 @@ export function App() {
    * そこで、解析には台形を渡しつつ、**種類の見分けだけは長方形で**する
    */
   const [autoRect, setAutoRect] = useState<Quad | null>(null)
+  /**
+   * すぼまりから採れた**台形**の四隅。すぼまりが出なければ null。
+   *
+   * ここに置いてあるだけで、当ててはいない（依頼者の報告・2026-09-01
+   * 「以前は同じ画像で一発できれいにいっていたのですが、
+   * 色々機能の修正を加えてからゆがみ方がおかしくなるようになりました」）。
+   * すぼまりを測ると自動で「ゆがみに合わせる」へ切り替えていたが、
+   * 見本の写真はほとんど傾いていないのに、すぼまりが 1.0686 と出て
+   * 境目（1.03）を越えてしまい、パーツごとに 1.2〜3.3 度の傾きが出ていた。
+   * 「学生が押したら、そのとき渡す」に変えてある
+   */
+  const [autoTaper, setAutoTaper] = useState<Quad | null>(null)
   const [rulerId, setRulerId] = useState<RulerId>(loadSavedRuler)
   const [rulerChosenByHand, setRulerChosenByHand] = useState(false)
   /**
@@ -295,17 +307,26 @@ export function App() {
         あるので、定規の種類の判別（guessRuler）もその場で働いてよい
       */
       const found = findRulerQuad(loaded.imageData, nextGreen)
-      setQuad(found ? found.quad : defaultRulerQuad(loaded.width, loaded.height))
+      setQuad(found ? found.rect : defaultRulerQuad(loaded.width, loaded.height))
       setQuadAdjusted(!!found)
       setRulerAuto(!!found)
       setAutoRect(found ? found.rect : null)
       setRulerChosenByHand(false)
       /*
-        斜めから撮られていたら、こちらで「ゆがみに合わせる」に切り替える。
-        合成画像では、傾き20度で型紙の幅のずれが +11.7% から +2.5% へ下がった。
-        真上から撮れているときは長方形＋相似のほうが正確なので、切り替えない
+        すぼまりが出ていても、こちらでは切り替えない。**言うだけ**にする。
+
+        以前はここで自動で「ゆがみに合わせる」に切り替えていた。
+        合成画像では効いた（傾き20度で幅のずれが +11.7% から +2.5% へ）のだが、
+        合成画像はすぼまりが正確に測れるので、実写とは前提が違っていた。
+        見本の写真は、長方形で渡せば型紙3枚とも 0.2 度以内でまっすぐ立つ
+        ＝ほとんど傾いていないのに、すぼまりは 1.0686 と出る。
+        境目の 1.03 は合成画像で決めた値なので、実写の測り誤差に届いていなかった。
+
+        定規の四隅を「当てるのは提案であって、決定ではない」（lib/findRuler.ts）
+        という作りにしてあるのに、計算のしかたのほうだけ決めてしまっていた
       */
-      setPerspective(!!found?.tilted)
+      setPerspective(false)
+      setAutoTaper(found?.tilted ? found.quad : null)
       setResult(null)
       setKept([])
       setWarp(NO_WARP)
@@ -332,6 +353,7 @@ export function App() {
     setQuadAdjusted(true)
     setRulerAuto(false)
     setAutoRect(null)
+    setAutoTaper(null)
   }
 
   /*
@@ -1053,7 +1075,6 @@ export function App() {
                 <span className="min-w-0 flex-1">
                   <span className="font-bold">
                     定規をさがして、枠を当てておきました。
-                    {perspective && '斜めから撮られているので、ゆがみに合わせてあります。'}
                   </span>
                   合っているか確かめてください。ずれていたら、角をつまんで直せます。
                 </span>
@@ -1083,6 +1104,18 @@ export function App() {
             />
 
             {/*
+              すぼまりが出ていたときの知らせ。**切り替えずに言うだけ**。
+              押すかどうかは学生に決めてもらう（依頼者の報告・2026-09-01）
+            */}
+            {!perspective && autoTaper && (
+              <Note icon="hint">
+                <span className="font-bold">少し斜めから撮られているかもしれません。</span>
+                形がゆがんで見えるときだけ、下の「斜めから撮ってしまった」を押してください。
+                ふだんは長方形のままのほうが正確です。
+              </Note>
+            )}
+
+            {/*
               斜め撮りの逃げ道。ふだんは開かない。
               4隅を自由にすると指のずれがそのまま歪みになるので、既定にはしない
               （lib/ruler.ts の buildScale を参照）
@@ -1092,6 +1125,9 @@ export function App() {
               onClick={() => {
                 // 台形から戻るときは、いちばん近い長方形に直してから渡す
                 if (perspective && quad) adjustQuad(rectifyQuad(quad))
+                // 行くときは、すぼまりから採れた台形があればそれを渡す。
+                // 自動では当てないが、押した人には手間をかけさせない
+                if (!perspective && autoTaper) setQuad(autoTaper)
                 setPerspective((v) => !v)
               }}
               className="flex items-center gap-1.5 self-start text-xs font-bold text-mat-700"

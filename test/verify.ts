@@ -670,15 +670,19 @@ sweepFind()
 
 
 /**
- * 斜めから撮ったとき、自動あてはめが「すぼまり」で気づいて
- * ゆがみに合わせる計算へ切り替えられているか。
+ * 斜めから撮ったとき、自動あてはめが「すぼまり」で気づけているか。
+ * そして、学生が「斜めから撮ってしまった」を押したときに、
+ * その台形で寸法が合うか。
  *
+ * 気づくことと切り替えることは別で、**切り替えはしない**
+ * （実写では、ほとんど傾いていない写真でもすぼまりが 1.07 と出た。
+ * 詳しくは App.tsx の setAutoTaper のところ）。
  * ここで見るのは四隅の px ではなく、**最後に出てくる寸法**。
  * 四隅が少しずれていても寸法が合っていればよく、逆もまた真なので。
  */
 function sweepTilt() {
   console.log('')
-  console.log('■ 斜めから撮ったとき（自動あてはめ → 寸法まで）')
+  console.log('■ 斜めから撮ったとき（すぼまりに気づく → 押されたら寸法まで）')
   for (const tiltDeg of [0, 5, 10, 15, 20]) {
     const scene = buildScene({ rulerId: 'r50', tiltDeg, opaqueRuler: false, tintedRuler: true })
     const image = scene.image as unknown as ImageData
@@ -711,7 +715,7 @@ function sweepTilt() {
       continue
     }
     // 手で四隅を置いたときは、傾き20度で幅が +13.9% ずれていた。
-    // すぼまりで気づいてゆがみに合わせると、ここまで下がる
+    // すぼまりから採れた台形で「ゆがみに合わせる」と、ここまで下がる
     check(`傾き${tiltDeg}度 最大幅 (mm)`, out.parts[0].widthMm, TRUE_WIDTH_MM, 2)
     check(`傾き${tiltDeg}度 最大丈 (mm)`, out.parts[0].heightMm, TRUE_HEIGHT_MM, 2)
   }
