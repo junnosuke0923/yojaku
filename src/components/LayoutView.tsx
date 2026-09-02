@@ -32,6 +32,7 @@ import { applyFoldChange, placedPartOf, type PartsState, type StoredPart } from 
 import { FoldDiagram } from './FoldDiagram'
 import { Heading, Hint, Icon, Note } from './Icon'
 import { PatternMarks } from './PatternMarks'
+import { T } from './TextTools'
 import { Tour } from './Tour'
 import type { Point, Polygon } from '../lib/geom'
 
@@ -464,9 +465,8 @@ function Totals({
         ひと言だけ出して、理由は「？」の中に畳んでおく
       */}
       <div className="pt-0.5">
-        <Hint icon="warn" summary={<>この数字は<b className="text-ink-700">概算</b>です</>}>
-          型紙の形は写真から読み取っているので、実物とは数ミリの差が出ます。
-          地直しの縮みや裁つときのくせでも変わるので、心配なときは少し多めに見てください。
+        <Hint icon="warn" summary={<T id="layout.rough.summary" />}>
+          <T id="photo.rough.body" />
         </Hint>
       </div>
       {/* 計算の中身は、式のかたちで一目で見せる。文にすると読ませることになる */}
@@ -483,11 +483,11 @@ function Totals({
               </span>
             }
           >
-            {PURCHASE_MARGIN_MM / 10} cm は地直しの縮みと裁ち端のぶん。そのうえで 10cm 単位に切り上げます。
+            <T id="layout.margin.note" vars={{ cm: PURCHASE_MARGIN_MM / 10 }} />
           </Hint>
         </div>
       ) : (
-        <p className="pt-1 text-xs text-ink-500">上の「置く」から並べてください。</p>
+        <p className="pt-1 text-xs text-ink-500"><T id="layout.empty.note" /></p>
       )}
       <p className="tnum flex items-center gap-1.5 pt-2 text-xs text-ink-300">
         <Icon name="clothWidth" className="h-3.5 w-3.5 shrink-0" />
@@ -670,10 +670,9 @@ function ImageBox({
       </button>
       <Hint
         icon="photo"
-        summary={<>生地幅と買う長さは<b className="text-ink-700">下の帯</b>に入ります</>}
+        summary={<T id="layout.band.summary" />}
       >
-        帯は図にかからないよう下端にまとめてあります。資料に貼るとき数字が要らなければ、
-        帯ごと下を切り落としてください。
+        <T id="layout.band.body" />
       </Hint>
       {note && <Note icon={bad ? 'warn' : 'check'} tone={bad ? 'warn' : 'good'}>{note}</Note>}
     </div>
@@ -2497,35 +2496,23 @@ function SectionCanvas({
         <Hint
           icon="fold"
           summary={allDoubled
-            ? <>見えている面は<b className="text-mat-600">ぜんぶ二重</b>。型紙1つで2枚とれます</>
+            ? <T id="layout.layer.all" strong="font-bold text-mat-600" />
             : flaps.length > 0
-              ? <>折り返したぶんだけが<b className="text-mat-600">二重</b>。そこは型紙1つで2枚とれます</>
-              : <>折らずに<b className="text-ink-700">一重</b>で使っています</>}
+              ? <T id="layout.layer.some" strong="font-bold text-mat-600" />
+              : <T id="layout.layer.none" />}
         >
           {half && section.fold === 'vBoth' ? (
-            <>
-              折り山が左右に1本ずつあるので、「わ」の辺を持つ型紙をどちらにも当てられます。
-              折り返す深さは左右べつべつに決まるので、出会うところは真ん中とはかぎりません。
-            </>
+            <T id="layout.fold.vboth" />
           ) : half && section.fold === 'hBoth' ? (
-            <>
-              折り山が上下に1本ずつあるので、「わ」の辺を持つ型紙をどちらにも当てられます。
-              買う長さは、見えている面の長さ {(report.surfaceLengthMm / 10).toFixed(0)} cm の倍になります。
-            </>
+            <T id="layout.fold.hboth" vars={{ cm: (report.surfaceLengthMm / 10).toFixed(0) }} />
           ) : half && isHorizontalFold(section.fold) ? (
-            <>
-              買う長さは、見えている面の長さ {(report.surfaceLengthMm / 10).toFixed(0)} cm の倍になります。
-            </>
+            <T id="layout.fold.horiz" vars={{ cm: (report.surfaceLengthMm / 10).toFixed(0) }} />
           ) : half ? (
-            <>
-              生地幅 {(report.foldDepth.left * 2 + SELVAGE_MM * 2) / 10} cm を、きっちり半分に折っています。
-            </>
+            <T id="layout.fold.half" vars={{ cm: (report.foldDepth.left * 2 + SELVAGE_MM * 2) / 10 }} />
           ) : flaps.length > 0 ? (
-            <>
-              「わに当てる」を使った型紙の幅のぶんだけ、生地を折り返しています。
-            </>
+            <T id="layout.fold.flap" />
           ) : (
-            <>「わに当てる」を使った型紙を置くと、その幅のぶんだけ生地を折り返します。</>
+            <T id="layout.fold.none" />
           )}
         </Hint>
         {/*
@@ -2538,9 +2525,7 @@ function SectionCanvas({
         */}
         {idleFold && (
           <Note icon="fold">
-            <b className="text-ink-700">{SIDE_LABELS[idleFold]}の折り山</b>には、
-            まだ何も当てていません。両側から折るのが効くのは、
-            どちらの折り山にも「わ」の辺を持つ型紙を当てるときです。
+            <T id="layout.fold.idle" vars={{ side: SIDE_LABELS[idleFold] }} />
           </Note>
         )}
         </div>
@@ -2584,10 +2569,9 @@ function SectionCanvas({
       {report.boxes.length > 0 && (
         <Hint
           icon="yardage"
-          summary={<>長さ <b className="text-ink-700">{(used / 10).toFixed(0)} cm</b> ＝ いちばん下の型紙の、下の端まで</>}
+          summary={<T id="layout.used.summary" vars={{ cm: (used / 10).toFixed(0) }} />}
         >
-          型紙の丈ではありません。上に空きがあるぶんもそのまま長さになるので、
-          すき間を詰めて上へ寄せるほど短くなります。
+          <T id="layout.used.body" />
         </Hint>
       )}
     </div>
@@ -2662,8 +2646,8 @@ function Tray({
       <Heading icon="part">置くパーツ</Heading>
       <ul className="flex flex-col gap-2">{patterns.map(row)}</ul>
       {shortage.length > 0 && (
-        <Hint summary={<>数えているのは<b className="text-ink-700">できあがりの枚数</b></>}>
-          二重のところに置いた型紙は1つで2枚（型紙に ×2 と出ます）。
+        <Hint summary={<T id="layout.count.summary" />}>
+          <T id="layout.count.body" />
         </Hint>
       )}
 
@@ -2715,13 +2699,8 @@ function ReserveAdder({
 
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-dashed border-hold-400 bg-hold-50 px-4 py-3">
-      <Hint icon="hold" summary={<>いまは裁たずに<b className="text-ink-700">場所だけ空けておきます</b></>}>
-        仮縫いのあとで寸法が変わるものは、ここで大きさだけ決めておきます。
-        きっちりでなくてかまいません。
-        <br />
-        <b className="text-ink-700">写真から形をうまく拾えなかった型紙も、ここで置けます。</b>
-        実物を測って幅と丈を「その他」で入れてください。
-        形は長方形になりますが、要尺の見積もりとしては足ります。
+      <Hint icon="hold" summary={<T id="layout.reserve.summary" />}>
+        <T id="layout.reserve.body" />
       </Hint>
 
       <div className="flex flex-wrap gap-1.5">
@@ -2960,8 +2939,7 @@ function Controls({
 
         {reserve && (
           <Note icon="hold">
-            これは型紙ではなく、<span className="font-bold text-ink-700">空けておく場所</span>です。
-            寸法が決まってから、ここを裁ちます。
+            <T id="layout.reserve.note" />
           </Note>
         )}
         {/*
@@ -2972,13 +2950,11 @@ function Controls({
         {turn === 180 && (
           hasNap ? (
             <Note icon="nap" tone="warn">
-              <span className="font-bold">上下逆（差し込み）</span>にしています。
-              この生地は<span className="font-bold">向きがある</span>ので、毛並みや柄がそろいません。
+              <T id="layout.turn.nap" strong="font-bold" />
             </Note>
           ) : (
             <Note icon="nest">
-              <span className="font-bold text-ink-700">上下逆（差し込み）</span>にしています。
-              向きのない生地では、こうして互い違いに入れると生地が節約できます。
+              <T id="layout.turn.nest" />
             </Note>
           )
         )}
@@ -2990,8 +2966,7 @@ function Controls({
         */}
         {placement.rot90 && (
           <Note icon="grainSide">
-            <span className="font-bold text-ink-700">地の目が横</span>になっています。
-            伸び方も落ち方も変わるので、そのつもりで。
+            <T id="layout.grain.side" />
           </Note>
         )}
       </div>

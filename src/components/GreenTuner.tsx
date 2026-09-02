@@ -17,6 +17,7 @@
 
 import { useEffect, useRef } from 'react'
 import { rgbToHsv, type GreenParams } from '../lib/hsv'
+import { T } from './TextTools'
 
 type Props = {
   value: GreenParams
@@ -115,7 +116,7 @@ export function GreenTuner({ value, onChange, photo, preview }: Props) {
               className="h-4 w-4 shrink-0 rounded-full border border-ink-100"
               style={{ background: `hsl(${value.hueCenter} 55% 45%)` }}
             />
-            写真の<b className="text-mat-700">台（型紙の外側）</b>を1回押してください
+            <T id="ruler.green.pick" strong="font-bold" />
           </span>
           <canvas
             ref={photoRef}
@@ -123,7 +124,7 @@ export function GreenTuner({ value, onChange, photo, preview }: Props) {
             className="w-full cursor-crosshair rounded-lg border border-ink-100"
           />
           <span className="text-xs text-ink-300">
-            押したところの色を「台の色」とみなします。左の丸がいまの色です。
+            <T id="ruler.green.picked" />
           </span>
         </div>
       )}
@@ -131,7 +132,7 @@ export function GreenTuner({ value, onChange, photo, preview }: Props) {
       {preview && (
         <div className="flex flex-col gap-1.5">
           <span className="text-xs text-ink-500">
-            白い部分が「型紙」として拾われた場所です。型紙の形になっていれば成功。
+            <T id="ruler.green.mask" />
           </span>
           <canvas
             ref={maskRef}

@@ -16,6 +16,7 @@ import {
 import { Heading, Hint, Icon } from './Icon'
 import { PatternMarks } from './PatternMarks'
 import { SeamEditor } from './SeamEditor'
+import { T } from './TextTools'
 import { Tour } from './Tour'
 
 type Props = {
@@ -88,9 +89,7 @@ export function PartsView({ state, onChange, onAddMore, onLayout }: Props) {
         <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-ink-100 px-4 py-8 text-center text-sm text-ink-300">
           <Icon name="part" className="h-8 w-8" />
           <p>
-            まだ1つもありません。
-            <br />
-            大きいパーツは1枚ずつ、小さいパーツは並べてまとめて撮ってください。
+            <T id="parts.empty" />
           </p>
         </div>
       ) : (
@@ -128,8 +127,8 @@ export function PartsView({ state, onChange, onAddMore, onLayout }: Props) {
             この説明は、はじめて開いたときの案内（Tour.tsx）と同じことを言っている。
             案内を出すようにしたら、こちらは消すこと。いまは案内を止めてあるので置いてある
           */}
-          <Hint summary={<>枚数は<b className="text-ink-700">できあがりに必要な数</b>（左右で使うなら 2）</>}>
-            二重に重なっているところに型紙を1つ置けば、そのまま2枚とも裁てます。
+          <Hint summary={<T id="parts.count.summary" />}>
+            <T id="parts.count.body" />
           </Hint>
 
           {/*
@@ -142,11 +141,9 @@ export function PartsView({ state, onChange, onAddMore, onLayout }: Props) {
           */}
           <Hint
             icon="grain"
-            summary={<>向きがちがっていたら、<b className="text-ink-700">パーツを開いてまわせます</b></>}
+            summary={<T id="parts.turn.summary" />}
           >
-            定規は上下対称なので、どちらが上かまでは写真から決められません。
-            地の目の縦横をとりちがえて撮ってしまったときも、撮り直さずに直せます。
-            パーツを押して開くと、図の右上につまみが出ます。
+            <T id="parts.turn.body" />
           </Hint>
 
           <button
@@ -248,7 +245,7 @@ function OpenFoldOption({
           <p className="flex items-start gap-2 text-xs leading-relaxed text-ink-500">
             <Icon name="scissors" className="mt-[0.2em] h-[1.15em] w-[1.15em] shrink-0" />
             <span className="min-w-0 flex-1">
-              「わ」の辺で左右に開いた形で置きます。生地は折らなくてかまいません。
+              <T id="parts.opened.note" />
               {size && (
                 <>
                   {' '}裁ち切り{' '}
@@ -336,14 +333,12 @@ function SeamBody({ part, hasNap, onPatch, onReplace }: {
         いくつも出るので、同じ絵を並べない（依頼者の指摘・2026-08-27）
       */}
       {part.seamIncluded ? (
-        <Hint icon="fold" summary={<>辺を押して、<b className="text-seam">わ</b>の辺だけ選びます</>}>
-          この型紙にはもう縫い代が付いているので、足す量は聞きません。
-          折り山に当てる辺だけ教えてください。
+        <Hint icon="fold" summary={<T id="parts.seam.included.summary" />}>
+          <T id="parts.seam.included.body" />
         </Hint>
       ) : (
-        <Hint summary={<>辺を押して、<b className="text-ink-700">縫い代</b>を決めます</>}>
-          型紙は出来上がり線で切ってあるので、ここで縫い代を足します。
-          足したぶんだけが青で出ます。縫い代 0 は「ここは折り山（わ）」の意味です。
+        <Hint summary={<T id="parts.seam.add.summary" />}>
+          <T id="parts.seam.add.body" />
         </Hint>
       )}
 

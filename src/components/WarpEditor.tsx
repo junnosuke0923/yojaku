@@ -43,6 +43,7 @@ import {
   isWarped, keystoneH, keystoneQuad, NO_WARP, warpPart, WARP_MAX, type Keystone,
 } from '../lib/warp'
 import { Icon } from './Icon'
+import { T } from './TextTools'
 
 type Props = {
   /** つまみを当てる型紙。直す前の形（`result` のほう） */
@@ -245,7 +246,9 @@ export function WarpEditor({
           幅 {warped && <span className="text-ink-300">{cm(part.widthMm)} →</span>}
           <b className="text-ink-700">{cm(size.widthMm)} cm</b>
         </span>
-        <span className="text-ink-300">うすい線は {GRID_MM / 10} cm ごと</span>
+        <span className="text-ink-300">
+          <T id="ruler.warp.grid" vars={{ cm: GRID_MM / 10 }} />
+        </span>
       </div>
 
       <div className="flex flex-col gap-2 rounded-xl border border-ink-100 bg-white px-2.5 py-2">
@@ -256,9 +259,7 @@ export function WarpEditor({
       </div>
 
       <p className="px-0.5 text-xs leading-relaxed text-ink-500">
-        <b className="text-ink-700">脇線や裾線が、うすい線とそろうまで動かします。</b>
-        <br />
-        まっすぐな線は、まっすぐなまま動きます。
+        <T id="ruler.warp.body" />
       </p>
 
       {/*

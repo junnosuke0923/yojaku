@@ -10,12 +10,13 @@
  * 番号を読まなくても、押せば光る。
  */
 
-import { useMemo, useRef, useState, type PointerEvent } from 'react'
+import { useMemo, useRef, useState, type PointerEvent, type ReactNode } from 'react'
 import { bounds } from '../lib/geom'
 import { applyToAll, buildSeam, SEAM_INCLUDED_MM, SEAM_STEPS_CM, type SeamPlan } from '../lib/seam'
 import { isSquare, squaredTurn } from '../lib/store'
 import { Icon, Note } from './Icon'
 import { PatternMarks } from './PatternMarks'
+import { T } from './TextTools'
 
 type Props = {
   plan: SeamPlan
@@ -48,7 +49,7 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded, turnDeg
   const [bulkCm, setBulkCm] = useState(1)
   /** 一覧に無い幅を、自分で入れる欄。cm。空なら「まだ入れていない」 */
   const [freeCm, setFreeCm] = useState('')
-  const [note, setNote] = useState<string | null>(null)
+  const [note, setNote] = useState<ReactNode>(null)
 
   const seam = useMemo(() => buildSeam(plan), [plan])
 
@@ -147,8 +148,8 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded, turnDeg
     const skipped = plan.allowancesMm.filter((a) => a === 0).length
     setNote(
       skipped > 0
-        ? `${changed} 本を ${bulkCm} cm に。わ（縫い代 0）の ${skipped} 本はそのままです`
-        : `${changed} 本を ${bulkCm} cm にしました。ここから裾だけ直します`,
+        ? <T id="seam.bulk.some" vars={{ changed, cm: bulkCm, skipped }} />
+        : <T id="seam.bulk.all" vars={{ changed, cm: bulkCm }} />,
     )
     onChange(next)
   }
@@ -393,8 +394,8 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded, turnDeg
         <Icon name="grain" className="h-4 w-4 shrink-0 text-ink-300" />
         <span className="min-w-0 flex-1 text-xs leading-tight text-ink-300">
           {isSquare(turnDeg)
-            ? '地の目線に合うまで、右上のつまみでまわせます'
-            : '斜めに直してあります'}
+            ? <T id="seam.turn.hint" />
+            : <T id="seam.turn.skew" />}
         </span>
         <button
           type="button"

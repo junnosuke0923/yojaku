@@ -29,6 +29,7 @@ import { FabricSetup } from './FabricSetup'
 import { FoldDiagram } from './FoldDiagram'
 import { FoldSetup } from './FoldSetup'
 import { Icon } from './Icon'
+import { T } from './TextTools'
 
 type Props = {
   state: PartsState
@@ -97,8 +98,7 @@ export function FabricView({ state, onChange, onLayout }: Props) {
         <p className="flex gap-2 px-1 text-xs leading-relaxed text-ink-300">
           <Icon name="scissors" className="mt-[0.2em] h-[1.15em] w-[1.15em] shrink-0" />
           <span className="min-w-0 flex-1">
-            生地を {state.sections.length} つに切り分けてあります。
-            2 つめから先の折り方は、並べる画面で変えられます。
+            <T id="fabric.split.note" vars={{ n: state.sections.length }} />
           </span>
         </p>
       )}

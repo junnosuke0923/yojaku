@@ -12,6 +12,7 @@
 
 import { FOLD_LABELS, foldSidesOf, isHorizontalFold, type FoldMode } from '../lib/fabric'
 import { Icon } from './Icon'
+import { T } from './TextTools'
 
 type Props = {
   fold: FoldMode
@@ -220,7 +221,7 @@ export function FoldDiagram({ fold, nearMm, farMm, spanMm }: Props) {
       */}
       {pending && (
         <p className="pt-1 text-xs text-ink-500">
-          「わに当てる」を使った型紙を置くと、その幅だけ折り返します
+          <T id="fold.pending.note" />
         </p>
       )}
     </div>

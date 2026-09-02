@@ -7,6 +7,7 @@
 
 import { RULERS, type RulerGuess, type RulerId } from '../lib/ruler'
 import { Icon, Note } from './Icon'
+import { T } from './TextTools'
 
 type Props = {
   value: RulerId
@@ -20,12 +21,12 @@ export function RulerToggle({ value, guess, onChange }: Props) {
       <div className="flex items-center justify-between gap-2">
         <span className="flex items-center gap-2 text-sm font-bold text-ink-700">
           <Icon name="ruler" className="h-4 w-4 shrink-0 text-mat-600" />
-          使っている定規
+          <T id="ruler.kind.title" strong="font-bold" />
         </span>
         {guess?.confident && guess.suggested === value && (
           <span className="flex items-center gap-1 text-xs text-mat-600">
             <Icon name="check" className="h-3.5 w-3.5 shrink-0" />
-            写真の形とも合っています
+            <T id="ruler.kind.match" strong="font-bold" />
           </span>
         )}
       </div>
@@ -65,7 +66,7 @@ export function RulerToggle({ value, guess, onChange }: Props) {
             )}
           </>
         ) : (
-          '四隅を合わせると、どちらの定規かを推測します。ただし最後に使うのは、ここで選ばれている種類です。'
+          <T id="ruler.kind.note" />
         )}
       </Note>
     </div>

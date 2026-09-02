@@ -12,6 +12,7 @@ import { cm } from '../lib/format'
 import type { AnalyzeResult, PatternPart } from '../lib/pipeline'
 import { SMOOTH_LEVELS, type SmoothLevel } from '../lib/smooth'
 import { Hint, Icon } from './Icon'
+import { T } from './TextTools'
 
 const PAD = 26
 
@@ -264,11 +265,9 @@ function SmoothPicker({ value, onChange }: {
       </div>
       <Hint
         icon="smooth"
-        summary={<>紙のふちの<b className="text-ink-700">ガタガタ</b>をならします。大きさは変わりません</>}
+        summary={<T id="ruler.smooth.summary" />}
       >
-        角ときつい曲がりは動かさないので、最大丈・最大幅はほとんど変わりません。
-        実物の線がほんとうに波打っているときも、いっしょにならされます。
-        そこまで写し取りたいときは「なし」にしてください。
+        <T id="ruler.smooth.body" />
       </Hint>
     </div>
   )
@@ -289,9 +288,7 @@ export function ResultView({ bitmap, result, excluded, onToggle, smooth, onSmoot
         <Icon name="measure" className="mt-[0.15em] h-5 w-5 shrink-0 text-mat-600" />
         <div className="min-w-0 flex-1">
           <p className="text-sm leading-relaxed text-mat-700">
-            <span className="font-bold">この数字が実物と近いか、確かめてください。</span>
-            <br />
-            大きくちがうときは、定規の種類か、四隅の位置が合っていません。
+            <T id="ruler.check.main" strong="font-bold" />
           </p>
           <p className="tnum mt-2 text-xs text-mat-600">
             換算率 1px ＝ {result.scale.mmPerPixel.toFixed(3)} mm
@@ -305,17 +302,7 @@ export function ResultView({ bitmap, result, excluded, onToggle, smooth, onSmoot
         <div className="flex gap-2.5 rounded-xl border border-seam bg-white px-4 py-4 text-sm leading-relaxed text-seam">
           <Icon name="warn" className="mt-[0.15em] h-5 w-5 shrink-0" />
           <span className="min-w-0 flex-1">
-            型紙を見つけられませんでした。
-            <br />
-            「台の色の調整」を開いて、写真の台のところを1回押してみてください。
-            白く塗られる部分が型紙の形になれば成功です。
-            <br />
-            白い机や木目の机では、型紙と色が近すぎて分けられません。
-            無地で色のついた布か紙を1枚敷いてから撮り直してください。
-            <br />
-            どうしても拾えないときは、生地に並べる画面の
-            <b>「余白を空けておく」</b>から、実物を測った幅と丈を入れて
-            長方形として置けます。要尺の見積もりとしてはそれで足ります。
+            <T id="ruler.none.body" strong="font-bold" />
           </span>
         </div>
       ) : (
@@ -324,8 +311,7 @@ export function ResultView({ bitmap, result, excluded, onToggle, smooth, onSmoot
             <p className="flex items-start gap-2 text-xs leading-relaxed text-ink-500">
               <Icon name="hint" className="mt-[0.2em] h-[1.15em] w-[1.15em] shrink-0 text-mat-600" />
               <span className="min-w-0 flex-1">
-                型紙でないものが混じっていたら、そのカードを押して外してください
-                （消しゴムや紙片も、3cmより大きければ出てきます）。
+                <T id="ruler.exclude.note" />
               </span>
             </p>
           )}

@@ -13,6 +13,7 @@
 
 import { COMMON_WIDTHS_MM, WIDTH_FABRICS } from '../lib/fabric'
 import { Hint, Icon } from './Icon'
+import { T } from './TextTools'
 
 type Props = {
   widthMm: number
@@ -72,20 +73,17 @@ export function FabricSetup({ widthMm, hasNap, onWidth, onNap }: Props) {
 
       <Hint
         icon="clothWidth"
-        summary={<>数字の下は、その幅で<b className="text-ink-700">よく見かける生地</b>です</>}
+        summary={<T id="fabric.width.summary" />}
       >
-        目安です。同じ生地でも店や織り機によって幅は変わります。
-        並んでいない幅（裏地の中巾 120cm など）は、「cm」の欄に数字を直接入れてください。
+        <T id="fabric.width.body" />
       </Hint>
 
       <div className="border-t border-ink-100 pt-2.5">
         <Hint
           icon="nap"
-          summary={<>上下の向きは<b className="text-ink-700">いちばん最初に</b>決めます</>}
+          summary={<T id="fabric.nap.summary" />}
         >
-          毛並みのあるウールや一方向の柄は「向きあり」、無地の平織などは「向きなし」です。
-          パーツを 180 度回して差し込めるかどうかがここで決まるので、
-          あとから変えると並べ直しになります。
+          <T id="fabric.nap.body" />
         </Hint>
         <div data-tour="fabric-nap" className="grid grid-cols-2 gap-2 pt-1">
           <button

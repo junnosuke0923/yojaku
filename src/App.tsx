@@ -29,6 +29,8 @@ import { loadSaves, removeSave, whenOf, type Save } from './lib/saves'
 import { EMPTY, load as loadParts, save as saveParts, toStored, type PartsState } from './lib/store'
 import type { Quad } from './lib/geom'
 import { applyWarp, isWarped, NO_WARP, type Keystone } from './lib/warp'
+import { T, TextBar, TextList, TextSheet } from './components/TextTools'
+import { useListOpen } from './lib/textStore'
 
 /*
   生地は独立した段階（依頼者の指示・2026-09-01）。
@@ -355,6 +357,9 @@ export function App() {
       setBusy(false)
     }
   }
+
+  /** 文言の一覧を出しているか。`?text` を付けたときだけ立つ */
+  const listOpen = useListOpen()
 
   /** いま何枚目か（1から数える）。行列を組んでいなければ 0 */
   const queueNo = queueTotal > 0 ? queueTotal - queue.length : 0
@@ -693,6 +698,8 @@ export function App() {
 
   return (
     <div className="mx-auto flex min-h-full w-full max-w-xl flex-col">
+      {/* 文言を打ち替える帯。`?text` を付けて開いたときだけ出る */}
+      <TextBar />
       <header className="flex items-start justify-between gap-3 px-4 pt-5 pb-3">
         <div className="flex min-w-0 flex-col gap-0.5">
           <h1 className="text-base font-bold tracking-wide text-ink-900">要尺シミュレーター</h1>
@@ -762,6 +769,11 @@ export function App() {
 
       <StepBar step={step} canGo={canGo} onGo={setStep} />
 
+      {/*
+        文言の一覧は、アプリの中身と入れかわりで出す。
+        上の帯で行き来できるので、直しては見に行く、を繰り返せる
+      */}
+      {listOpen ? <TextList /> : (
       <main className="flex flex-1 flex-col gap-4 px-4 py-4">
         {/*
           置きなおした版が出ているのに、古いページを開いたまま。
@@ -773,10 +785,10 @@ export function App() {
             <p className="flex gap-2 text-sm leading-relaxed text-mat-700">
               <Icon name="hint" className="mt-[0.2em] h-[1.15em] w-[1.15em] shrink-0" />
               <span className="min-w-0 flex-1">
-                <span className="font-bold">新しい版が出ています。</span>
-                いま開いているのは古いページなので、押しても動かないところがあります。
-                読み込み直してください。
-                <span className="text-mat-600">取り込んだパーツは消えません。</span>
+                <T id="common.stale.main" strong="font-bold" />
+                <span className="text-mat-600">
+                  <T id="common.stale.note" strong="font-bold" />
+                </span>
               </span>
             </p>
             <button
@@ -861,9 +873,8 @@ export function App() {
               ひと言だけ出して、理由は「？」の中に畳んでおく
             */}
             <div className="rounded-xl border border-ink-100 bg-white px-3 py-1">
-              <Hint icon="warn" summary={<>ここで出るのは生地の<b className="text-ink-700">概算</b>です</>}>
-                型紙の形は写真から読み取っているので、実物とは数ミリの差が出ます。
-                地直しの縮みや裁つときのくせでも変わるので、心配なときは少し多めに見てください。
+              <Hint icon="warn" summary={<T id="photo.rough.summary" />}>
+                <T id="photo.rough.body" />
               </Hint>
             </div>
 
@@ -884,11 +895,10 @@ export function App() {
                 <p className="flex gap-2 text-sm leading-relaxed text-mat-700">
                   <Icon name="part" className="mt-[0.2em] h-[1.15em] w-[1.15em] shrink-0" />
                   <span className="min-w-0 flex-1">
-                    <span className="font-bold">
-                      前に取り込んだパーツが {parts.parts.length} 個 残っています。
+                    <T id="photo.carry.main" vars={{ n: parts.parts.length }} strong="font-bold" />
+                    <span className="text-mat-600">
+                      <T id="photo.carry.note" strong="font-bold" />
                     </span>
-                    このまま撮ると、そこに足していきます。
-                    <span className="text-mat-600">消しても、すぐなら「1つ戻る」で戻せます。</span>
                   </span>
                 </p>
                 <div className="flex gap-2">
@@ -925,9 +935,10 @@ export function App() {
                 <p className="flex gap-2 text-sm leading-relaxed text-mat-700">
                   <Icon name="hint" className="mt-[0.2em] h-[1.15em] w-[1.15em] shrink-0" />
                   <span className="min-w-0 flex-1">
-                    <span className="font-bold">「{askOpen.name}」を開きます。</span>
-                    いま触っているぶんは置きかわります。
-                    <span className="text-mat-600">上の「1つ戻る」で戻せます。</span>
+                    <T id="photo.open.main" vars={{ name: askOpen.name }} strong="font-bold" />
+                    <span className="text-mat-600">
+                      <T id="photo.open.note" strong="font-bold" />
+                    </span>
                   </span>
                 </p>
                 <div className="flex gap-3">
@@ -970,7 +981,7 @@ export function App() {
               */}
               <p className="flex items-center gap-2 text-sm font-bold text-ink-700">
                 <Icon name="camera" className="h-4 w-4 shrink-0 text-mat-600" />
-                撮り方の見本
+                <T id="photo.sample.title" strong="font-bold" />
               </p>
               <div className="relative mx-auto w-fit">
                 <img
@@ -990,9 +1001,7 @@ export function App() {
                 </span>
               </div>
               <p className="text-sm text-ink-500">
-                無地で色のついた台に型紙と
-                <span className="font-bold text-ink-700">方眼定規</span>
-                を置いて、真上から撮ってください。
+                <T id="photo.sample.caption" />
               </p>
               {/*
                 「定規は1本でいい」「地の目はそろえる」は、
@@ -1002,12 +1011,8 @@ export function App() {
                 結論だけ出して、理由は「？」の中に畳んでおく
               */}
               <div data-tour="photo-hint">
-                <Hint icon="ruler" summary={<>定規は<b className="text-ink-700">1本</b>だけ、地の目と<b className="text-ink-700">平行に</b></>}>
-                  写真の実寸も地の目の向きも、この定規1本から決めています。
-                  1本あれば写っているパーツは全部測れます。
-                  地の目の向きが違うものが混ざっていると斜めに読まれるので、分けて撮ってください。
-                  型紙を1枚の写真に収める必要はありません。何枚に分けても構いませんし、
-                  「写真を選ぶ」ならまとめて選べます。写真ごとに定規を1本ずつ入れてください。
+                <Hint icon="ruler" summary={<T id="photo.ruler.summary" />}>
+                  <T id="photo.ruler.body" />
                 </Hint>
               </div>
             </div>
@@ -1195,24 +1200,16 @@ export function App() {
               <p className="flex gap-2 text-sm leading-relaxed text-mat-700">
                 <Icon name="ruler" className="mt-[0.2em] h-[1.15em] w-[1.15em] shrink-0" />
                 <span className="min-w-0 flex-1">
-                  <span className="font-bold">
-                    定規をさがして、枠を当てておきました。
-                  </span>
-                  合っているか確かめてください。ずれていたら、角をつまんで直せます。
+                  <T id="ruler.auto.main" strong="font-bold" />
                 </span>
               </p>
             ) : perspective ? (
               <p className="text-sm leading-relaxed text-ink-500">
-                <span className="font-bold text-ink-700">4つの丸を、定規の角に合わせてください。</span>
-                <br />
-                台形にゆがんだ形にも合わせられます。2本の指で広げると大きくできます。
+                <T id="ruler.free.main" />
               </p>
             ) : (
               <p className="text-sm leading-relaxed text-ink-500">
-                <span className="font-bold text-ink-700">緑の枠を、定規にぴったり重ねてください。</span>
-                <br />
-                中を押して動かす、角をつまんで伸ばす、上の丸をつまんで回す、
-                2本の指で広げて大きくする。
+                <T id="ruler.rect.main" />
               </p>
             )}
 
@@ -1231,9 +1228,7 @@ export function App() {
             */}
             {!perspective && autoTaper && (
               <Note icon="hint">
-                <span className="font-bold">少し斜めから撮られているかもしれません。</span>
-                形がゆがんで見えるときだけ、下の「斜めから撮ってしまった」を押してください。
-                ふだんは長方形のままのほうが正確です。
+                <T id="ruler.taper.note" />
               </Note>
             )}
 
@@ -1265,17 +1260,10 @@ export function App() {
             */}
             {perspective && (
               <Note icon="warn" tone="warn">
-                {rulerAuto ? (
-                  <>
-                    <span className="font-bold">斜めのぶんは計算で戻していますが、完全ではありません。</span>
-                    真上から撮り直すほうが確実です。
-                  </>
-                ) : (
-                  <>
-                    <span className="font-bold">数画素のずれが、離れた型紙を大きく歪ませます。</span>
-                    四隅は2本指で拡大して合わせるか、真上から撮り直してください。
-                  </>
-                )}
+                <T
+                  id={rulerAuto ? 'ruler.persp.auto' : 'ruler.persp.hand'}
+                  strong="font-bold"
+                />
               </Note>
             )}
 
@@ -1512,6 +1500,9 @@ export function App() {
           />
         )}
       </main>
+      )}
+      {/* その場で押した1つを直す枠。下から出る */}
+      <TextSheet />
 
       {/*
         名義（依頼者の指示・2026-08-31）。どの画面にもいちばん下に出る。

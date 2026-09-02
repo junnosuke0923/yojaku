@@ -25,6 +25,7 @@ import {
 } from '../lib/fabric'
 import { FoldPicker } from './FoldPicker'
 import { Icon } from './Icon'
+import { T } from './TextTools'
 
 type Props = {
   section: Section
@@ -63,7 +64,7 @@ export function FoldSetup({ section, half, prefix, onFold, onHalf, extra, onActi
           {FOLD_LABELS[section.fold]}
         </span>
         <span className={`text-xs leading-relaxed ${hint ? 'font-bold text-mat-700' : 'text-ink-300'}`}>
-          {hint ?? '辺を押すか、内側へ引きずります'}
+          {hint ?? <T id="fold.idle.hint" />}
         </span>
         {canHalfFold(section.fold) && (
           <select
