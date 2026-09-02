@@ -273,6 +273,22 @@ function SmoothPicker({ value, onChange }: {
   )
 }
 
+/**
+ * 写真ぜんぶが1つの型紙として拾われていないか（依頼者の点検・2026-09-02）。
+ *
+ * 木の机や白い机の上で撮ると、台と型紙の色が分かれない。
+ * すると輪郭は写真の外枠そのものになり、**写真まるごとが1枚の型紙**になる。
+ * それでも実寸の数字はいつもどおり堂々と出るので、
+ * 言わないかぎり、ありえない大きさの型紙がそのまま取り込まれてしまう。
+ *
+ * 止めはしない。画面いっぱいに大きな型紙を撮ることは実際にあるので、
+ * 「ダメ」ではなく「そうなっている」と言うだけにする
+ */
+function fillsWholePhoto(part: PatternPart, w: number, h: number) {
+  const b = bounds(part.outlinePx)
+  return b.maxX - b.minX >= w * 0.92 && b.maxY - b.minY >= h * 0.92
+}
+
 export function ResultView({ bitmap, result, excluded, onToggle, smooth, onSmooth }: {
   bitmap: ImageBitmap
   result: AnalyzeResult
@@ -282,6 +298,7 @@ export function ResultView({ bitmap, result, excluded, onToggle, smooth, onSmoot
   smooth: SmoothLevel
   onSmooth: (v: SmoothLevel) => void
 }) {
+  const wholePhoto = result.parts.some((p) => fillsWholePhoto(p, bitmap.width, bitmap.height))
   return (
     <div className="flex flex-col gap-5">
       <div className="flex gap-2.5 rounded-xl border-2 border-mat-500 bg-mat-50 px-4 py-3">
@@ -295,6 +312,15 @@ export function ResultView({ bitmap, result, excluded, onToggle, smooth, onSmoot
           </p>
         </div>
       </div>
+
+      {wholePhoto && (
+        <div className="flex gap-2.5 rounded-xl border border-seam bg-white px-4 py-3 text-sm leading-relaxed text-seam">
+          <Icon name="warn" className="mt-[0.15em] h-5 w-5 shrink-0" />
+          <span className="min-w-0 flex-1">
+            <T id="ruler.whole.note" strong="font-bold" />
+          </span>
+        </div>
+      )}
 
       {result.parts.length > 0 && <SmoothPicker value={smooth} onChange={onSmooth} />}
 

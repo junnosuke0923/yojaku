@@ -11,6 +11,7 @@
  * 決めないまま先へ進んでしまう。
  */
 
+import { useState } from 'react'
 import { COMMON_WIDTHS_MM, WIDTH_FABRICS } from '../lib/fabric'
 import { Hint, Icon } from './Icon'
 import { T } from './TextTools'
@@ -22,7 +23,25 @@ type Props = {
   onNap: (hasNap: boolean) => void
 }
 
+/** 欄に直に打てる幅の範囲（cm）。反物としてありうる下限と上限 */
+const MIN_WIDTH_CM = 30
+const MAX_WIDTH_CM = 300
+
 export function FabricSetup({ widthMm, hasNap, onWidth, onNap }: Props) {
+  /*
+    打っている最中の字は、そのまま手元に置いておく（依頼者の点検・2026-09-02）。
+
+    もとは打った字をそのまま幅にしていたので、
+    **消して打ち直そうとした瞬間**に欄が空になり、
+    その空文字が 0 と読まれて「みみを除くと -4 cm」と出ていた。
+    `min` `max` は付いていたが、あれは送信するときの決まりで、
+    打っている最中の値を止めるものではない。
+
+    いまは、まともな数になったときだけ幅として上へ渡す。
+    欄から指を離したら、いま効いている幅に表示を戻す
+  */
+  const [typing, setTyping] = useState<string | null>(null)
+
   return (
     <section
       data-tour="fabric-width"
@@ -47,7 +66,7 @@ export function FabricSetup({ widthMm, hasNap, onWidth, onNap }: Props) {
           <button
             key={mm}
             type="button"
-            onClick={() => onWidth(mm)}
+            onClick={() => { setTyping(null); onWidth(mm) }}
             className={`flex flex-col items-center rounded-lg px-2.5 py-1.5 leading-tight ${
               widthMm === mm ? 'bg-mat-500 text-white' : 'border border-ink-100 text-ink-700'
             }`}
@@ -61,10 +80,18 @@ export function FabricSetup({ widthMm, hasNap, onWidth, onNap }: Props) {
         <label className="flex items-center gap-1 rounded-lg border border-ink-100 px-2 py-2">
           <input
             type="number"
-            value={widthMm / 10}
-            min={30}
-            max={300}
-            onChange={(e) => onWidth(Math.round(Number(e.target.value) * 10))}
+            inputMode="decimal"
+            value={typing ?? widthMm / 10}
+            min={MIN_WIDTH_CM}
+            max={MAX_WIDTH_CM}
+            onChange={(e) => {
+              setTyping(e.target.value)
+              const v = Number(e.target.value)
+              if (Number.isFinite(v) && v >= MIN_WIDTH_CM && v <= MAX_WIDTH_CM) {
+                onWidth(Math.round(v * 10))
+              }
+            }}
+            onBlur={() => setTyping(null)}
             className="tnum w-12 bg-transparent text-sm font-bold text-ink-900 outline-none"
           />
           <span className="text-xs text-ink-300">cm</span>
