@@ -24,7 +24,8 @@ import {
   computeYardage, foldEdgeSides, FOLD_LABELS, FOLD_MARK_REF_MM,
   foldSidesOf, freeSpotFor, sizeOf as partSizeOf, turnBy, turnOf,
   isHalfFold, isHorizontalFold, newPlacement, orientedPair,
-  PURCHASE_MARGIN_MM, SELVAGE_MM, SNAP_MM, toggleFoldSide,
+  PURCHASE_MARGIN_MM, PURCHASE_ROUND_MM, SELVAGE_MM, SNAP_MM, toggleFoldSide,
+  packedUp,
   type Fabric, type FoldMark, type FoldMode, type PlacedPart, type Placement,
   type Section, type Side,
 } from '../lib/fabric'
@@ -321,6 +322,69 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
     setDropped(true)
   }
 
+  /**
+   * 上の空きを、まとめて詰める（依頼者の判断・2026-09-02）。
+   *
+   * 学生はスマホで型紙を1つずつ引きずって上へ寄せている。
+   * 10個を超えると、それだけでかなりの手間になる。
+   *
+   * ただし**並べるのは学生自身**という軸は崩さない。
+   * ここでするのは「上へ落とす」だけで、**左右の位置と前後の順は一切変えない**。
+   * どのパーツをどこへ置くかは、これまでどおり本人が決めたままになる。
+   *
+   * 上にあるものから順に、ぶつかるまで上げていく。
+   * 折り山に当てているものは、当てた側から位置が決まっているので動かさない
+   */
+  const packUp = () => {
+    const next = packedUp(report.sections, state.placements)
+    if (next) onChange({ ...state, placements: next })
+  }
+
+  /**
+   * 出た見積もりを、そのまま資料に貼れる字にする（依頼者の案・2026-09-02）。
+   *
+   * 持ち出す先が画像1枚しかなかった。画像は見せるには良いが、
+   * 報告書に数字として載せるには打ち直しが要る。
+   * 画像と同じことを字でも出しておけば、そのまま貼れる。
+   *
+   * 中身は画面に出ているものだけにそろえてある。
+   * ここにしか無い数字を作ると、画面と資料が食い違う
+   */
+  const summaryText = () => {
+    const L: string[] = []
+    const folds = state.sections
+      .map((s, i) => (state.sections.length > 1 ? `${i + 1}つめ・` : '')
+        + FOLD_LABELS[s.fold] + (isHalfFold(s) ? '・半分に折る' : ''))
+      .join(' ／ ')
+    L.push('■ 生地')
+    L.push(`生地幅 ${state.fabricWidthMm / 10} cm`
+      + `（みみを除くと ${(state.fabricWidthMm - SELVAGE_MM * 2) / 10} cm）`)
+    L.push(`折り方 ${folds}`)
+    L.push(`上下の向き ${state.hasNap ? 'あり' : 'なし'}`)
+    L.push('')
+    L.push('■ 買ってくる長さ')
+    L.push(`${(report.purchaseMm / 10).toFixed(0)} cm`)
+    L.push(`並べたぶん ${(report.totalMm / 10).toFixed(1)} ＋ ゆとり ${PURCHASE_MARGIN_MM / 10}`
+      + ` → ${PURCHASE_ROUND_MM / 10} cm 単位に切り上げ`)
+    L.push(`理屈のうえでの最短 ${(report.minTotalMm / 10).toFixed(1)} cm`)
+    L.push('')
+    L.push('■ パーツ（取れた枚数 / 要る枚数、縫い代まで入れた大きさ）')
+    for (const p of state.parts) {
+      const s = sizeOf(p.id)
+      const size = s?.cut ? `${cm(s.cut.widthMm)} × ${cm(s.cut.heightMm)} cm` : '—'
+      L.push(`${p.name}  ${takenOf(p.id)} / ${p.needed} 枚  ${size}`
+        + (isReserve(p) ? '  ※あとで裁つ' : ''))
+    }
+    if (report.problems.length > 0) {
+      L.push('')
+      L.push('■ まだ直っていないところ')
+      for (const pb of report.problems) L.push(pb.message)
+    }
+    L.push('')
+    L.push(`${today()} 要尺シミュレーターで作成（この数字は概算です）`)
+    return L.join(String.fromCharCode(10))
+  }
+
   /** そのパーツが、いま何枚ぶん取れているか */
   const takenOf = (partId: string) =>
     state.placements
@@ -414,14 +478,31 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
         言い方も、していること（生地を切り分ける）を先に置いた
       */}
       {(state.placements.length > 0 || state.sections.length > 1) && (
-        <button
-          type="button"
-          onClick={addSection}
-          className="flex items-center gap-1 self-end px-1 py-0.5 text-xs text-ink-300 active:text-mat-700"
-        >
-          <Icon name="scissors" className="h-3.5 w-3.5 shrink-0" />
-          ここから下を、別の折り方にする
-        </button>
+        <div className="flex items-center justify-end gap-3 px-1">
+          {/*
+            詰めるのは、切り分けるよりずっとよく使う。
+            同じ薄さの字にすると押す前に見つけてもらえないので、
+            こちらだけ濃くしてある
+          */}
+          {state.placements.length > 1 && (
+            <button
+              type="button"
+              onClick={packUp}
+              className="mr-auto flex items-center gap-1 rounded-lg border border-mat-300 bg-white px-2.5 py-1.5 text-xs font-bold text-mat-700 active:bg-mat-50"
+            >
+              <Icon name="packUp" className="h-3.5 w-3.5 shrink-0" />
+              上の空きを詰める
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={addSection}
+            className="flex items-center gap-1 py-0.5 text-xs text-ink-300 active:text-mat-700"
+          >
+            <Icon name="scissors" className="h-3.5 w-3.5 shrink-0" />
+            ここから下を、別の折り方にする
+          </button>
+        </div>
       )}
 
       <Tray
@@ -464,6 +545,7 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
         report={report}
         widthMm={state.fabricWidthMm}
         sections={state.sections}
+        summaryText={summaryText}
         onBeforeDraw={() => setSelectedId(null)}
       />
 
@@ -572,6 +654,26 @@ function Totals({
           >
             <T id="layout.margin.note" vars={{ cm: PURCHASE_MARGIN_MM / 10 }} />
           </Hint>
+          {/*
+            理屈のうえでの最短（依頼者の案・2026-09-02）。
+            要尺で伝えたいのは数字そのものではなく「詰め方しだいで変わる」ほう。
+            並べたぶんのすぐ下に置いて、同じ目の高さで見比べられるようにする。
+            **何%なら良いという目安は書かない**（依頼者の判断）
+          */}
+          <div className="pt-1">
+            <Hint
+              icon="packUp"
+              summary={
+                <T
+                  id="layout.min.summary"
+                  vars={{ cm: (report.minTotalMm / 10).toFixed(1) }}
+                  strong="font-bold text-mat-700"
+                />
+              }
+            >
+              <T id="layout.min.body" />
+            </Hint>
+          </div>
         </div>
       ) : (
         <p className="pt-1 text-xs text-ink-500"><T id="layout.empty.note" /></p>
@@ -692,18 +794,42 @@ function SaveBox({
  * 何も並べていないうちは出さない。書き出す中身がまだ無いため。
  */
 function ImageBox({
-  rootRef, report, widthMm, sections, onBeforeDraw,
+  rootRef, report, widthMm, sections, summaryText, onBeforeDraw,
 }: {
   rootRef: RefObject<HTMLElement | null>
   report: ReturnType<typeof computeYardage>
   widthMm: number
   sections: Section[]
+  /** 同じ中身を、資料に貼れる字にしたもの */
+  summaryText: () => string
   /** 書き出す前にやっておくこと（選んである型紙の囲みを消す） */
   onBeforeDraw: () => void
 }) {
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
   const [bad, setBad] = useState(false)
+  /**
+   * コピーできなかったときに、字そのものを出す先。
+   *
+   * 端末や設定によっては、字を写し取る口を使わせてもらえないことがある。
+   * そこで終わりにすると持ち出す道が無くなるので、
+   * **枠に出して、手で選んでもらう**逃げ道を残す
+   */
+  const [shown, setShown] = useState<string | null>(null)
+
+  const copy = async () => {
+    const text = summaryText()
+    setShown(null)
+    try {
+      await navigator.clipboard.writeText(text)
+      setBad(false)
+      setNote('一覧をコピーしました。資料にそのまま貼れます')
+    } catch {
+      setBad(true)
+      setNote('コピーできませんでした。下の枠の字を選んで、手でコピーしてください')
+      setShown(text)
+    }
+  }
 
   if (report.purchaseMm <= 0) return null
 
@@ -744,7 +870,7 @@ function ImageBox({
     <div className="flex flex-col gap-2 rounded-xl border border-ink-100 bg-white px-4 py-3">
       <div className="flex items-center gap-2">
         <Icon name="photo" className="h-4 w-4 shrink-0 text-mat-600" />
-        <span className="shrink-0 text-sm font-bold text-ink-700">配置図を画像にする</span>
+        <span className="shrink-0 text-sm font-bold text-ink-700">資料に持ち出す</span>
       </div>
       <button
         type="button"
@@ -753,7 +879,7 @@ function ImageBox({
         className="flex items-center justify-center gap-2 rounded-lg bg-mat-500 px-4 py-2.5 text-sm font-bold text-white active:bg-mat-600 disabled:opacity-50"
       >
         <Icon name="photo" className="h-4 w-4 shrink-0" />
-        {busy ? '書き出しています…' : '画像にして保存'}
+        {busy ? '書き出しています…' : '配置図を画像にして保存'}
       </button>
       <Hint
         icon="photo"
@@ -761,6 +887,29 @@ function ImageBox({
       >
         <T id="layout.band.body" />
       </Hint>
+      {/*
+        同じ中身を字でも出す（依頼者の案・2026-09-02）。
+        画像は見せるためのもので、報告書に数字として載せるには打ち直しが要る。
+        画像のすぐ下に置いて、どちらも同じものの持ち出し方だと分かるようにしてある
+      */}
+      <button
+        type="button"
+        onClick={() => void copy()}
+        className="flex items-center justify-center gap-2 rounded-lg border border-mat-300 bg-white px-4 py-2.5 text-sm font-bold text-mat-700 active:bg-mat-50"
+      >
+        <Icon name="list" className="h-4 w-4 shrink-0" />
+        一覧を文字でコピー
+      </button>
+      {shown !== null && (
+        <textarea
+          readOnly
+          value={shown}
+          rows={10}
+          aria-label="持ち出す一覧"
+          className="w-full rounded-lg border border-ink-100 p-2 text-xs leading-relaxed"
+          onFocus={(e) => e.currentTarget.select()}
+        />
+      )}
       {note && <Note icon={bad ? 'warn' : 'check'} tone={bad ? 'warn' : 'good'}>{note}</Note>}
     </div>
   )

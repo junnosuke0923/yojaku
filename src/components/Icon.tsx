@@ -29,7 +29,7 @@ export type IconName =
   | 'cloth' | 'selvage' | 'clothWidth' | 'yardage' | 'layout' | 'hold'
   | 'grain' | 'grainSide' | 'nap' | 'napNone' | 'flip' | 'mirror' | 'nest'
   | 'question' | 'hint' | 'warn' | 'check'
-  | 'plus' | 'trash' | 'back' | 'chevron' | 'undo' | 'redo' | 'save'
+  | 'plus' | 'trash' | 'back' | 'chevron' | 'undo' | 'redo' | 'save' | 'packUp' | 'list'
   | 'turnLeft' | 'turnRight'
 
 /**
@@ -313,6 +313,27 @@ const SHAPES: Record<IconName, ReactNode> = {
   ),
 
   back: <path d="M15 4.6L7.6 12l7.4 7.4" />,
+
+  /* 字の一覧。行の頭に点を置いて、絵ではなく「並んだ字」だと分かるようにする */
+  list: (
+    <>
+      <path d="M4.4 6.6h.01M4.4 12h.01M4.4 17.4h.01" />
+      <path d="M8.6 6.6h11M8.6 12h11M8.6 17.4h7.4" />
+    </>
+  ),
+
+  /*
+    上の空きを詰める。天井の線に向かって、長さの違う二本が押し上がる。
+    長さを変えてあるのは、**それぞれが上がれるところまで上がる**という
+    動きのほう（どれも同じ高さにそろう、ではない）を絵で言うため
+  */
+  packUp: (
+    <>
+      <path d="M3.6 4.2h16.8" />
+      <path d="M8.2 20.4V9.2M8.2 8.4l-3.1 3.1M8.2 8.4l3.1 3.1" />
+      <path d="M16.3 16.6V9.2M16.3 8.4l-3.1 3.1M16.3 8.4l3.1 3.1" />
+    </>
+  ),
 
   /*
     1つ戻る／1つ進む。

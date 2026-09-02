@@ -17,7 +17,7 @@ import { bounds, signedArea, type Point } from '../src/lib/geom'
 import {
   canHalfFold, computeYardage, foldEdgeSides, foldOfSides, foldSidesOf, newPlacement,
   orientedOutline, orientedPair, turnBy, turnOf,
-  toggleFoldSide, toPurchaseLength,
+  packedUp, toggleFoldSide, toPurchaseLength,
   type Fabric, type FoldMode, type Placement, type PlacedPart, type Side,
 } from '../src/lib/fabric'
 import { isSquare, outlineOf, placedPartOf, planOf, squaredTurn, toStored, withTurn } from '../src/lib/store'
@@ -848,6 +848,88 @@ function warpChecks() {
   }
 }
 
+/* ------------------------------------------------------------------ *
+ * 理屈のうえでの最短と、上の空きを詰める
+ * ------------------------------------------------------------------ */
+
+function packChecks() {
+  console.log('\n■ 理屈のうえでの最短')
+  {
+    // 有効幅 106cm に 50×40 を2つ、縦に離して置く
+    const f = fabric(1100, ['none'])
+    const ps = [
+      newPlacement('a', 'p1', 's1', { xMm: 0, yMm: 0 }),
+      newPlacement('b', 'p1', 's1', { xMm: 0, yMm: 1000 }),
+    ]
+    const r = run(f, ps, [part('p1', 500, 400)])
+    near('並べたぶん', r.totalMm, 1400, 0)
+    // 面積 400000mm² ÷ 有効幅 1060mm ＝ 377mm。ただし丈 400mm より短くはできない
+    near('最短は、丈のあるパーツより短くしない', r.minTotalMm, 400, 0.5)
+    ok('最短が、並べたぶんを超えない', r.minTotalMm <= r.totalMm + 0.001,
+      `最短 ${r.minTotalMm.toFixed(1)} ≦ 並べたぶん ${r.totalMm.toFixed(1)}`)
+  }
+  {
+    const r = run(fabric(1100, ['none']), [], [])
+    ok('何も置いていなければ 0', r.minTotalMm === 0, `${r.minTotalMm}`)
+  }
+  {
+    // 横わできっちり半分に折ると、折り込むぶんも面の長さについて動く。最短も同じ割合で縮む
+    const f: Fabric = {
+      widthMm: 1100, hasNap: false,
+      sections: [{ id: 's1', fold: 'hBottom', halfFold: true }],
+    }
+    const ps = [newPlacement('a', 'p1', 's1', { xMm: 0, yMm: 600 })]
+    const r = run(f, ps, [part('p1', 500, 400)])
+    near('並べたぶんは面＋折り込み', r.totalMm, 2000, 0)
+    near('最短も倍になる', r.minTotalMm, 800, 0.5)
+    ok('横わでも、最短が並べたぶんを超えない', r.minTotalMm <= r.totalMm + 0.001,
+      `最短 ${r.minTotalMm.toFixed(1)} ≦ 並べたぶん ${r.totalMm.toFixed(1)}`)
+  }
+
+  console.log('\n■ 上の空きを詰める')
+  {
+    const f = fabric(1100, ['none'])
+    const ps = [
+      newPlacement('a', 'p1', 's1', { xMm: 0, yMm: 300 }),
+      newPlacement('b', 'p1', 's1', { xMm: 600, yMm: 900 }),
+      newPlacement('c', 'p1', 's1', { xMm: 0, yMm: 1500 }),
+    ]
+    const list = [part('p1', 400, 400)]
+    const r = run(f, ps, list)
+    const packed = packedUp(r.sections, ps)
+    ok('詰めるものがあれば、一式が返る', packed !== null, packed ? '返った' : 'null')
+    const after = run(f, packed ?? ps, list)
+    near('詰めたあとの長さ', after.totalMm, 800, 0)
+    ok('左右の位置は動かさない',
+      (packed ?? []).every((p, i) => p.xMm === ps[i].xMm),
+      (packed ?? []).map((p) => p.xMm).join(' / '))
+    ok('重なりは作らない', after.problems.filter((x) => x.kind === 'overlap').length === 0,
+      after.problems.map((x) => x.kind).join(',') || 'なし')
+    ok('もう一度押しても動かない', packedUp(after.sections, packed ?? []) === null, '2回目は null')
+  }
+  {
+    // 横に並んでいるものは、上へ上がっても互いに邪魔をしない
+    const f = fabric(1100, ['none'])
+    const ps = [
+      newPlacement('a', 'p1', 's1', { xMm: 0, yMm: 500 }),
+      newPlacement('b', 'p1', 's1', { xMm: 500, yMm: 900 }),
+    ]
+    const list = [part('p1', 400, 400)]
+    const packed = packedUp(run(f, ps, list).sections, ps)
+    const after = run(f, packed ?? ps, list)
+    near('横に並ぶものは、どちらも上端まで', after.totalMm, 400, 0)
+  }
+  {
+    // 折り山に当てたものは動かさない（当てた側から位置が決まっているため）
+    const f = fabric(1100, ['hBottom'])
+    const ps = [newPlacement('a', 'p1', 's1', { snapTo: 'bottom' })]
+    const list = [part('p1', 500, 300, true)]
+    const packed = packedUp(run(f, ps, list).sections, ps)
+    ok('折り山に当てたものは動かさない', packed === null, packed ? '動いた' : '動かなかった')
+  }
+}
+
+packChecks()
 warpChecks()
 console.log(failures === 0 ? '\nすべて通りました。' : `\n${failures} 件、期待どおりになりませんでした。`)
 process.exit(failures === 0 ? 0 : 1)

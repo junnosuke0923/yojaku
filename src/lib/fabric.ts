@@ -433,6 +433,19 @@ export type SectionReport = {
   foldDepth: Record<Side, number>
   /** この区間が使う生地の長さ(mm)。横わのときは折り込んだぶんが足される */
   yardageMm: number
+  /**
+   * 理屈のうえでの最短(mm)。**置いた型紙の面積を、置ける幅で割ったもの**。
+   *
+   * 要尺で本当に教えたいのは数字そのものではなく、
+   * 「詰め方しだいで変わる」ということのほう。いまの並べ方が良いのか悪いのかを
+   * 画面が何も言わないと、雑に並べても丁寧に並べても同じ顔をしてしまう。
+   *
+   * 型紙は四角ではないので、ここまで短くはできない。**下限であって目標ではない**。
+   * 何%なら良いという目安は書かない（依頼者の判断・2026-09-02）。
+   * 実習でどれくらいが妥当かはこちらで決められることではなく、
+   * 数字を決め打ちにすると嘘を教えることになるため
+   */
+  minYardageMm: number
   /** 二重になっている帯。ここに丸ごと入ったパーツは2枚取れる */
   doubled: Box[]
   /** 折り山に当てたパーツを含む、実際に置かれた場所 */
@@ -454,6 +467,8 @@ export type YardageReport = {
   sections: SectionReport[]
   /** 要尺(mm)。各区間の合計 */
   totalMm: number
+  /** 理屈のうえでの最短(mm)。各区間の合計。`totalMm` を超えることはない */
+  minTotalMm: number
   /** 買ってくる長さ(mm)。上乗せして切り上げたもの */
   purchaseMm: number
   /** パーツごとの取れる枚数 */
@@ -739,6 +754,10 @@ export function computeYardage(
       foldDepth: depth,
       // 縦に折っても長さは変わらないが、横に折ると折ったぶんだけ余分に使う
       yardageMm: surfaceLength + depth.top + depth.bottom,
+      minYardageMm: minYardageOf(
+        boxes, surfaceWidth, surfaceLength, depth,
+        isHalfFold(section) && isHorizontalFold(section.fold),
+      ),
       doubled,
       boxes,
       meetXMm: meetX,
@@ -751,10 +770,83 @@ export function computeYardage(
   return {
     sections,
     totalMm,
+    minTotalMm: sections.reduce((s, x) => s + x.minYardageMm, 0),
     purchaseMm: toPurchaseLength(totalMm),
     counts,
     problems: sections.flatMap((s) => s.problems),
   }
+}
+
+/**
+ * 上の空きを、まとめて詰める（依頼者の判断・2026-09-02）。
+ *
+ * 学生はスマホで型紙を1つずつ引きずって上へ寄せている。
+ * 10個を超えると、それだけでかなりの手間になる。
+ *
+ * ただし**並べるのは学生自身**という軸は崩さない。
+ * ここでするのは「上へ落とす」だけで、**左右の位置も、前後の順も変えない**。
+ * どのパーツをどこへ置くかは、これまでどおり本人が決めたままになる。
+ *
+ * 上にあるものから順に、ぶつかるまで上げていく。
+ * 上下の折り山に当てているものは、面の長さのほうから位置が決まるので動かさない。
+ *
+ * @returns 動くものがあれば、置き換えた一式。1つも動かないなら null
+ */
+export function packedUp(
+  sections: SectionReport[],
+  placements: Placement[],
+): Placement[] | null {
+  const moved = new Map<string, number>()
+  for (const sr of sections) {
+    const boxOf = new Map(sr.boxes.map((b) => [b.placementId, b]))
+    const mine = placements
+      .filter((p) => p.sectionId === sr.id && boxOf.has(p.id))
+      .sort((a, b) => boxOf.get(a.id)!.y - boxOf.get(b.id)!.y)
+    const settled: Box[] = []
+    for (const p of mine) {
+      const b = boxOf.get(p.id)!
+      if (p.snapTo === 'top' || p.snapTo === 'bottom') {
+        settled.push(b)
+        continue
+      }
+      const at = freeSpotFor({ w: b.w, h: b.h }, { ...sr, boxes: settled }, { x: b.x })
+      settled.push({ x: b.x, y: at.yMm, w: b.w, h: b.h })
+      if (Math.abs(at.yMm - p.yMm) > 0.5) moved.set(p.id, at.yMm)
+    }
+  }
+  if (moved.size === 0) return null
+  return placements.map((p) => (moved.has(p.id) ? { ...p, yMm: moved.get(p.id)! } : p))
+}
+
+/**
+ * 理屈のうえでの最短の長さ。**置いた型紙の面積を、置ける幅で割る**。
+ *
+ * 守っていること。
+ *
+ *   - **出した数が、実際に使っている長さを上回らない**。上回ると
+ *     「最短のほうが長い」という、読んだ人が意味を取れない画面になる
+ *   - いちばん丈のある型紙より短くしない。面積では足りていても、
+ *     その一枚が入らないなら、その長さは成り立たない
+ *
+ * 横に折って半分にしているときは、折り込むぶんも面の長さについて動く。
+ * そのときだけ、実際の長さと同じ割合で縮める。
+ * それ以外の折りは、折り込む深さが置いた型紙で決まっていて面の長さには連れないので、
+ * 深さはそのまま足す
+ */
+function minYardageOf(
+  boxes: Box[],
+  surfaceWidth: number,
+  surfaceLength: number,
+  depth: Record<Side, number>,
+  scalesWithSurface: boolean,
+): number {
+  if (surfaceWidth <= 0 || surfaceLength <= 0 || boxes.length === 0) return 0
+  const area = boxes.reduce((s, b) => s + b.w * b.h, 0)
+  const tallest = boxes.reduce((m, b) => Math.max(m, b.h), 0)
+  const minSurface = Math.min(Math.max(area / surfaceWidth, tallest), surfaceLength)
+  return scalesWithSurface
+    ? minSurface * ((surfaceLength + depth.top + depth.bottom) / surfaceLength)
+    : minSurface + depth.top + depth.bottom
 }
 
 /**
