@@ -17,7 +17,7 @@ import { bounds, signedArea, type Point } from '../src/lib/geom'
 import {
   canHalfFold, computeYardage, foldEdgeSides, foldOfSides, foldSidesOf, newPlacement,
   orientedOutline, orientedPair, turnBy, turnOf,
-  packedUp, toggleFoldSide, toPurchaseLength,
+  packedUp, pulledIn, toggleFoldSide, toPurchaseLength,
   type Fabric, type FoldMode, type Placement, type PlacedPart, type Side,
 } from '../src/lib/fabric'
 import { isSquare, outlineOf, placedPartOf, planOf, squaredTurn, toStored, withTurn } from '../src/lib/store'
@@ -215,6 +215,25 @@ console.log('\n■ 生地幅を半分に折る — 見えている面はすべ�
   ok('置いた型紙は1つで2枚', r.counts[0].count === 2, `×${r.counts[0].count}`)
   near('要尺は面の長さのまま', r.totalMm, 400, 0)
   ok('問題なし', r.problems.length === 0, r.problems.map((x) => x.kind).join(',') || 'なし')
+}
+
+console.log('\n■ 二重の上でも「上の一枚だけ裁つ」を選べば1枚')
+{
+  const f = halfFabric(1100)
+  const ps = [newPlacement('a', 'p1', 's1', { xMm: 100, yMm: 0, topOnly: true })]
+  const r = run(f, ps, [part('p1', 300, 400)])
+  ok('上だけ裁つなら1枚', r.counts[0].count === 1, `×${r.counts[0].count}`)
+  ok('2枚にも戻せる置き方だと分かる', r.counts[0].couldBeTwo, `couldBeTwo=${r.counts[0].couldBeTwo}`)
+  near('要尺は変わらない', r.totalMm, 400, 0)
+
+  const off = run(f, [newPlacement('a', 'p1', 's1', { xMm: 100, yMm: 0 })], [part('p1', 300, 400)])
+  ok('選ばなければ、これまでどおり2枚', off.counts[0].count === 2, `×${off.counts[0].count}`)
+
+  const onFold = run(f, [newPlacement('a', 'p1', 's1', { snapTo: 'left', topOnly: true })],
+    [part('p1', 300, 400, true)])
+  ok('わに当てた型紙には効かない（もともと1枚）',
+    onFold.counts[0].count === 1 && !onFold.counts[0].couldBeTwo,
+    `×${onFold.counts[0].count} couldBeTwo=${onFold.counts[0].couldBeTwo}`)
 }
 
 console.log('\n■ 半分に折っても、わに当てた型紙は1枚')
@@ -926,6 +945,40 @@ function packChecks() {
     const list = [part('p1', 500, 300, true)]
     const packed = packedUp(run(f, ps, list).sections, ps)
     ok('折り山に当てたものは動かさない', packed === null, packed ? '動いた' : '動かなかった')
+  }
+
+  console.log('\n■ はみ出したぶんを生地の中へ')
+  {
+    // 有効幅 106cm。50cm 幅の型紙を x=800mm に置くと、右へ 240mm はみ出す
+    const f = fabric(1100, ['none'])
+    const ps = [
+      newPlacement('a', 'p1', 's1', { xMm: 800, yMm: 0 }),
+      newPlacement('b', 'p1', 's1', { xMm: 0, yMm: 500 }),
+    ]
+    const list = [part('p1', 500, 400)]
+    const r = run(f, ps, list)
+    ok('まずは、はみ出している', r.problems.some((x) => x.kind === 'tooWide'),
+      r.problems.map((x) => x.kind).join(',') || 'なし')
+    const inn = pulledIn(r.sections, ps)
+    ok('戻すものがあれば、一式が返る', inn !== null, inn ? '返った' : 'null')
+    const after = run(f, inn ?? ps, list)
+    ok('はみ出しが消える', !after.problems.some((x) => x.kind === 'tooWide'),
+      after.problems.map((x) => x.kind).join(',') || 'なし')
+    near('右端いっぱいまで寄せる', (inn ?? [])[0].xMm, 560, 0.5)
+    ok('入っているものは動かさない', (inn ?? [])[1].xMm === 0, `${(inn ?? [])[1].xMm}`)
+    ok('入る場所があれば、上下は動かさない',
+      (inn ?? []).every((q, i) => q.yMm === ps[i].yMm),
+      (inn ?? []).map((q) => q.yMm).join(' / '))
+    ok('重なりも作らない', !after.problems.some((x) => x.kind === 'overlap'),
+      after.problems.map((x) => x.kind).join(',') || 'なし')
+    ok('もう一度押しても動かない', pulledIn(after.sections, inn ?? []) === null, '2回目は null')
+  }
+  {
+    // 生地幅より大きいものは、動かしても入らない。そのままにする
+    const f = fabric(1100, ['none'])
+    const ps = [newPlacement('a', 'p1', 's1', { xMm: 0, yMm: 0 })]
+    const r = run(f, ps, [part('p1', 1200, 300)])
+    ok('幅より大きいものは動かさない', pulledIn(r.sections, ps) === null, '動かなかった')
   }
 }
 

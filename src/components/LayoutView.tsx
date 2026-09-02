@@ -25,7 +25,7 @@ import {
   foldSidesOf, freeSpotFor, sizeOf as partSizeOf, turnBy, turnOf,
   isHalfFold, isHorizontalFold, newPlacement, orientedPair,
   PURCHASE_MARGIN_MM, PURCHASE_ROUND_MM, SELVAGE_MM, SNAP_MM, toggleFoldSide,
-  packedUp,
+  packedUp, pulledIn,
   type Fabric, type FoldMark, type FoldMode, type PlacedPart, type Placement,
   type Section, type Side,
 } from '../lib/fabric'
@@ -53,6 +53,15 @@ type Props = {
   onSaveName: (name: string) => void
   /** しまい終わったら、一覧を持っている側へ知らせる */
   onSaved: (saves: Save[]) => void
+  /**
+   * 1つ戻す。消したあとの知らせの中に、その口そのものを置くため。
+   *
+   * 「上の『1つ戻る』で戻せます」と書いてあっても、
+   * 読んで探しに行くまでに知らせが消えてしまった
+   * （学生の点検・2026-09-02・2巡目）。
+   * 読ませるのではなく、**その場で押せるようにする**
+   */
+  onUndo: () => void
 }
 
 
@@ -113,6 +122,9 @@ const SIDE_LABELS: Record<Side, string> = {
   left: '左', right: '右', top: '上', bottom: '下',
 }
 
+/** 画像づくりの見切り。これを超えたら、やめて理由を出す */
+const DRAW_LIMIT_MS = 20000
+
 /** 生地の色。一重のところと、折り返して二重になっているところ */
 const CLOTH = '#fdfcf8'
 const CLOTH_FOLDED = '#efeee2'
@@ -129,7 +141,9 @@ const CREASE = '#35664e'
 const SELVAGE = { line: '#8d8a78', band: 0.1, dot: 0.55 }
 const SELVAGE_UNDER = { line: '#6b6857', band: 0.14, dot: 0.62 }
 
-export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSaved }: Props) {
+export function LayoutView({
+  state, onChange, onBack, saveName, onSaveName, onSaved, onUndo,
+}: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [activeSection, setActiveSection] = useState(state.sections[0]?.id ?? 's1')
   /** 生地を1つ消した直後か。しばらく置いてから、ひとりでに引っ込む */
@@ -186,6 +200,17 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
   /** この型紙1つで、生地から何枚とれるか。二重の上なら2枚 */
   const countOf = (placementId: string) =>
     report.counts.find((c) => c.placementId === placementId)?.count ?? 1
+
+  /**
+   * 二重のところに丸ごと入っていて、1枚と2枚のどちらにもできる置き方か。
+   *
+   * 半分に折った生地では見えている面が丸ごと二重なので、
+   * **置けば必ず2枚**になる。1枚しか要らないパーツは 0 枚か 2 枚しか選べず、
+   * 「要る数より多く置いています」がどうやっても消えなかった
+   * （学生の点検・2026-09-02・2巡目。ここで3〜4分止まっている）
+   */
+  const twoLayerOf = (placementId: string) =>
+    report.counts.find((c) => c.placementId === placementId)?.couldBeTwo ?? false
 
   /**
    * 二重のところがあるのに、この型紙は1枚しか取れていないか。
@@ -281,10 +306,21 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
   const addReserve = (name: string, widthMm: number, heightMm: number) => {
     const part = toReserve(name, widthMm, heightMm)
     const id = `pl${state.placements.length}_${part.id}`
+    /*
+      余白も、置いてある型紙にぶつからない場所へ出す
+      （学生の点検・2026-09-02・2巡目「置いたら、すでにあるパーツの上に重なった」）。
+      型紙のほうは 2026-09-02 の1巡目でこう直したのに、
+      余白だけ左上の角へ出したままになっていた。
+      余白は長方形そのものなので、入れてもらった寸法をそのまま当たり判定に使う
+    */
+    const sr = report.sections.find((sc) => sc.id === activeSection)
+    const at = sr
+      ? freeSpotFor({ w: widthMm, h: heightMm }, sr)
+      : { xMm: 0, yMm: 0 }
     onChange({
       ...state,
       parts: [...state.parts, part],
-      placements: [...state.placements, newPlacement(id, part.id, activeSection)],
+      placements: [...state.placements, newPlacement(id, part.id, activeSection, at)],
     })
     setSelectedId(id)
   }
@@ -340,6 +376,12 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
     if (next) onChange({ ...state, placements: next })
   }
 
+  /** はみ出したものを、生地の幅の中へ横に寄せる */
+  const pullIn = () => {
+    const next = pulledIn(report.sections, state.placements)
+    if (next) onChange({ ...state, placements: next })
+  }
+
   /**
    * 出た見積もりを、そのまま資料に貼れる字にする（依頼者の案・2026-09-02）。
    *
@@ -364,7 +406,7 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
     L.push('')
     L.push('■ 買ってくる長さ')
     L.push(`${(report.purchaseMm / 10).toFixed(0)} cm`)
-    L.push(`並べたぶん ${(report.totalMm / 10).toFixed(1)} ＋ ゆとり ${PURCHASE_MARGIN_MM / 10}`
+    L.push(`並べたぶん ${(report.totalMm / 10).toFixed(1)} cm ＋ ゆとり ${PURCHASE_MARGIN_MM / 10} cm`
       + ` → ${PURCHASE_ROUND_MM / 10} cm 単位に切り上げ`)
     L.push(`理屈のうえでの最短 ${(report.minTotalMm / 10).toFixed(1)} cm`)
     L.push('')
@@ -372,7 +414,16 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
     for (const p of state.parts) {
       const s = sizeOf(p.id)
       const size = s?.cut ? `${cm(s.cut.widthMm)} × ${cm(s.cut.heightMm)} cm` : '—'
+      /*
+        「上だけ裁つ」は、裁つときの指示そのもの。
+        図にも印を出しているので、字のほうにも同じことを残しておく。
+        これが抜けると、この一覧だけを見た人が二重のまま2枚裁ってしまう
+      */
+      const top = state.placements.some(
+        (pl) => pl.partId === p.id && twoLayerOf(pl.id) && countOf(pl.id) === 1,
+      )
       L.push(`${p.name}  ${takenOf(p.id)} / ${p.needed} 枚  ${size}`
+        + (top ? '  ※上の一枚だけ裁つ' : '')
         + (isReserve(p) ? '  ※あとで裁つ' : ''))
     }
     if (report.problems.length > 0) {
@@ -412,7 +463,19 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
       </button>
 
       {dropped && (
-        <Note icon="check" tone="good"><T id="layout.drop.note" strong="font-bold" /></Note>
+        <Note icon="check" tone="good">
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <T id="layout.drop.note" strong="font-bold" />
+            <button
+              type="button"
+              onClick={() => { onUndo(); setDropped(false) }}
+              className="tap flex shrink-0 items-center gap-1 rounded-lg border border-mat-300 bg-white px-2.5 py-1 text-xs font-bold text-mat-700 active:bg-mat-50"
+            >
+              <Icon name="undo" className="h-3.5 w-3.5 shrink-0" />
+              1つ戻す
+            </button>
+          </span>
+        </Note>
       )}
 
       {report.problems.length > 0 && (
@@ -453,6 +516,7 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
           selectedId={selectedId}
           canDrop={state.sections.length > 1}
           countOf={countOf}
+          topOnlyOf={(id) => twoLayerOf(id) && countOf(id) === 1}
           onActivate={() => setActiveSection(section.id)}
           onSelect={setSelectedId}
           onMove={patch}
@@ -484,11 +548,27 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
             同じ薄さの字にすると押す前に見つけてもらえないので、
             こちらだけ濃くしてある
           */}
+          {/*
+            生地幅を狭めて戻ってくると、はみ出したものがそのまま残っていた
+            （学生の点検・2026-09-02・2巡目）。
+            横に寄せるだけの機械的な作業なので、まとめて引き受ける。
+            はみ出しているときだけ出す
+          */}
+          {report.problems.some((pb) => pb.kind === 'tooWide') && (
+            <button
+              type="button"
+              onClick={pullIn}
+              className="mr-auto flex items-center gap-1 rounded-lg border border-seam/50 bg-white px-2.5 py-1.5 text-xs font-bold text-seam active:bg-seam/5"
+            >
+              <Icon name="clothWidth" className="h-3.5 w-3.5 shrink-0" />
+              生地の中へ戻す
+            </button>
+          )}
           {state.placements.length > 1 && (
             <button
               type="button"
               onClick={packUp}
-              className="mr-auto flex items-center gap-1 rounded-lg border border-mat-300 bg-white px-2.5 py-1.5 text-xs font-bold text-mat-700 active:bg-mat-50"
+              className="flex items-center gap-1 rounded-lg border border-mat-300 bg-white px-2.5 py-1.5 text-xs font-bold text-mat-700 active:bg-mat-50"
             >
               <Icon name="packUp" className="h-3.5 w-3.5 shrink-0" />
               上の空きを詰める
@@ -557,6 +637,7 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
           size={sizeOf(selected.partId)}
           count={countOf(selected.id)}
           couldBeTwo={couldBeTwoOf(selected)}
+          twoLayer={twoLayerOf(selected.id)}
           reserve={isReserve(state.parts.find((p) => p.id === selected.partId) ?? ({} as StoredPart))}
           hasNap={state.hasNap}
           snapTargets={snapTargetsOf(
@@ -599,7 +680,14 @@ function Totals({
   report: ReturnType<typeof computeYardage>
   widthMm: number
 }) {
+  /*
+    ありえない置き方は「重なり」だけではない（学生の点検・2026-09-02・2巡目）。
+    幅からはみ出しているときにも同じ注意が要るのに、
+    ここが overlap しか見ていなかったので、はみ出しのときだけ
+    大きな数字がそのまま書き写せてしまっていた
+  */
   const overlapping = report.problems.some((pb) => pb.kind === 'overlap')
+  const tooWide = report.problems.some((pb) => pb.kind === 'tooWide')
   return (
     <div data-tour="totals" className="flex gap-3 rounded-xl border border-ink-100 bg-white px-4 py-4">
       {/* 買う長さは、生地の「丈」を測っている数字。絵でもそう見せる */}
@@ -616,10 +704,12 @@ function Totals({
         そのまま書き写して提出できてしまう。
         止めはせず、**数字のすぐ下**で、まだ書き写せる数字ではないと言う
       */}
-      {overlapping && (
+      {(overlapping || tooWide) && (
         <p className="flex gap-1.5 pt-1 text-xs leading-relaxed text-seam">
           <Icon name="warn" className="mt-[0.15em] h-[1.15em] w-[1.15em] shrink-0" />
-          <span className="min-w-0 flex-1"><T id="layout.overlap.total" /></span>
+          <span className="min-w-0 flex-1">
+            <T id={overlapping ? 'layout.overlap.total' : 'layout.toowide.total'} />
+          </span>
         </p>
       )}
       {/*
@@ -645,9 +735,9 @@ function Totals({
                   もとは整数に丸めていたので「130 ＋ 20 → 切り上げ」と書いてあるのに
                   出ている数字が 160 になり、式のとおりに計算しても合わなかった
                 */}
-                並べたぶん {(report.totalMm / 10).toFixed(1)}
+                並べたぶん {(report.totalMm / 10).toFixed(1)} cm
                 <span className="px-1 text-ink-300">＋</span>
-                ゆとり {PURCHASE_MARGIN_MM / 10}
+                ゆとり {PURCHASE_MARGIN_MM / 10} cm
                 <span className="px-1 text-ink-300">→ 切り上げ</span>
               </span>
             }
@@ -816,6 +906,26 @@ function ImageBox({
    * **枠に出して、手で選んでもらう**逃げ道を残す
    */
   const [shown, setShown] = useState<string | null>(null)
+  /**
+   * 画像づくりが、終わりも失敗もしないまま帰ってこないことがある
+   * （学生の点検・2026-09-02・2巡目。46秒待っても「書き出しています…」のままで、
+   *  エラーも出ず、やめる方法も無く、ページを開き直すしかなかった）。
+   *
+   * 原因が端末側にあるのかこちらにあるのかは、まだ分かっていない。
+   * ただ**終わらないときに何も言われず、やめられない**こと自体が困るので、
+   * 原因の切り分けを待たずに、見切りと、やめる口を先に付ける。
+   *
+   * 途中でやめたあとに古い処理が帰ってきても知らせを書きかえないよう、
+   * 何回目の書き出しかを持っておいて、いまのものだけを受け取る
+   */
+  const runId = useRef(0)
+
+  const stop = () => {
+    runId.current += 1
+    setBusy(false)
+    setBad(false)
+    setNote('画像づくりをやめました')
+  }
 
   const copy = async () => {
     const text = summaryText()
@@ -834,6 +944,7 @@ function ImageBox({
   if (report.purchaseMm <= 0) return null
 
   const run = async () => {
+    const my = ++runId.current
     setBusy(true)
     setNote(null)
     try {
@@ -853,16 +964,25 @@ function ImageBox({
 
       const caption =
         `生地幅 ${widthMm / 10} cm ／ 買ってくる長さ ${(report.purchaseMm / 10).toFixed(0)} cm`
-      const blob = await renderLayoutImage(sheets, caption)
+      const blob = await Promise.race([
+        renderLayoutImage(sheets, caption),
+        new Promise<never>((_, no) =>
+          setTimeout(() => no(new Error('slow')), DRAW_LIMIT_MS)),
+      ])
       const how = await saveImage(blob, `裁ち合わせ図-${today()}.png`)
+      if (runId.current !== my) return
       setBad(false)
       if (how === 'downloaded') setNote('画像を保存しました')
       else if (how === 'shared') setNote('画像を渡しました')
-    } catch {
+    } catch (e) {
+      if (runId.current !== my) return
       setBad(true)
-      setNote('画像にできませんでした。読み込み直してから、もう一度試してください')
+      setNote(e instanceof Error && e.message === 'slow'
+        ? `${DRAW_LIMIT_MS / 1000} 秒たっても画像ができませんでした。`
+          + '図を小さくするか、読み込み直してから、もう一度お試しください'
+        : '画像にできませんでした。読み込み直してから、もう一度試してください')
     } finally {
-      setBusy(false)
+      if (runId.current === my) setBusy(false)
     }
   }
 
@@ -872,15 +992,27 @@ function ImageBox({
         <Icon name="photo" className="h-4 w-4 shrink-0 text-mat-600" />
         <span className="shrink-0 text-sm font-bold text-ink-700">資料に持ち出す</span>
       </div>
-      <button
-        type="button"
-        onClick={run}
-        disabled={busy}
-        className="flex items-center justify-center gap-2 rounded-lg bg-mat-500 px-4 py-2.5 text-sm font-bold text-white active:bg-mat-600 disabled:opacity-50"
-      >
-        <Icon name="photo" className="h-4 w-4 shrink-0" />
-        {busy ? '書き出しています…' : '配置図を画像にして保存'}
-      </button>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={run}
+          disabled={busy}
+          className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg bg-mat-500 px-4 py-2.5 text-sm font-bold text-white active:bg-mat-600 disabled:opacity-50"
+        >
+          <Icon name="photo" className="h-4 w-4 shrink-0" />
+          {/* 「書き出す」は聞き慣れない言い方だった（学生の点検・2巡目） */}
+          {busy ? '画像を作っています…' : '配置図を画像にして保存'}
+        </button>
+        {busy && (
+          <button
+            type="button"
+            onClick={stop}
+            className="shrink-0 rounded-lg border border-ink-100 bg-white px-4 py-2.5 text-sm font-bold text-ink-500 active:bg-table"
+          >
+            やめる
+          </button>
+        )}
+      </div>
       <Hint
         icon="photo"
         summary={<T id="layout.band.summary" />}
@@ -925,7 +1057,7 @@ function today(): string {
 /* ------------------------------------------------------------- 生地の面 */
 
 function SectionCanvas({
-  index, section, report, state, partMap, active, selectedId, canDrop, countOf,
+  index, section, report, state, partMap, active, selectedId, canDrop, countOf, topOnlyOf,
   onActivate, onSelect, onMove, onFold, onHalf, onDrop,
 }: {
   index: number
@@ -937,6 +1069,14 @@ function SectionCanvas({
   selectedId: string | null
   canDrop: boolean
   countOf: (placementId: string) => number
+  /**
+   * 二重のところに置いてあるのに、上の一枚だけを裁つと決めてあるか。
+   *
+   * 図には必ず出す。ここに印が無いと、この図を見て裁つ人は
+   * **二重のまま2枚とも裁ってしまう**。裁つときの指示そのものなので、
+   * 画像に書き出したものにも同じ印が残る
+   */
+  topOnlyOf: (placementId: string) => boolean
   onActivate: () => void
   onSelect: (id: string) => void
   onMove: (id: string, over: Partial<Placement>, group?: string) => void
@@ -2329,6 +2469,7 @@ function SectionCanvas({
             const bad = badPlacements.has(p.id)
             const on = selectedId === p.id
             const twice = countOf(p.id) === 2
+            const topOnly = topOnlyOf(p.id)
             const stored = state.parts.find((x) => x.id === p.partId)
             const reserve = stored ? isReserve(stored) : false
             /*
@@ -2506,6 +2647,24 @@ function SectionCanvas({
                     <text x={box.w - lbl(W * 0.058)} y={box.h - lbl(W * 0.055)} fontSize={lbl(W * 0.044)}
                       fontWeight={700} fill="#ffffff" textAnchor="middle" dominantBaseline="middle">
                       ×2
+                    </text>
+                  </g>
+                )}
+                {/*
+                  上の一枚だけを裁つと決めてあるもの。
+                  ×2 と同じ場所に、逆の意味の印を置く。
+                  ここに何も出さないと、この図を見て裁つ人は二重のまま2枚とってしまう
+                */}
+                {topOnly && (
+                  <g>
+                    <rect x={box.w - lbl(W * 0.118)} y={box.h - lbl(W * 0.096)}
+                      width={lbl(W * 0.12)} height={lbl(W * 0.082)}
+                      rx={lbl(W * 0.018)} fill="#ffffff" stroke={CREASE}
+                      strokeWidth={lbl(W * 0.006)} />
+                    <text x={box.w - lbl(W * 0.058)} y={box.h - lbl(W * 0.055)}
+                      fontSize={lbl(W * 0.04)} fontWeight={700} fill={CREASE}
+                      textAnchor="middle" dominantBaseline="middle">
+                      上だけ
                     </text>
                   </g>
                 )}
@@ -2912,13 +3071,21 @@ function Tray({
             )}
           </span>
         )}
-        <button
-          type="button"
-          onClick={() => onPlace(p.id)}
-          className="rounded-lg bg-mat-500 px-3 py-1.5 text-sm font-bold text-white active:bg-mat-600"
-        >
-          置く
-        </button>
+        {/*
+          余白は足した時点で生地に置かれている（学生の点検・2026-09-02・2巡目）。
+          そこへ一覧からも「置く」が出ていたので、押すと同じ余白が2つ並んだ。
+          生地から外したときだけ、置きなおす口として戻す。
+          型紙のほうは何枚でも置けるので、これまでどおり出しつづける
+        */}
+        {(!reserve || taken === 0) && (
+          <button
+            type="button"
+            onClick={() => onPlace(p.id)}
+            className="rounded-lg bg-mat-500 px-3 py-1.5 text-sm font-bold text-white active:bg-mat-600"
+          >
+            置く
+          </button>
+        )}
       </li>
     )
   }
@@ -3094,7 +3261,7 @@ function snapTargetsOf(part: PlacedPart | undefined, p: Placement, foldSides: Si
 /* ------------------------------------------------------- 選んだパーツの操作 */
 
 function Controls({
-  placement, name, size, count, couldBeTwo, reserve, hasNap, snapTargets,
+  placement, name, size, count, couldBeTwo, twoLayer, reserve, hasNap, snapTargets,
   onPatch, onRemove, onClose,
 }: {
   placement: Placement
@@ -3110,6 +3277,14 @@ function Controls({
    * 損得の話ではなく、二重の帯に丸ごと入っているかどうかで変わるだけ
    */
   couldBeTwo: boolean
+  /**
+   * 二重のところに丸ごと入っていて、1枚と2枚のどちらにもできる置き方か。
+   *
+   * ここが true のときだけ、枚数を選んでもらう。
+   * 折り山に当てている型紙（開けば左右対称の1枚）や、
+   * 一重のところに置いた型紙には出さない——選べることが無いため
+   */
+  twoLayer: boolean
   /** 後で裁つぶんの余白か。ただの長方形なので、選べることが少ない */
   reserve: boolean
   hasNap: boolean
@@ -3121,6 +3296,27 @@ function Controls({
 }) {
   /** いま回している角度（0・90・180・270） */
   const turn = turnOf(placement)
+  /*
+    まわしたり動かしたりすると、取れる枚数が変わることがある。
+    理由は下の注意書きに書いてあるが、
+    **変わったこと自体に気づかないまま先へ進む**という報告があった
+    （学生の点検・2026-09-02・2巡目「まわしただけで枚数が変わる理由が
+    画面からは分からず、得したのか損したのか迷いました」）。
+    変わった瞬間に、いくつからいくつへ変わったかをその場で言う。
+    しばらく置いてから、ひとりでに引っ込む
+  */
+  const [was, setWas] = useState(count)
+  const [changed, setChanged] = useState<{ from: number; to: number } | null>(null)
+  // 前の値と見比べるだけなので、描く前にその場で気づく（React の言う「描画中の更新」）
+  if (count !== was) {
+    setWas(count)
+    setChanged({ from: was, to: count })
+  }
+  useEffect(() => {
+    if (!changed) return
+    const t = setTimeout(() => setChanged(null), 6000)
+    return () => clearTimeout(t)
+  }, [changed])
   /*
     出たことに気づけるようにする（依頼者の指摘・2026-08-30
     「メニューの背景色が白なので、表示されたことに気づきにくい」
@@ -3153,33 +3349,72 @@ function Controls({
       <div className="mx-auto flex max-w-md flex-col gap-2">
         <div className="mx-auto h-1 w-10 rounded-full bg-mat-300" />
         <div className="flex items-center gap-2">
-          <span className="text-sm font-bold text-ink-900">{name}</span>
+          <span className="min-w-0 flex-1 truncate text-sm font-bold text-ink-900">{name}</span>
           {reserve ? (
-            <span className="rounded-md bg-hold-50 px-2 py-0.5 text-xs font-bold text-hold-700">
+            <span className="shrink-0 rounded-md bg-hold-50 px-2 py-0.5 text-xs font-bold text-hold-700">
               あとで裁つぶん
             </span>
-          ) : (
-            <span className="tnum rounded-md bg-white px-2 py-0.5 text-xs font-bold text-mat-600">
+          ) : !twoLayer && (
+            <span className="tnum shrink-0 rounded-md bg-white px-2 py-0.5 text-xs font-bold text-mat-600">
               この1つで {count} 枚
-            </span>
-          )}
-          {!reserve && couldBeTwo && (
-            <span className="min-w-0 flex-1 truncate text-[11px] text-ink-500">
-              <T id="layout.single.note" />
             </span>
           )}
           <button
             type="button"
             onClick={onRemove}
-            className="ml-auto flex items-center gap-1 px-2 text-xs text-seam"
+            className="tap flex shrink-0 items-center gap-1 whitespace-nowrap px-1 text-xs text-seam"
           >
             <Icon name="trash" className="h-3.5 w-3.5 shrink-0" />
             生地から外す
           </button>
-          <button type="button" onClick={onClose} className="px-2 text-xs text-ink-300">
+          <button
+            type="button"
+            onClick={onClose}
+            className="tap shrink-0 whitespace-nowrap px-1 text-xs text-ink-300"
+          >
             閉じる
           </button>
         </div>
+
+        {/*
+          二重の上では「置けば2枚」しかなかった（学生の点検・2026-09-02・2巡目）。
+          実物の裁断では、1枚でよいものは下の層を避けて上だけ裁つ。
+          その選択をそのまま持たせる。
+          入り／切りの名前は付けず、**結果の枚数そのもの**を選んでもらう。
+
+          名前の行に置くと、外す・閉じるとぶつかって字が折り返してしまうので、
+          1行取って、意味の言い添えと並べる
+        */}
+        {!reserve && twoLayer && (
+          <div className="-mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="tnum flex shrink-0 items-center gap-1.5 rounded-md bg-white px-2 py-0.5 text-xs font-bold text-mat-600">
+              この1つで
+              <span className="flex overflow-hidden rounded border border-mat-300">
+                {[1, 2].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => onPatch({ topOnly: n === 1 })}
+                    aria-pressed={count === n}
+                    className={`px-2 py-1 ${
+                      count === n ? 'bg-mat-500 text-white' : 'bg-white text-ink-500'
+                    }`}
+                  >
+                    {n} 枚
+                  </button>
+                ))}
+              </span>
+            </span>
+            <span className="min-w-0 flex-1 text-[11px] leading-snug text-ink-500">
+              <T id="layout.twolayer.note" strong="font-bold text-mat-700" />
+            </span>
+          </div>
+        )}
+        {!reserve && couldBeTwo && (
+          <p className="-mt-1 text-[11px] leading-snug text-ink-500">
+            <T id="layout.single.note" />
+          </p>
+        )}
 
         {/*
           取り込んだ大きさ。実物に定規を当てて突き合わせるためのもの
@@ -3229,7 +3464,7 @@ function Controls({
               type="button"
               aria-label="左へ90度回す"
               onClick={() => onPatch(turnBy(placement, -1))}
-              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-bold text-ink-700 active:bg-mat-50"
+              className="tap flex items-center gap-1 rounded-md px-2 py-1 text-xs font-bold text-ink-700 active:bg-mat-50"
             >
               <Icon name="turnLeft" className="h-4 w-4 shrink-0" />
               左へ90°
@@ -3241,7 +3476,7 @@ function Controls({
               type="button"
               aria-label="右へ90度回す"
               onClick={() => onPatch(turnBy(placement, 1))}
-              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-bold text-ink-700 active:bg-mat-50"
+              className="tap flex items-center gap-1 rounded-md px-2 py-1 text-xs font-bold text-ink-700 active:bg-mat-50"
             >
               右へ90°
               <Icon name="turnRight" className="h-4 w-4 shrink-0" />
@@ -3288,6 +3523,15 @@ function Controls({
         {placement.rot90 && (
           <Note icon="grainSide">
             <T id="layout.grain.side" />
+          </Note>
+        )}
+        {changed && (
+          <Note icon="part" tone="warn">
+            <T
+              id="layout.count.changed"
+              vars={{ from: changed.from, to: changed.to }}
+              strong="font-bold"
+            />
           </Note>
         )}
       </div>

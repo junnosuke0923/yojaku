@@ -135,7 +135,7 @@ export function FoldDiagram({ fold, half, nearMm, farMm, spanMm }: Props) {
       <div className="flex items-center gap-2 pb-1">
         <Icon name="fold" className="h-4 w-4 shrink-0 text-mat-600" />
         <span className="text-xs font-bold text-ink-700">横から見ると</span>
-        <span className="text-xs text-ink-300">{FOLD_LABELS[fold]}・{along}</span>
+        <span className="text-xs text-ink-300">{FOLD_LABELS[fold]} ／ {along}</span>
       </div>
 
       {/* 左右に余白を取る。折り山の丸みが枠の外にふくらむため */}

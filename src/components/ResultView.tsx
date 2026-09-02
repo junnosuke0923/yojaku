@@ -320,8 +320,13 @@ export function ResultView({ bitmap, result, excluded, onToggle, smooth, onSmoot
             言葉を言い換える。数字そのものは、定規の読み取りが
             大きくずれていないかを見る手がかりとして残す
           */}
+          {/*
+            「点」が何なのか伝わらなかった（学生の点検・2026-09-02・2巡目）。
+            px を言い換えただけで、まだ単位の名前のままだった。
+            何と何を並べた数字なのかを、文にして言う
+          */}
           <p className="tnum mt-2 text-xs text-mat-600">
-            写真の細かさ 1点 ＝ {result.scale.mmPerPixel.toFixed(3)} mm
+            写真の点ひとつが、実物の {result.scale.mmPerPixel.toFixed(3)} mm にあたります
           </p>
         </div>
       </div>

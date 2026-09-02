@@ -80,7 +80,7 @@ export function PartsView({ state, onChange, onAddMore, onLayout }: Props) {
           <button
             type="button"
             onClick={onAddMore}
-            className="flex shrink-0 items-center gap-1 text-sm font-bold text-mat-700"
+            className="tap flex shrink-0 items-center gap-1 text-sm font-bold text-mat-700"
           >
             <Icon name="camera" className="h-4 w-4 shrink-0" />
             撮り足す
@@ -396,6 +396,18 @@ function PartRow({
    * 打つ道はふさがない。名前は計算に効かないので、何を入れてもよい
    */
   const [naming, setNaming] = useState(false)
+  /**
+   * 打ち込みに入る直前の名前。取り消しと、空のまま出たときの戻し先。
+   *
+   * 「じぶんで入れる…」に入ると、一覧へ戻る道が無く、
+   * 名前を空にしたまま出ることもできた（学生の点検・2026-09-02・2巡目）。
+   * 名前が空になると図の中の札まで空になるので、黙って元に戻す
+   */
+  const nameBefore = useRef('')
+  const stopNaming = (keep: boolean) => {
+    if (!keep || part.name.trim() === '') onPatch({ name: nameBefore.current })
+    setNaming(false)
+  }
 
   /*
     別のカードを開くと、上で開いていたぶんが畳まれて中身が上へ動く。
@@ -436,25 +448,53 @@ function PartRow({
           {/* 1画面に近づけるため、行を折り返させない（依頼者の指示・2026-08-27） */}
           <div className="flex items-center gap-1.5">
             {naming ? (
-              <input
-                type="text"
-                autoFocus
-                value={part.name}
-                onChange={(e) => onPatch({ name: e.target.value })}
-                onBlur={() => setNaming(false)}
-                aria-label="パーツの名前"
-                className="min-w-0 flex-1 rounded-lg border-2 border-mat-500 px-2 py-1.5 text-sm"
-              />
+              <>
+                <input
+                  type="text"
+                  autoFocus
+                  value={part.name}
+                  onChange={(e) => onPatch({ name: e.target.value })}
+                  onBlur={() => stopNaming(true)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') stopNaming(true)
+                    if (e.key === 'Escape') stopNaming(false)
+                  }}
+                  aria-label="パーツの名前"
+                  className="min-w-0 flex-1 rounded-lg border-2 border-mat-500 px-2 py-1.5 text-sm"
+                />
+                {/*
+                  一覧へ戻る道。押されるまえに input の onBlur が走るので、
+                  onMouseDown で先に受ける
+                */}
+                <button
+                  type="button"
+                  onMouseDown={(e) => { e.preventDefault(); stopNaming(false) }}
+                  onClick={() => stopNaming(false)}
+                  className="tap shrink-0 whitespace-nowrap px-1 text-xs font-bold text-ink-500"
+                >
+                  やめる
+                </button>
+              </>
             ) : (
               <select
                 value={NAME_CHOICES.includes(part.name) ? part.name : ''}
                 onChange={(e) => {
-                  if (e.target.value === OWN_NAME) setNaming(true)
+                  if (e.target.value === OWN_NAME) {
+                    nameBefore.current = part.name
+                    setNaming(true)
+                  }
                   else onPatch({ name: e.target.value || part.name })
                 }}
                 className="min-w-0 flex-1 rounded-lg border border-ink-100 px-2 py-1.5 text-sm"
               >
-                <option value="">{part.name}</option>
+                {/*
+                  いまの名前が一覧にも入っていると、同じ名前が2回並ぶ
+                  （学生の点検・2026-09-02・2巡目）。
+                  一覧に無い名前（じぶんで入れたもの）のときだけ、先頭に出す
+                */}
+                {!NAME_CHOICES.includes(part.name) && (
+                  <option value="">{part.name}</option>
+                )}
                 {NAME_CHOICES.map((c) => <option key={c} value={c}>{c}</option>)}
                 <option value={OWN_NAME}>じぶんで入れる…</option>
               </select>
@@ -462,7 +502,7 @@ function PartRow({
             <button
               type="button"
               onClick={onRemove}
-              className="flex h-8 w-6 shrink-0 items-center justify-center text-ink-300"
+              className="tap flex h-11 w-9 shrink-0 items-center justify-center text-ink-300"
               aria-label="このパーツを消す"
             >
               <Icon name="trash" className="h-4 w-4" />
@@ -483,7 +523,7 @@ function PartRow({
                 disabled={part.needed <= 1}
                 onClick={() => onPatch({ needed: Math.max(1, part.needed - 1) })}
                 aria-label="枚数を減らす"
-                className="px-3 py-1.5 text-sm font-bold text-ink-500 disabled:opacity-25"
+                className="tap px-3 py-1.5 text-sm font-bold text-ink-500 disabled:opacity-25"
               >
                 −
               </button>
@@ -495,7 +535,7 @@ function PartRow({
                 disabled={part.needed >= MAX_NEEDED}
                 onClick={() => onPatch({ needed: Math.min(MAX_NEEDED, part.needed + 1) })}
                 aria-label="枚数を増やす"
-                className="px-3 py-1.5 text-sm font-bold text-ink-500 disabled:opacity-25"
+                className="tap px-3 py-1.5 text-sm font-bold text-ink-500 disabled:opacity-25"
               >
                 ＋
               </button>
@@ -512,6 +552,18 @@ function PartRow({
                 : '—'}
             </button>
           </div>
+
+          {/*
+            ＋ が上限で黙って効かなくなっていた（学生の点検・2026-09-02・2巡目）。
+            押しても何も起きないので、壊れているのか上限なのか分からない。
+            上限は変えず（それ以上は要尺の道具の話ではなくなる）、
+            **届いたときだけ**理由を出す
+          */}
+          {part.needed >= MAX_NEEDED && (
+            <p className="text-[11px] leading-tight text-ink-300">
+              枚数は {MAX_NEEDED} 枚までです
+            </p>
+          )}
 
           {/*
             縫い代の画面への入口（依頼者の指摘・2026-09-01

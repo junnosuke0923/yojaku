@@ -70,15 +70,19 @@ export type Side = 'left' | 'right' | 'top' | 'bottom'
 export type FoldMode =
   | 'none' | 'vLeft' | 'vRight' | 'vBoth' | 'hTop' | 'hBottom' | 'hBoth'
 
+/*
+  「縦わ・左」の「・左」が何を指すのか読めなかった
+  （学生の点検・2026-09-02・2巡目）。どの辺で折るか、という意味なので、そう書く
+*/
 export const FOLD_LABELS: Record<FoldMode, string> = {
   none: '折らない',
   // 左右どちらでも折れるようになったので、「片側」ではなくどちら側かを言う
-  vLeft: '縦わ・左',
-  vRight: '縦わ・右',
-  vBoth: '縦わ・両側',
-  hTop: '横わ・上端',
-  hBottom: '横わ・下端',
-  hBoth: '横わ・両側',
+  vLeft: '縦わ・左で折る',
+  vRight: '縦わ・右で折る',
+  vBoth: '縦わ・両側で折る',
+  hTop: '横わ・上で折る',
+  hBottom: '横わ・下で折る',
+  hBoth: '横わ・両側で折る',
 }
 
 export const isVerticalFold = (f: FoldMode) =>
@@ -238,6 +242,20 @@ export type Placement = {
   /** 裏返し（鏡像）。許すが、印を出す */
   mirrored: boolean
   rot90: boolean
+  /**
+   * 二重のところに置いてあっても、**上の一枚だけを裁つ**か。
+   *
+   * 半分に折った生地では、見えている面が丸ごと二重になる。
+   * すると型紙を1つ置くたびに必ず2枚とれてしまい、
+   * 1枚しか要らないパーツは「0枚」か「2枚」しか選べない。
+   * 「要る数より多く置いています」が何をしても消えず、
+   * 自分の操作が悪いのだと思って置いては消してを繰り返す、
+   * という報告があった（学生の点検・2026-09-02・2巡目。3〜4分止まった）。
+   *
+   * 実物の裁断では、1枚でよいものは下の層を避けて上だけ裁つ。
+   * その動きをそのまま持たせる。既定は false（二重なら2枚）。
+   */
+  topOnly?: boolean
 }
 
 /** 回した角度（0・90・180・270）。真偽値2つの組み合わせから出す */
@@ -472,7 +490,13 @@ export type YardageReport = {
   /** 買ってくる長さ(mm)。上乗せして切り上げたもの */
   purchaseMm: number
   /** パーツごとの取れる枚数 */
-  counts: Array<{ placementId: string; count: 1 | 2; onFold: boolean }>
+  counts: Array<{
+    placementId: string
+    count: 1 | 2
+    onFold: boolean
+    /** 上の一枚だけにしなければ2枚とれる置き方か（`topOnly` の札を出す目印） */
+    couldBeTwo: boolean
+  }>
   problems: Problem[]
 }
 
@@ -723,13 +747,16 @@ export function computeYardage(
         })
       }
 
+      // 折り山に当てていれば、開いて左右対称の1枚。
+      // 二重の帯に丸ごと入っていれば2枚。またいでいるなら1枚（安全側に倒す）。
+      // 端どうしの出会い目をまたいでいるときも、上の一枚が割れるので1枚
+      const couldBeTwo = !onFold && !acrossMeet && insideAny(box, doubled)
       counts.push({
         placementId: p.id,
         onFold,
-        // 折り山に当てていれば、開いて左右対称の1枚。
-        // 二重の帯に丸ごと入っていれば2枚。またいでいるなら1枚（安全側に倒す）。
-        // 端どうしの出会い目をまたいでいるときも、上の一枚が割れるので1枚
-        count: onFold || acrossMeet ? 1 : insideAny(box, doubled) ? 2 : 1,
+        couldBeTwo,
+        // 上の一枚だけを裁つと決めてあれば、二重の上でも1枚
+        count: couldBeTwo && !p.topOnly ? 2 : 1,
       })
     }
 
@@ -775,6 +802,58 @@ export function computeYardage(
     counts,
     problems: sections.flatMap((s) => s.problems),
   }
+}
+
+/**
+ * 生地の幅からはみ出したものを、幅の中へ戻す（学生の点検・2026-09-02・2巡目）。
+ *
+ * 生地幅を変えて戻ってくると、置いたものはそのまま残る。
+ * これは狙いどおり（並べ直しにならない）なのだが、
+ * **幅を狭めたときにはみ出したものは、はみ出したまま**になっていた。
+ * 幅の中へ戻すのは横に寄せるだけの機械的な作業なので、まとめて引き受ける。
+ *
+ * 動かすのは、はみ出しているものだけ。入っているものには触らない。
+ * 折り山に当てているものは、折り山のほうから位置が決まるので動かさない。
+ * 幅そのものより大きくて入らないものは、動かしても入らないのでそのままにする
+ * （そのときは「この生地幅では横に収まりません」が出たままになる）。
+ *
+ * 横へ寄せた先がすでに埋まっていたら、**空いているところまで下げる**。
+ * はみ出しを直したつもりが、代わりに重なりが出るのでは直したことにならない。
+ *
+ * @returns 動くものがあれば、置き換えた一式。1つも動かないなら null
+ */
+export function pulledIn(
+  sections: SectionReport[],
+  placements: Placement[],
+): Placement[] | null {
+  const moved = new Map<string, { x: number; y: number }>()
+  for (const sr of sections) {
+    const boxOf = new Map(sr.boxes.map((b) => [b.placementId, b]))
+    const mine = placements.filter((p) => p.sectionId === sr.id && boxOf.has(p.id))
+    /** 動かさないもの。これが土台になる */
+    const settled: Box[] = []
+    const out: Placement[] = []
+    for (const p of mine) {
+      const b = boxOf.get(p.id)!
+      const inside = b.x >= -0.5 && b.x + b.w <= sr.surfaceWidthMm + 0.5
+      const stuck = p.snapTo === 'left' || p.snapTo === 'right'
+      const tooBig = b.w > sr.surfaceWidthMm + 0.5
+      if (inside || stuck || tooBig) settled.push(b)
+      else out.push(p)
+    }
+    for (const p of out) {
+      const b = boxOf.get(p.id)!
+      const x = Math.min(Math.max(0, b.x), sr.surfaceWidthMm - b.w)
+      const at = freeSpotFor({ w: b.w, h: b.h }, { ...sr, boxes: settled }, { x })
+      settled.push({ x, y: at.yMm, w: b.w, h: b.h })
+      moved.set(p.id, { x, y: at.yMm })
+    }
+  }
+  if (moved.size === 0) return null
+  return placements.map((p) => {
+    const at = moved.get(p.id)
+    return at ? { ...p, xMm: at.x, yMm: at.y } : p
+  })
 }
 
 /**

@@ -713,12 +713,20 @@ export function App() {
             全部で3なのか5なのか分からなくなる、という報告があった。
             **いまどこかは下の帯が言っている**ので、ここは何をするところかだけ言う
           */}
+          {/*
+            生地と並べるで**まったく同じ文**が出ていた（学生の点検・2026-09-02・2巡目）。
+            並べる画面では下の帯の線も5本とも同じ濃い緑になるので、
+            いまどこかを言っているものが、この行と 12px の太字だけになっていた。
+            画面ごとに、そこで何をするかを別々に言う
+          */}
           <span className="text-xs text-ink-300">
-            {step === 'fabric' || step === 'layout'
-              ? '生地を決めて、上に並べる'
-              : step === 'parts'
-                ? seamIncluded ? 'わの辺を決める' : '縫い代を付ける'
-                : '実寸をつかむ'}
+            {step === 'layout'
+              ? '型紙を生地の上に並べる'
+              : step === 'fabric'
+                ? '生地の幅と折り方を決める'
+                : step === 'parts'
+                  ? seamIncluded ? 'わの辺を決める' : '縫い代を付ける'
+                  : '実寸をつかむ'}
           </span>
         </div>
         {/*
@@ -737,7 +745,7 @@ export function App() {
               type="button"
               onClick={replayTour}
               aria-label="この画面の使い方"
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-ink-100 bg-white text-ink-500 active:bg-chalk"
+              className="tap flex h-9 w-9 items-center justify-center rounded-lg border border-ink-100 bg-white text-ink-500 active:bg-chalk"
             >
               <Icon name="question" className="h-4 w-4 shrink-0" />
             </button>
@@ -748,7 +756,7 @@ export function App() {
               onClick={() => step1(true)}
               disabled={history.current.past.length === 0}
               aria-label="1つ戻る"
-              className="flex h-9 w-10 items-center justify-center text-ink-700 active:bg-chalk disabled:text-ink-100"
+              className="tap flex h-9 w-10 items-center justify-center text-ink-700 active:bg-chalk disabled:text-ink-100"
             >
               <Icon name="undo" className="h-4 w-4 shrink-0" />
             </button>
@@ -757,7 +765,7 @@ export function App() {
               onClick={() => step1(false)}
               disabled={history.current.future.length === 0}
               aria-label="1つ進む"
-              className="flex h-9 w-10 items-center justify-center border-l border-ink-100 text-ink-700 active:bg-chalk disabled:text-ink-100"
+              className="tap flex h-9 w-10 items-center justify-center border-l border-ink-100 text-ink-700 active:bg-chalk disabled:text-ink-100"
             >
               <Icon name="redo" className="h-4 w-4 shrink-0" />
             </button>
@@ -767,7 +775,7 @@ export function App() {
               type="button"
               onClick={() => setAskReset(true)}
               aria-label={onLayout ? '並べたものを、ぜんぶ戻す' : 'ぜんぶ消して、はじめから'}
-              className="flex h-9 w-10 items-center justify-center rounded-lg border border-ink-100 bg-white text-ink-500 active:bg-chalk"
+              className="tap flex h-9 w-10 items-center justify-center rounded-lg border border-ink-100 bg-white text-ink-500 active:bg-chalk"
             >
               <Icon name="trash" className="h-4 w-4 shrink-0" />
             </button>
@@ -1037,14 +1045,20 @@ export function App() {
               写真を選ぶ（何枚でも）
             </button>
 
-            {parts.parts.length > 0 && (
+            {/*
+              数えるのは**写真から取り込んだ型紙だけ**（学生の点検・2026-09-02）。
+              「後で裁つぶんの余白」まで数えていたので、
+              同じ画面に「パーツが 3 個」と「取り込んだ 4 個」が並んで出ていた。
+              上のカード（前に取り込んだぶんが残っています）と同じ数え方にそろえる
+            */}
+            {parts.parts.some((p) => !isReserve(p)) && (
               <button
                 type="button"
                 onClick={() => setStep('parts')}
                 className="flex items-center gap-1.5 text-sm font-bold text-mat-700"
               >
                 <Icon name="part" className="h-4 w-4 shrink-0" />
-                取り込んだ {parts.parts.length} 個のパーツを見る →
+                取り込んだ {parts.parts.filter((p) => !isReserve(p)).length} 個のパーツを見る →
               </button>
             )}
 
@@ -1516,6 +1530,7 @@ export function App() {
             saveName={saveName}
             onSaveName={setSaveName}
             onSaved={setSaves}
+            onUndo={() => step1(true)}
           />
         )}
       </main>
@@ -1534,7 +1549,7 @@ export function App() {
         「スクロールしないと操作できない」ことにはならない。
         端末の下端（ホームバーなど）を避ける余白は、main から移してここに付けた
       */}
-      <footer className="safe-b px-4 pt-1 text-center text-[10px] tracking-wide text-ink-300">
+      <footer className="safe-b px-4 pt-1 text-center text-[11px] tracking-wide text-ink-300">
         制作：Junnosuke Kato
       </footer>
     </div>
@@ -1622,16 +1637,23 @@ function StepBar({ step, canGo, onGo }: {
         const ready = canGo(s.id)
         /** いまいるところ以外で、用意ができているところ＝押して行ける */
         const jump = !here && ready
+        /*
+          いちばん最後の画面まで来ると、線が5本とも同じ濃い緑になってしまい、
+          いまどこかを言っているものが 12px の太字だけになっていた
+          （学生の点検・2026-09-02・2巡目）。
+          色の濃さで読ませるのをやめて、**いまいるところだけ形を変える**——
+          線を太くし、名前に地の色を付ける。色が見分けにくい人にも届く
+        */
         const label = (
           <>
             <span
-              className={`h-1 rounded-full ${
-                i <= index ? 'bg-mat-500' : ready ? 'bg-mat-300' : 'bg-ink-100'
+              className={`rounded-full ${here ? 'h-1.5 bg-mat-700' : 'h-1'} ${
+                here ? '' : i < index ? 'bg-mat-500' : ready ? 'bg-mat-300' : 'bg-ink-100'
               }`}
             />
             <span
-              className={`flex items-center gap-1 text-xs ${
-                here ? 'font-bold text-mat-700'
+              className={`flex items-center justify-center gap-1 rounded-md px-1 py-0.5 text-xs ${
+                here ? 'bg-mat-500 font-bold text-white'
                   : jump ? 'text-mat-700' : 'text-ink-300'
               }`}
             >
@@ -1647,12 +1669,17 @@ function StepBar({ step, canGo, onGo }: {
                 type="button"
                 onClick={() => onGo(s.id)}
                 aria-label={`${s.label}へ${i < index ? '戻る' : '進む'}`}
-                className="flex flex-col gap-1.5 text-left active:opacity-60"
+                className="tap flex flex-col gap-1.5 text-left active:opacity-60"
               >
                 {label}
               </button>
             ) : (
-              <span className="flex flex-col gap-1.5">{label}</span>
+              <span
+                aria-current={here ? 'step' : undefined}
+                className="flex flex-col gap-1.5"
+              >
+                {label}
+              </span>
             )}
           </li>
         )

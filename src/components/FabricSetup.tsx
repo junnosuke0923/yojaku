@@ -13,7 +13,7 @@
 
 import { useState } from 'react'
 import { COMMON_WIDTHS_MM, WIDTH_FABRICS } from '../lib/fabric'
-import { Hint, Icon } from './Icon'
+import { Hint, Icon, Note } from './Icon'
 import { T } from './TextTools'
 
 type Props = {
@@ -154,7 +154,17 @@ export function FabricSetup({ widthMm, hasNap, onWidth, onNap }: Props) {
             }`}
           >
             <Icon name="napNone" className="h-4 w-4 shrink-0" />
-            向きなし
+            <span className="flex flex-col items-start leading-tight">
+              向きなし
+              {/*
+                「何の向きか分からない」と読まれた（学生の点検・2026-09-02・2巡目）。
+                見出しの「上下の向き」だけでは、押す札そのものに届いていなかった。
+                言葉は現場のまま残し、その下に、何が決まるのかを添える
+              */}
+              <span className="text-[11px] font-normal opacity-80">
+                どちらを上にしてもよい
+              </span>
+            </span>
           </button>
           <button
             type="button"
@@ -164,9 +174,23 @@ export function FabricSetup({ widthMm, hasNap, onWidth, onNap }: Props) {
             }`}
           >
             <Icon name="nap" className="h-4 w-4 shrink-0" />
-            向きあり
+            <span className="flex flex-col items-start leading-tight">
+              向きあり
+              <span className="text-[11px] font-normal opacity-80">
+                上が決まっている
+              </span>
+            </span>
           </button>
         </div>
+        {/*
+          押しても画面が何も変わらなかった（学生の点検・2026-09-02・2巡目）。
+          「いちばん最初に決めます」と言っておきながら、
+          決めた結果がどこにも出ないので、決めた実感がない。
+          押した札のほうで、これから何が変わるのかをその場で言う
+        */}
+        <Note icon={hasNap ? 'nap' : 'nest'} tone={hasNap ? 'warn' : 'plain'}>
+          <T id={hasNap ? 'fabric.nap.on' : 'fabric.nap.off'} strong="font-bold" />
+        </Note>
       </div>
     </section>
   )
