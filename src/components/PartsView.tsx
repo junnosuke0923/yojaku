@@ -19,6 +19,11 @@ import { SeamEditor } from './SeamEditor'
 import { T } from './TextTools'
 import { Tour } from './Tour'
 
+/** 枚数の上限。これ以上要る型紙は、まず見かけない */
+const MAX_NEEDED = 12
+/** 名前の一覧のいちばん下に置く、じぶんで打つための札 */
+const OWN_NAME = '__own'
+
 type Props = {
   state: PartsState
   onChange: (state: PartsState) => void
@@ -239,7 +244,7 @@ function OpenFoldOption({
               open ? 'bg-mat-500 text-white' : 'text-ink-700'
             }`}
           >
-            開いて裁つ
+            わにしない
           </button>
         </div>
       </div>
@@ -383,6 +388,14 @@ function PartRow({
 }) {
   const liRef = useRef<HTMLLIElement>(null)
   const wasOpen = useRef(open)
+  /**
+   * 一覧に無い名前を、じぶんで打っているところ（学生の点検・2026-09-02）。
+   *
+   * 候補は11個しか無いので、「一覧にない名前は付けられません」という報告があった。
+   * 手書きの認識は作らない（判断2）ので押して選ぶのが基本だが、
+   * 打つ道はふさがない。名前は計算に効かないので、何を入れてもよい
+   */
+  const [naming, setNaming] = useState(false)
 
   /*
     別のカードを開くと、上で開いていたぶんが畳まれて中身が上へ動く。
@@ -422,14 +435,30 @@ function PartRow({
         <div className="flex min-w-0 flex-1 flex-col gap-2">
           {/* 1画面に近づけるため、行を折り返させない（依頼者の指示・2026-08-27） */}
           <div className="flex items-center gap-1.5">
-            <select
-              value={NAME_CHOICES.includes(part.name) ? part.name : ''}
-              onChange={(e) => onPatch({ name: e.target.value || part.name })}
-              className="min-w-0 flex-1 rounded-lg border border-ink-100 px-2 py-1.5 text-sm"
-            >
-              <option value="">{part.name}</option>
-              {NAME_CHOICES.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
+            {naming ? (
+              <input
+                type="text"
+                autoFocus
+                value={part.name}
+                onChange={(e) => onPatch({ name: e.target.value })}
+                onBlur={() => setNaming(false)}
+                aria-label="パーツの名前"
+                className="min-w-0 flex-1 rounded-lg border-2 border-mat-500 px-2 py-1.5 text-sm"
+              />
+            ) : (
+              <select
+                value={NAME_CHOICES.includes(part.name) ? part.name : ''}
+                onChange={(e) => {
+                  if (e.target.value === OWN_NAME) setNaming(true)
+                  else onPatch({ name: e.target.value || part.name })
+                }}
+                className="min-w-0 flex-1 rounded-lg border border-ink-100 px-2 py-1.5 text-sm"
+              >
+                <option value="">{part.name}</option>
+                {NAME_CHOICES.map((c) => <option key={c} value={c}>{c}</option>)}
+                <option value={OWN_NAME}>じぶんで入れる…</option>
+              </select>
+            )}
             <button
               type="button"
               onClick={onRemove}
@@ -442,18 +471,36 @@ function PartRow({
 
           <div className="flex items-center gap-1.5">
             <Icon name="part" className="h-3.5 w-3.5 shrink-0 text-ink-300" />
-            {[1, 2, 4].map((k) => (
+            {/*
+              1 / 2 / 4 の3つだけ選べる形だった（学生の点検・2026-09-02
+              「3枚要るときはどうするのか分かりませんでした」）。
+              三段スカートの段、フリル、共布のループなど、3枚も5枚もふつうにある。
+              押す場所はむしろ減るので、1画面に収める方針とも喧嘩しない
+            */}
+            <span className="flex shrink-0 items-center overflow-hidden rounded-lg border border-ink-100">
               <button
-                key={k}
                 type="button"
-                onClick={() => onPatch({ needed: k })}
-                className={`tnum rounded-lg px-2.5 py-1 text-sm font-bold ${
-                  part.needed === k ? 'bg-mat-500 text-white' : 'border border-ink-100 text-ink-700'
-                }`}
+                disabled={part.needed <= 1}
+                onClick={() => onPatch({ needed: Math.max(1, part.needed - 1) })}
+                aria-label="枚数を減らす"
+                className="px-3 py-1.5 text-sm font-bold text-ink-500 disabled:opacity-25"
               >
-                {k}
+                −
               </button>
-            ))}
+              <span className="tnum min-w-6 text-center text-sm font-bold text-ink-900">
+                {part.needed}
+              </span>
+              <button
+                type="button"
+                disabled={part.needed >= MAX_NEEDED}
+                onClick={() => onPatch({ needed: Math.min(MAX_NEEDED, part.needed + 1) })}
+                aria-label="枚数を増やす"
+                className="px-3 py-1.5 text-sm font-bold text-ink-500 disabled:opacity-25"
+              >
+                ＋
+              </button>
+            </span>
+            <span className="shrink-0 text-[11px] text-ink-300">枚</span>
             <button
               type="button"
               onClick={onOpen}
@@ -495,7 +542,7 @@ function PartRow({
             {folds > 0 && (
               <span className="flex shrink-0 items-center gap-1 text-[11px] font-bold text-seam">
                 <Icon name="fold" className="h-3.5 w-3.5 shrink-0" />
-                {opened ? 'わで開いて裁つ' : `わ ${folds}本`}
+                {opened ? 'わにしないで裁つ' : `わ ${folds}本`}
               </span>
             )}
             <span className="tnum ml-auto shrink-0 text-[11px] text-ink-500">{seam}</span>

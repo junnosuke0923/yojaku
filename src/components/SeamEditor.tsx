@@ -577,7 +577,8 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded, turnDeg
       {seam && !seamIncluded && (
         <p className="tnum flex items-center gap-2 text-sm text-ink-500">
           <Icon name="scissors" className="h-4 w-4 shrink-0 text-mat-600" />
-          裁ち切りの大きさ{' '}
+          {/* 「縫い代を足した大きさのことだろう、と推測で進みました」（学生の点検・2026-09-02） */}
+          縫い代まで入れた大きさ{' '}
           <span className="font-bold text-ink-900">
             {(seam.widthMm / 10).toFixed(1)} × {(seam.heightMm / 10).toFixed(1)} cm
           </span>

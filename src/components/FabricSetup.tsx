@@ -117,6 +117,15 @@ export function FabricSetup({ widthMm, hasNap, onWidth, onNap }: Props) {
         </p>
       )}
 
+      {/*
+        「みみ」は図の中に小さく書いてあるだけで、知らない人には通じない
+        （学生の点検・2026-09-02）。上の行で「みみを除くと」と言っている
+        すぐ下で、一度だけ何のことか言う
+      */}
+      <p className="text-[11px] leading-relaxed text-ink-300">
+        <T id="fabric.selvage.note" strong="font-bold text-ink-500" />
+      </p>
+
       <Hint
         icon="clothWidth"
         summary={<T id="fabric.width.summary" />}
@@ -125,6 +134,11 @@ export function FabricSetup({ widthMm, hasNap, onWidth, onNap }: Props) {
       </Hint>
 
       <div className="border-t border-ink-100 pt-2.5">
+        {/* 「何の向きか」が分からなかった（学生の点検・2026-09-02）。生地幅と同じ形で見出しを立てる */}
+        <div className="flex items-center gap-2 pb-1">
+          <Icon name="nap" className="h-4 w-4 shrink-0 text-mat-600" />
+          <span className="text-sm font-bold text-ink-700"><T id="fabric.nap.label" /></span>
+        </div>
         <Hint
           icon="nap"
           summary={<T id="fabric.nap.summary" />}

@@ -151,14 +151,15 @@ function PartCard({ part, on, onToggle }: {
         <div className="rounded-lg bg-mat-50 px-3 py-2">
           <span className="flex items-center gap-1.5 text-xs text-mat-600">
             <Icon name="grain" className="h-3.5 w-3.5 shrink-0" />
-            最大丈（地の目方向）
+            {/* 画面によって「丈」「最大丈」と呼び分けていた（学生の点検・2026-09-02） */}
+            丈（地の目方向）
           </span>
           <span className="tnum text-2xl font-bold text-mat-700">{cm(part.heightMm)}<span className="ml-1 text-sm">cm</span></span>
         </div>
         <div className="rounded-lg bg-mat-50 px-3 py-2">
           <span className="flex items-center gap-1.5 text-xs text-mat-600">
             <Icon name="grainSide" className="h-3.5 w-3.5 shrink-0" />
-            最大幅
+            幅
           </span>
           <span className="tnum text-2xl font-bold text-mat-700">{cm(part.widthMm)}<span className="ml-1 text-sm">cm</span></span>
         </div>
@@ -247,6 +248,13 @@ function SmoothPicker({ value, onChange }: {
       <span className="flex items-center gap-2 text-sm font-bold text-ink-700">
         <Icon name="smooth" className="h-4 w-4 shrink-0 text-mat-600" />
         線のなめらかさ
+        {/*
+          「どれが正解なのか分かりません。要尺に影響するのかも分からず、
+          『大きさは変わりません』を見つけてやっと安心しました」
+          （学生の点検・2026-09-02）。安心する一文は「？」の中ではなく、
+          選ぶところの隣に出す
+        */}
+        <span className="font-normal text-ink-300"><T id="ruler.smooth.safe" /></span>
       </span>
       <div className="grid grid-cols-4 gap-2">
         {SMOOTH_LEVELS.map((lv) => (
@@ -307,8 +315,13 @@ export function ResultView({ bitmap, result, excluded, onToggle, smooth, onSmoot
           <p className="text-sm leading-relaxed text-mat-700">
             <T id="ruler.check.main" strong="font-bold" />
           </p>
+          {/*
+            「px が何なのか習っていません」（学生の点検・2026-09-02）。
+            言葉を言い換える。数字そのものは、定規の読み取りが
+            大きくずれていないかを見る手がかりとして残す
+          */}
           <p className="tnum mt-2 text-xs text-mat-600">
-            換算率 1px ＝ {result.scale.mmPerPixel.toFixed(3)} mm
+            写真の細かさ 1点 ＝ {result.scale.mmPerPixel.toFixed(3)} mm
           </p>
         </div>
       </div>

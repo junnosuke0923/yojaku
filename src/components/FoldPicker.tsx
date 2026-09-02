@@ -279,7 +279,7 @@ export function FoldPicker({ fold, half, onEdge, onHint }: Props) {
     if (d < spanOf(s) * OFF_UNDER) return `${SIDE_NAMES[s]}は折らない`
     // 言い方は、下のプルダウンと揃えてある
     if (snap) return bothOn(s) ? '両端が出会うまで折る' : '半分に折る'
-    return '型紙に合わせて折る'
+    return '置いた型紙の幅だけ折る'
   }
 
   const start = (s: Side) => (e: React.PointerEvent) => {

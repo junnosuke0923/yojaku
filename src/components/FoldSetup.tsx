@@ -76,7 +76,8 @@ export function FoldSetup({ section, half, prefix, onFold, onHalf, extra, onActi
               {section.fold === 'vBoth' || section.fold === 'hBoth'
                 ? '両端が出会うまで折る' : '半分に折る'}
             </option>
-            <option value="partial">型紙に合わせて折る</option>
+            {/* 「後者がどういう折り方なのか、絵を見ても分かりませんでした」（学生の点検・2026-09-02） */}
+            <option value="partial">置いた型紙の幅だけ折る</option>
           </select>
         )}
         {extra}

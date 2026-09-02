@@ -139,6 +139,11 @@ export function WarpEditor({
   const warped = isWarped(warp)
   const hair = view.w * 0.0022
 
+  /** つまみの数字に添える、どちら側かの言葉 */
+  const SIDE_WORD: Record<'top' | 'bottom' | 'left' | 'right', string> = {
+    top: '上', bottom: '下', left: '左', right: '右',
+  }
+
   /** つまみ1本ぶん。値は段数（整数）でやりとりする */
   const slider = (
     label: string, value: number,
@@ -146,7 +151,22 @@ export function WarpEditor({
     onValue: (k: number) => void,
   ) => (
     <label className="flex flex-col gap-0.5">
-      <span className="px-0.5 text-xs font-bold text-ink-700">{label}</span>
+      {/*
+        どれだけ動かしたのかを、つまみの行そのものに出す
+        （学生の点検・2026-09-02「台の色を調整するつまみには『125°』と出るのに、
+        こちらには出ないので、どれだけ動かしたのか分からない」）。
+        すぐ上の「丈 59.5 → 60.4」でも読めるのだが、
+        つまみから離れているので結び付かなかった。
+        出すのは向きと割合——「上が 6% 広い」なら、手つきと一対一で対応する
+      */}
+      <span className="flex items-center gap-2 px-0.5">
+        <span className="text-xs font-bold text-ink-700">{label}</span>
+        <span className="tnum text-[11px] text-ink-300">
+          {Math.abs(value) < WARP_MAX * 0.02
+            ? '直していません'
+            : `${SIDE_WORD[value > 0 ? hi : lo]}が ${Math.round(Math.abs(value) * 100)}% 広い`}
+        </span>
+      </span>
       <span className="flex items-center gap-2">
         <Trapezoid narrow={lo} />
         <input
@@ -197,6 +217,36 @@ export function WarpEditor({
             </button>
           </span>
         )}
+      </div>
+
+      {/*
+        当てる先は、**見出しのすぐ下**に置く（学生の点検・2026-09-02）。
+
+        ゆがみの原因はたいてい写真ぜんぶに共通なので、既定は「ぜんぶ」のまま
+        （依頼者の選択・2026-09-01）。動き自体は正しいのだが、
+        この切り替えがパネルのいちばん下——スクロールしないと見えないところ——
+        にあり、見出しには「パーツ1」と出ていた。
+        そのため1枚だけ直しているつもりでつまみを動かし、
+        ほかの数字まで一緒に変わって驚く、ということが起きていた。
+        いま何に当たっているのかを、動かす前に見えるところへ出す
+      */}
+      <div className="flex overflow-hidden rounded-xl border border-ink-100 bg-white">
+        {[
+          { on: true, label: '写真ぜんぶに当てる' },
+          { on: false, label: 'このパーツだけ' },
+        ].map((c) => (
+          <button
+            key={String(c.on)}
+            type="button"
+            onClick={() => onAll(c.on)}
+            aria-pressed={all === c.on}
+            className={`flex-1 px-2 py-2 text-xs font-bold ${
+              all === c.on ? 'bg-mat-500 text-white' : 'text-ink-500'
+            }`}
+          >
+            {c.label}
+          </button>
+        ))}
       </div>
 
       <div className="rounded-xl bg-white">
@@ -261,30 +311,6 @@ export function WarpEditor({
       <p className="px-0.5 text-xs leading-relaxed text-ink-500">
         <T id="ruler.warp.body" />
       </p>
-
-      {/*
-        当てる先。ゆがみの原因はたいてい写真ぜんぶに共通なので、既定は「ぜんぶ」
-        （依頼者の選択・2026-09-01）。1枚だけ紙が反っていた、という場合のために
-        絞り込みも残してある
-      */}
-      <div className="flex overflow-hidden rounded-xl border border-ink-100 bg-white">
-        {[
-          { on: true, label: '写真ぜんぶに当てる' },
-          { on: false, label: 'このパーツだけ' },
-        ].map((c) => (
-          <button
-            key={String(c.on)}
-            type="button"
-            onClick={() => onAll(c.on)}
-            aria-pressed={all === c.on}
-            className={`flex-1 px-2 py-2 text-xs font-bold ${
-              all === c.on ? 'bg-mat-500 text-white' : 'text-ink-500'
-            }`}
-          >
-            {c.label}
-          </button>
-        ))}
-      </div>
 
       {warped && (
         <button

@@ -14,7 +14,10 @@
  * 縫い代どうしがどう重なるかを見ながら置きたいため（依頼者の指示）。
  */
 
-import { useMemo, useRef, useState, type PointerEvent, type ReactNode, type RefObject } from 'react'
+import {
+  useEffect, useMemo, useRef, useState,
+  type PointerEvent, type ReactNode, type RefObject,
+} from 'react'
 import { cutSizeOf, isReserve, RESERVE_CHOICES, toReserve } from '../lib/store'
 import { cm } from '../lib/format'
 import {
@@ -128,6 +131,13 @@ const SELVAGE_UNDER = { line: '#6b6857', band: 0.14, dot: 0.62 }
 export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSaved }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [activeSection, setActiveSection] = useState(state.sections[0]?.id ?? 's1')
+  /** 生地を1つ消した直後か。しばらく置いてから、ひとりでに引っ込む */
+  const [dropped, setDropped] = useState(false)
+  useEffect(() => {
+    if (!dropped) return
+    const t = setTimeout(() => setDropped(false), 6000)
+    return () => clearTimeout(t)
+  }, [dropped])
   /** 画像に書き出すとき、この中から生地の絵（svg[data-sheet]）を拾う */
   const rootRef = useRef<HTMLElement>(null)
 
@@ -175,6 +185,20 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
   /** この型紙1つで、生地から何枚とれるか。二重の上なら2枚 */
   const countOf = (placementId: string) =>
     report.counts.find((c) => c.placementId === placementId)?.count ?? 1
+
+  /**
+   * 二重のところがあるのに、この型紙は1枚しか取れていないか。
+   *
+   * 90度まわすと ×2 が消える、という報告があった（学生の点検・2026-09-02）。
+   * 動きとしては正しい——二重の帯に丸ごと入っていれば2枚、
+   * まわしてはみ出せば1枚——だが、その理由が画面のどこにも出ていなかった。
+   * 折り山に当てている型紙は、開けば左右対称の1枚なので、この話には入れない
+   */
+  const couldBeTwoOf = (p: Placement) => {
+    const c = report.counts.find((x) => x.placementId === p.id)
+    const sr = report.sections.find((s) => s.id === p.sectionId)
+    return !!c && c.count === 1 && !c.onFold && (sr?.doubled.length ?? 0) > 0
+  }
 
   /**
    * 回したあとの「わに当てる」先を付け直す（依頼者の指摘・2026-08-31）。
@@ -280,6 +304,13 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
     setActiveSection(id)
   }
 
+  /*
+    生地を1つ消すのに、確認はたずねない（学生の点検・2026-09-02）。
+    このアプリは「1つ戻る」で戻せることを軸にしているので、
+    確認を足すと押す回数だけが増える。
+    ただし**戻せることに気づいたのが後だった**という報告があったので、
+    消した直後に、その場でそう言う
+  */
   const dropSection = (id: string) => {
     onChange({
       ...state,
@@ -287,6 +318,7 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
       placements: state.placements.filter((p) => p.sectionId !== id),
     })
     setActiveSection(state.sections.find((s) => s.id !== id)?.id ?? '')
+    setDropped(true)
   }
 
   /** そのパーツが、いま何枚ぶん取れているか */
@@ -314,6 +346,10 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
         */}
         生地の設定へ
       </button>
+
+      {dropped && (
+        <Note icon="check" tone="good"><T id="layout.drop.note" strong="font-bold" /></Note>
+      )}
 
       {report.problems.length > 0 && (
         <ul className="flex flex-col gap-1.5 rounded-xl border border-seam/40 bg-seam/5 px-4 py-3">
@@ -384,7 +420,7 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
           className="flex items-center gap-1 self-end px-1 py-0.5 text-xs text-ink-300 active:text-mat-700"
         >
           <Icon name="scissors" className="h-3.5 w-3.5 shrink-0" />
-          ここで切り分けて、折り方を変える
+          ここから下を、別の折り方にする
         </button>
       )}
 
@@ -438,6 +474,7 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
           name={nameOf(selected.partId)}
           size={sizeOf(selected.partId)}
           count={countOf(selected.id)}
+          couldBeTwo={couldBeTwoOf(selected)}
           reserve={isReserve(state.parts.find((p) => p.id === selected.partId) ?? ({} as StoredPart))}
           hasNap={state.hasNap}
           snapTargets={snapTargetsOf(
@@ -795,6 +832,8 @@ function SectionCanvas({
   if (!report) return null
 
   const W = Math.max(report.surfaceWidthMm, 1)
+  /** 折る前の、みみを除いた幅。「置ける幅」がこれより狭ければ、折っているから */
+  const usableMm = Math.max(0, state.fabricWidthMm - SELVAGE_MM * 2)
   /** 実際に使っている長さ。ここから下は、まだ使っていない生地 */
   const used = report.surfaceLengthMm
   /**
@@ -1129,8 +1168,36 @@ function SectionCanvas({
       いま使っている長さがそのまま買う長さになる（＝はみ出しという概念がない）
     */
     const maxX = Math.max(0, W - d.w)
-    const x = Math.max(0, Math.min(maxX, snap(d.x0 + (e.clientX - d.px) * k)))
-    const y = Math.max(0, snap(d.y0 + (e.clientY - d.py) * k))
+    /*
+      隣の型紙の辺には、そのまま吸い付ける（学生の点検・2026-09-02）。
+
+      引きずる位置は 1cm きざみに丸めているが、型紙の幅は 26.4cm のような
+      半端な数になる。だから隣にぴったり寄せようとしても 1cm きざみの
+      目盛りにしか止まれず、**わずかに重なったまま**「重なっています」が
+      出たきりになる。少し動かしても直らない、という報告があった。
+
+      裁ち合わせでは「隣にぴったり寄せる」がいちばん基本の手つきなので、
+      目盛りより先に、隣の辺そのものを狙わせる。
+      狙うのは、隣に突き当てる位置と、隣と端をそろえる位置の4通り
+    */
+    const others = report.boxes.filter((b) => b.placementId !== d.id)
+    const nearEdge = (raw: number, cands: number[]) => {
+      let best = snap(raw)
+      let near = Infinity
+      for (const c of cands) {
+        const gap = Math.abs(raw - c)
+        if (gap <= SNAP_MM && gap < near) { near = gap; best = c }
+      }
+      return best
+    }
+    const rawX = d.x0 + (e.clientX - d.px) * k
+    const rawY = d.y0 + (e.clientY - d.py) * k
+    const x = Math.max(0, Math.min(maxX, nearEdge(
+      rawX, others.flatMap((b) => [b.x, b.x + b.w, b.x - d.w, b.x + b.w - d.w]),
+    )))
+    const y = Math.max(0, nearEdge(
+      rawY, others.flatMap((b) => [b.y, b.y + b.h, b.y - d.h, b.y + b.h - d.h]),
+    ))
 
     /*
       「わ」の辺を折り山のそばまで持っていったら、そのまま吸い付ける
@@ -2598,7 +2665,17 @@ function SectionCanvas({
         ) : (
           <>
             <Icon name="clothWidth" className="h-3.5 w-3.5 shrink-0" />
-            <span>置ける幅 {(W / 10).toFixed(0)} cm</span>
+            {/*
+              「生地は110cmなのに53cm？」と読まれた（学生の点検・2026-09-02）。
+              折っているから狭い、というのは絵を見れば分かることではあるが、
+              数字だけを見ている人には届かない。狭いときだけ理由を添える
+            */}
+            <span>
+              <T id="layout.usable.width" vars={{ cm: (W / 10).toFixed(0) }} />
+              {W < usableMm - 0.5 && (
+                <T id="layout.usable.folded" vars={{ full: (usableMm / 10).toFixed(0) }} />
+              )}
+            </span>
           </>
         )}
         {canDrop && (
@@ -2674,8 +2751,16 @@ function Tray({
             <Icon name="trash" className="h-4 w-4" />
           </button>
         ) : (
-          <span className={`tnum text-xs ${done ? 'text-mat-600' : 'text-seam'}`}>
+          <span className={`tnum shrink-0 text-xs ${done ? 'text-mat-600' : 'text-seam'}`}>
             {taken} / {p.needed} 枚
+            {/*
+              数字だけでは、それが困ったことなのか分からなかった
+              （学生の点検・2026-09-02）。足りないのか、多いのかを言う
+            */}
+            {taken < p.needed && <span className="pl-1">（あと {p.needed - taken}）</span>}
+            {taken > p.needed && (
+              <span className="pl-1 text-ink-300">（{taken - p.needed} 多い）</span>
+            )}
           </span>
         )}
         <button
@@ -2691,6 +2776,14 @@ function Tray({
 
   const patterns = state.parts.filter((p) => !isReserve(p))
   const reserves = state.parts.filter(isReserve)
+  /** 要る数より多く置いている型紙。間違いではないので、赤くはしない */
+  const over = patterns.filter((p) => takenOf(p.id) > p.needed)
+  /*
+    本物の型紙と、あとで裁つ用の場所を、同じ名前で両方置いている
+    （学生の点検・2026-09-02）。仮縫いのあとで寸法が変わるものは
+    わざと両方置くこともあるので**止めない**。二重に数えていないか、と聞くだけ
+  */
+  const dup = reserves.filter((r) => patterns.some((p) => p.name === r.name))
 
   return (
     <div data-tour="tray" className="flex flex-col gap-2">
@@ -2701,10 +2794,24 @@ function Tray({
           <T id="layout.count.body" />
         </Hint>
       )}
+      {over.length > 0 && (
+        <Hint summary={<T id="layout.count.over.summary" />}>
+          <T id="layout.count.over.body" />
+        </Hint>
+      )}
 
       <div className="mt-3 flex flex-col gap-2">
-        <Heading icon="hold">後で裁つぶんの余白</Heading>
+        {/* 見出しだけでは何のことか分からなかった（学生の点検・2026-09-02） */}
+        <Heading icon="hold">あとで裁つぶん（場所だけ空けておく）</Heading>
         {reserves.length > 0 && <ul className="flex flex-col gap-2">{reserves.map(row)}</ul>}
+        {dup.map((r) => (
+          <p key={r.id} className="flex gap-2 text-xs leading-relaxed text-ink-500">
+            <Icon name="warn" className="mt-[0.15em] h-[1.15em] w-[1.15em] shrink-0 text-seam" />
+            <span className="min-w-0 flex-1">
+              <T id="layout.reserve.dup" vars={{ name: r.name }} />
+            </span>
+          </p>
+        ))}
         <ReserveAdder onAdd={onAddReserve} />
       </div>
     </div>
@@ -2838,13 +2945,22 @@ function snapTargetsOf(part: PlacedPart | undefined, p: Placement, foldSides: Si
 /* ------------------------------------------------------- 選んだパーツの操作 */
 
 function Controls({
-  placement, name, size, count, reserve, hasNap, snapTargets, onPatch, onRemove, onClose,
+  placement, name, size, count, couldBeTwo, reserve, hasNap, snapTargets,
+  onPatch, onRemove, onClose,
 }: {
   placement: Placement
   name: string
   /** 取り込んだ大きさ(mm)。`cut` は縫い代まで入れた裁ち切り */
   size: { w: number; h: number; cut: { widthMm: number; heightMm: number } | null } | null
   count: number
+  /**
+   * この区間には二重のところがあるのに、この型紙は1枚しか取れていない。
+   *
+   * まわすと ×2 が消えて「2/1枚」が「1/1枚」になる理由が
+   * 画面のどこにも書いていなかった（学生の点検・2026-09-02）。
+   * 損得の話ではなく、二重の帯に丸ごと入っているかどうかで変わるだけ
+   */
+  couldBeTwo: boolean
   /** 後で裁つぶんの余白か。ただの長方形なので、選べることが少ない */
   reserve: boolean
   hasNap: boolean
@@ -2898,6 +3014,11 @@ function Controls({
               この1つで {count} 枚
             </span>
           )}
+          {!reserve && couldBeTwo && (
+            <span className="min-w-0 flex-1 truncate text-[11px] text-ink-500">
+              <T id="layout.single.note" />
+            </span>
+          )}
           <button
             type="button"
             onClick={onRemove}
@@ -2923,7 +3044,7 @@ function Controls({
             <b className="font-bold text-ink-700">{cm(size.w)} × {cm(size.h)} cm</b>
             {!reserve && size.cut && (
               <span className="text-ink-300">
-                {' '}／ 裁ち切り {cm(size.cut.widthMm)} × {cm(size.cut.heightMm)} cm
+                {' '}／ 縫い代まで {cm(size.cut.widthMm)} × {cm(size.cut.heightMm)} cm
               </span>
             )}
           </p>

@@ -705,14 +705,20 @@ export function App() {
       <header className="flex items-start justify-between gap-3 px-4 pt-5 pb-3">
         <div className="flex min-w-0 flex-col gap-0.5">
           <h1 className="text-base font-bold tracking-wide text-ink-900">要尺シミュレーター</h1>
+          {/*
+            番号は落とした（学生の点検・2026-09-02）。
+            ここでいう「段階」は仕事のまとまり（3つ）で、
+            下の帯の点は画面（5つ）なので、数が合わない。
+            「第1段階のあいだに撮ると測るの2つが進む」ので、
+            全部で3なのか5なのか分からなくなる、という報告があった。
+            **いまどこかは下の帯が言っている**ので、ここは何をするところかだけ言う
+          */}
           <span className="text-xs text-ink-300">
             {step === 'fabric' || step === 'layout'
-              ? '第3段階：生地を決めて、上に並べる'
+              ? '生地を決めて、上に並べる'
               : step === 'parts'
-                ? seamIncluded
-                  ? '第2段階：わの辺を決める'
-                  : '第2段階：縫い代を付ける'
-                : '第1段階：実寸をつかむ'}
+                ? seamIncluded ? 'わの辺を決める' : '縫い代を付ける'
+                : '実寸をつかむ'}
           </span>
         </div>
         {/*
@@ -937,42 +943,6 @@ export function App() {
             )}
 
             {/*
-              しまってあるものを開くと、いま触っているぶんは置きかわる。
-              戻せない操作ではない（1つ戻るの控えに積んである）が、
-              黙って置きかえると何が起きたのか分からないので、一度たずねる
-            */}
-            {askOpen && (
-              <div className="flex flex-col gap-3 rounded-xl border-2 border-mat-500 bg-mat-50 px-4 py-4">
-                <p className="flex gap-2 text-sm leading-relaxed text-mat-700">
-                  <Icon name="hint" className="mt-[0.2em] h-[1.15em] w-[1.15em] shrink-0" />
-                  <span className="min-w-0 flex-1">
-                    <T id="photo.open.main" vars={{ name: askOpen.name }} strong="font-bold" />
-                    <span className="text-mat-600">
-                      <T id="photo.open.note" strong="font-bold" />
-                    </span>
-                  </span>
-                </p>
-                <div className="flex gap-3">
-                  <button
-                    type="button"
-                    onClick={() => openSave(askOpen)}
-                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-mat-500 px-4 py-3 text-sm font-bold text-white active:bg-mat-600"
-                  >
-                    <Icon name="layout" className="h-4 w-4 shrink-0" />
-                    開く
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAskOpen(null)}
-                    className="flex flex-1 items-center justify-center rounded-xl border-2 border-ink-100 px-4 py-3 text-sm font-bold text-ink-500"
-                  >
-                    やめる
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/*
               撮り方は、文で言うより見せたほうが早い（依頼者の指示・2026-09-01）。
               置いてあるのは、開発モードで読み込むのとまったく同じ1枚。
               つまりここに出ている見本は、この道を最後まで通ることが
@@ -1097,7 +1067,36 @@ export function App() {
                       key={s.id}
                       className="flex items-center gap-2 rounded-lg border border-ink-100 px-3 py-2"
                     >
-                      {askDrop === s.id ? (
+                      {/*
+                        開く確認は、**押した行の中**に出す（学生の点検・2026-09-02）。
+                        もとは画面の中ほどに固定で出していたので、
+                        下のほうの行を押した人には、指のところで何も起きていないように見えた。
+                        消す確認は最初からこの形なので、それに揃える
+                      */}
+                      {askOpen?.id === s.id ? (
+                        <>
+                          <span className="min-w-0 flex-1 text-sm leading-snug text-ink-700">
+                            <T id="photo.open.main" vars={{ name: s.name }} strong="font-bold text-ink-900" />
+                            <span className="text-ink-500">
+                              <T id="photo.open.note" strong="font-bold" />
+                            </span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => openSave(s)}
+                            className="shrink-0 rounded-lg bg-mat-500 px-3 py-1.5 text-xs font-bold text-white"
+                          >
+                            開く
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAskOpen(null)}
+                            className="shrink-0 rounded-lg border border-ink-100 px-3 py-1.5 text-xs font-bold text-ink-500"
+                          >
+                            やめる
+                          </button>
+                        </>
+                      ) : askDrop === s.id ? (
                         <>
                           <span className="min-w-0 flex-1 text-sm text-ink-700">
                             消すと戻せません。よろしいですか？
@@ -1376,7 +1375,16 @@ export function App() {
             */}
             <div className="flex flex-col gap-3 rounded-xl border border-ink-100 bg-white px-4 py-4">
               {/* 問いかけには「？」を付ける。答えを選ぶところだと、読む前に分かる */}
-              <Heading icon="question">この型紙は、どちらですか</Heading>
+              {/*
+                これは**写真ぜんぶに効く1つの設定**で、型紙ごとには持っていない。
+                3枚のカードの下にひとつだけ出ていたので、
+                「3枚まとめての質問なのか、いま開いている1枚の質問なのか」
+                分からなかった、という報告があった（学生の点検・2026-09-02）
+              */}
+              <Heading icon="question">この写真の型紙は、どちらですか</Heading>
+              <p className="-mt-1.5 text-xs text-ink-300">
+                <T id="ruler.seam.scope" />
+              </p>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
