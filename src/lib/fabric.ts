@@ -410,6 +410,14 @@ export type Problem = {
   kind: 'tooWide' | 'tooDeep' | 'overlap' | 'offFold' | 'noSuchFold' | 'napLocked' | 'acrossMeet'
   message: string
   placementId?: string
+  /**
+   * 重なりの、もう一方（学生の点検・2026-09-02）。
+   *
+   * もとは片方の名前しか持っていなかったので、3つ重ねると
+   * 「スカート後：パーツが重なっています。」がまったく同じ文で何度も並び、
+   * どれとどれの話なのか分からなかった。相手を持たせて、両方の名前で言う
+   */
+  otherPlacementId?: string
 }
 
 export type Box = { x: number; y: number; w: number; h: number }
@@ -717,6 +725,7 @@ export function computeYardage(
         problems.push({
           kind: 'overlap',
           placementId: boxes[i].placementId,
+          otherPlacementId: boxes[j].placementId,
           message: 'パーツが重なっています。',
         })
       }
@@ -746,6 +755,62 @@ export function computeYardage(
     counts,
     problems: sections.flatMap((s) => s.problems),
   }
+}
+
+/**
+ * 新しく置く型紙を、どこに出すか（学生の点検・2026-09-02）。
+ *
+ * もとは「置く」を押すたびに左上の角（0, 0）へ出していた。
+ * そのため2つめを押した瞬間に1つめと丸ごと重なり、
+ * 押しただけで「パーツが重なっています」が出る。
+ * 学生は自分が何か間違えたと思って手が止まった、という報告があった。
+ *
+ * **並べるのは学生自身**（依頼者の指示）なので、ここでやるのは
+ * 「詰めて並べてあげる」ことではない。ぶつからない場所へ出すだけで、
+ * どこへ動かすかは、これまでどおり本人が指で決める。
+ *
+ * 探し方は、すでに置いてあるものの**右の端と下の端**だけを候補にする。
+ * 隙間なく敷き詰めるための探索ではないので、これで足りるし、
+ * 出てくる場所も「前のものの隣か、下」で見当がつく。
+ * どこにも入らなければ、いちばん下の下へ出す。生地は下へ伸びるので必ず空いている。
+ *
+ * @param fixed 折り山に当てているとき、その向きの座標は折り山から決まる。
+ *   決まっているほうは動かさずに、もう片方だけを探す
+ */
+export function freeSpotFor(
+  size: { w: number; h: number },
+  area: {
+    surfaceWidthMm: number
+    meetXMm: number | null
+    meetYMm: number | null
+    boxes: Box[]
+  },
+  fixed: { x?: number; y?: number } = {},
+): { xMm: number; yMm: number } {
+  const { boxes, surfaceWidthMm, meetXMm, meetYMm } = area
+  const uniq = (v: number[]) =>
+    [...new Set(v.map((n) => Math.round(n * 10) / 10))].sort((a, b) => a - b)
+  const xs = fixed.x !== undefined
+    ? [fixed.x]
+    : uniq([0, ...boxes.map((b) => b.x + b.w), ...(meetXMm !== null ? [meetXMm] : [])])
+  const ys = fixed.y !== undefined
+    ? [fixed.y]
+    : uniq([0, ...boxes.map((b) => b.y + b.h), ...(meetYMm !== null ? [meetYMm] : [])])
+
+  for (const y of ys) {
+    for (const x of xs) {
+      // はみ出す場所は候補にしない。ただし折り山から決まっている座標はそのまま通す
+      if (fixed.x === undefined && x + size.w > surfaceWidthMm + 0.5) continue
+      // 端どうしの出会い目はまたげない（上になっている一枚がそこで切れている）
+      if (meetXMm !== null && x < meetXMm - 0.5 && x + size.w > meetXMm + 0.5) continue
+      if (meetYMm !== null && y < meetYMm - 0.5 && y + size.h > meetYMm + 0.5) continue
+      const at = { x, y, w: size.w, h: size.h }
+      if (boxes.some((b) => boxesOverlap(at, b))) continue
+      return { xMm: x, yMm: y }
+    }
+  }
+  const bottom = boxes.reduce((m, b) => Math.max(m, b.y + b.h), 0)
+  return { xMm: fixed.x ?? 0, yMm: fixed.y ?? bottom }
 }
 
 /** 要尺から「買ってくる長さ」へ。上乗せして切り上げる（暫定値） */

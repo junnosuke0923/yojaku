@@ -26,7 +26,9 @@ import type { SmoothLevel } from './lib/smooth'
 import { defaultRulerQuad, guessRuler, RULERS, type RulerId } from './lib/ruler'
 import { findRulerQuad } from './lib/findRuler'
 import { loadSaves, removeSave, whenOf, type Save } from './lib/saves'
-import { EMPTY, load as loadParts, save as saveParts, toStored, type PartsState } from './lib/store'
+import {
+  EMPTY, isReserve, load as loadParts, save as saveParts, toStored, type PartsState,
+} from './lib/store'
 import type { Quad } from './lib/geom'
 import { applyWarp, isWarped, NO_WARP, type Keystone } from './lib/warp'
 import { T, TextBar, TextList, TextSheet } from './components/TextTools'
@@ -895,7 +897,16 @@ export function App() {
                 <p className="flex gap-2 text-sm leading-relaxed text-mat-700">
                   <Icon name="part" className="mt-[0.2em] h-[1.15em] w-[1.15em] shrink-0" />
                   <span className="min-w-0 flex-1">
-                    <T id="photo.carry.main" vars={{ n: parts.parts.length }} strong="font-bold" />
+                    {/*
+                      数えるのは取り込んだ型紙だけ（学生の点検・2026-09-02）。
+                      「あとで裁つぶんの余白」も同じ入れ物に入っているので、
+                      そのまま数えると「3枚撮ったのに 4 個」になっていた
+                    */}
+                    <T
+                      id="photo.carry.main"
+                      vars={{ n: parts.parts.filter((p) => !isReserve(p)).length }}
+                      strong="font-bold"
+                    />
                     <span className="text-mat-600">
                       <T id="photo.carry.note" strong="font-bold" />
                     </span>

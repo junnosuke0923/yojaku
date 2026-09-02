@@ -82,7 +82,12 @@ export function PartsView({ state, onChange, onAddMore, onLayout }: Props) {
           </button>
         }
       >
-        取り込んだパーツ<span className="tnum pl-2 text-ink-300">{patterns.length}</span>
+        {/*
+          数だけを並べると「パーツ3」という名前に読める（学生の点検・2026-09-02）。
+          単位を付けて、数であることを言い切る
+        */}
+        取り込んだパーツ
+        <span className="tnum pl-2 text-ink-300">{patterns.length} 個</span>
       </Heading>
 
       {patterns.length === 0 ? (

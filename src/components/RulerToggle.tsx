@@ -57,8 +57,25 @@ export function RulerToggle({ value, guess, onChange }: Props) {
         })}
       </div>
 
+      {/*
+        自分で選び直したときは、推測の文をそのまま出さない
+        （学生の点検・2026-09-02）。
+        もとは「縦横比 9.7 なので 50cm定規 と判断しました」が出たままだったので、
+        30cm定規 を押して見た目はそちらが選ばれているのに、
+        文はもう一方を指したままになり、どちらが効いているのか分からなかった。
+        効いているのは常に**このトグルの値**なので、それを先に言う
+      */}
       <Note>
-        {guess ? (
+        {guess && guess.suggested !== null && guess.suggested !== value ? (
+          <T
+            id="ruler.kind.override"
+            vars={{
+              picked: RULERS[value].label,
+              guessed: RULERS[guess.suggested].label,
+              ratio: guess.observedRatio > 0 ? guess.observedRatio.toFixed(1) : '—',
+            }}
+          />
+        ) : guess ? (
           <>
             {guess.reason}
             {guess.observedRatio > 0 && (

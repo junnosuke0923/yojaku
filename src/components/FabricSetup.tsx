@@ -38,9 +38,19 @@ export function FabricSetup({ widthMm, hasNap, onWidth, onNap }: Props) {
     打っている最中の値を止めるものではない。
 
     いまは、まともな数になったときだけ幅として上へ渡す。
-    欄から指を離したら、いま効いている幅に表示を戻す
+    欄から指を離したら、いま効いている幅に表示を戻す。
+
+    ただし**黙って捨てない**（学生の点検・2026-09-02）。
+    「5」と入れても上の「みみを除くと」は前のままで、何も言われないので、
+    効いたのか効いていないのか分からなかった。
+    範囲から外れているあいだは、そう書いて出す
   */
   const [typing, setTyping] = useState<string | null>(null)
+  /** 打っている数が、幅として受け取れる範囲から外れているか */
+  const outOfRange = typing !== null && typing.trim() !== '' && !(
+    Number.isFinite(Number(typing))
+    && Number(typing) >= MIN_WIDTH_CM && Number(typing) <= MAX_WIDTH_CM
+  )
 
   return (
     <section
@@ -97,6 +107,15 @@ export function FabricSetup({ widthMm, hasNap, onWidth, onNap }: Props) {
           <span className="text-xs text-ink-300">cm</span>
         </label>
       </div>
+
+      {outOfRange && (
+        <p className="flex gap-2 text-xs leading-relaxed text-seam">
+          <Icon name="warn" className="mt-[0.15em] h-[1.15em] w-[1.15em] shrink-0" />
+          <span className="min-w-0 flex-1">
+            <T id="fabric.width.range" vars={{ min: MIN_WIDTH_CM, max: MAX_WIDTH_CM }} />
+          </span>
+        </p>
+      )}
 
       <Hint
         icon="clothWidth"

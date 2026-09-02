@@ -16,6 +16,8 @@ import { T } from './TextTools'
 
 type Props = {
   fold: FoldMode
+  /** この区間は、きっちり折るやり方か */
+  half: boolean
   /** 折り返す深さ(mm)。手前側／奥側 */
   nearMm: number
   farMm: number
@@ -54,7 +56,7 @@ const CLOTH = '#cdcbbc'
 const CREASE = '#35664e'
 const FAINT = '#9aa69e'
 
-export function FoldDiagram({ fold, nearMm, farMm, spanMm }: Props) {
+export function FoldDiagram({ fold, half, nearMm, farMm, spanMm }: Props) {
   const span = Math.max(spanMm, 1)
   const toX = (mm: number) => (mm / span) * W
   // 折り返しが極端に浅くても、絵としては見える太さを残す。
@@ -79,6 +81,16 @@ export function FoldDiagram({ fold, nearMm, farMm, spanMm }: Props) {
    * 折り込む深さは置いた型紙から決まるので（判断7）、このときはまだ平らな一重。
    */
   const pending = !folded && foldSidesOf(fold).length > 0
+  /**
+   * 「半分に折る」を選んであるのに、まだ折れていない状態（学生の点検・2026-09-02）。
+   *
+   * 横に折るときの深さは**面の長さ**で決まる（判断7）。
+   * 面の長さは置いた型紙のいちばん下で決まるので、
+   * 何も置いていないあいだは深さが 0 のままになる。
+   * 選択は「半分に折る」なのに絵は「まだ折っていません」で、食い違って見えた。
+   * 言い添えのほうを、なぜまだ折れていないのかに差し替える
+   */
+  const pendingHalf = pending && half
   const along = isHorizontalFold(fold) ? '長さの向き' : '幅の向き'
   /**
    * 折り山ではないほうの端の名前（依頼者の指摘・2026-08-31）。
@@ -221,7 +233,7 @@ export function FoldDiagram({ fold, nearMm, farMm, spanMm }: Props) {
       */}
       {pending && (
         <p className="pt-1 text-xs text-ink-500">
-          <T id="fold.pending.note" />
+          <T id={pendingHalf ? 'fold.pending.half' : 'fold.pending.note'} />
         </p>
       )}
     </div>

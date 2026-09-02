@@ -19,7 +19,7 @@ import { cutSizeOf, isReserve, RESERVE_CHOICES, toReserve } from '../lib/store'
 import { cm } from '../lib/format'
 import {
   computeYardage, foldEdgeSides, FOLD_LABELS, FOLD_MARK_REF_MM,
-  foldSidesOf, turnBy, turnOf,
+  foldSidesOf, freeSpotFor, sizeOf as partSizeOf, turnBy, turnOf,
   isHalfFold, isHorizontalFold, newPlacement, orientedPair,
   PURCHASE_MARGIN_MM, SELVAGE_MM, SNAP_MM, toggleFoldSide,
   type Fabric, type FoldMark, type FoldMode, type PlacedPart, type Placement,
@@ -151,6 +151,9 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
   )
 
   const nameOf = (partId: string) => state.parts.find((p) => p.id === partId)?.name ?? ''
+  /** 生地の上に置いたもの1つの名前。重なりの知らせで、両方の名前を出すのに使う */
+  const nameOfPlacement = (placementId: string | undefined) =>
+    nameOf(state.placements.find((p) => p.id === placementId)?.partId ?? '')
 
   /**
    * 取り込んだ型紙が、実物の何センチとして入っているか（依頼者の指示・2026-08-31）。
@@ -217,9 +220,25 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
     const snapTo = part
       ? foldEdgeSides(part, fresh).find((sd) => sides.includes(sd)) ?? null
       : null
+    /*
+      ぶつからない場所へ出す（学生の点検・2026-09-02）。
+      もとはどれも左上の角へ出していたので、2つめを押した瞬間に
+      1つめと丸ごと重なり、押しただけで「重なっています」が出ていた。
+      詰めて並べてあげるのではなく、ぶつからない場所へ出すだけ。
+      どこへ動かすかは、これまでどおり本人が指で決める
+    */
+    const sr = report.sections.find((sc) => sc.id === activeSection)
+    const at = part && sr
+      ? freeSpotFor(partSizeOf(part, { ...fresh, snapTo }), sr, {
+        x: snapTo === 'left' ? 0
+          : snapTo === 'right' ? sr.surfaceWidthMm - partSizeOf(part, { ...fresh, snapTo }).w
+            : undefined,
+        y: snapTo === 'top' ? 0 : undefined,
+      })
+      : { xMm: 0, yMm: 0 }
     onChange({
       ...state,
-      placements: [...state.placements, { ...fresh, snapTo }],
+      placements: [...state.placements, { ...fresh, snapTo, ...at }],
     })
     setSelectedId(id)
   }
@@ -288,7 +307,12 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
         className="flex items-center gap-1.5 self-start text-sm font-bold text-mat-700"
       >
         <Icon name="back" className="h-4 w-4 shrink-0" />
-        パーツの一覧へ
+        {/*
+          行き先は生地の設定（学生の点検・2026-09-02）。
+          もとは「パーツの一覧へ」と書いてあったが、生地の画面を分けたときから
+          1つ戻る先は生地になっていて、名前だけが古いまま残っていた
+        */}
+        生地の設定へ
       </button>
 
       {report.problems.length > 0 && (
@@ -297,12 +321,20 @@ export function LayoutView({ state, onChange, onBack, saveName, onSaveName, onSa
             <li key={i} className="flex gap-2 text-xs leading-relaxed text-seam">
               <Icon name="warn" className="mt-[0.15em] h-[1.15em] w-[1.15em] shrink-0" />
               <span className="min-w-0 flex-1">
-                {pb.placementId && (
-                  <span className="font-bold">
-                    {nameOf(state.placements.find((p) => p.id === pb.placementId)?.partId ?? '')}：
-                  </span>
+                {pb.kind === 'overlap' && pb.otherPlacementId ? (
+                  <T
+                    id="layout.overlap.pair"
+                    vars={{ a: nameOfPlacement(pb.placementId), b: nameOfPlacement(pb.otherPlacementId) }}
+                    strong="font-bold"
+                  />
+                ) : (
+                  <>
+                    {pb.placementId && (
+                      <span className="font-bold">{nameOfPlacement(pb.placementId)}：</span>
+                    )}
+                    {pb.message}
+                  </>
                 )}
-                {pb.message}
               </span>
             </li>
           ))}
@@ -448,6 +480,7 @@ function Totals({
   report: ReturnType<typeof computeYardage>
   widthMm: number
 }) {
+  const overlapping = report.problems.some((pb) => pb.kind === 'overlap')
   return (
     <div data-tour="totals" className="flex gap-3 rounded-xl border border-ink-100 bg-white px-4 py-4">
       {/* 買う長さは、生地の「丈」を測っている数字。絵でもそう見せる */}
@@ -458,6 +491,18 @@ function Totals({
         {(report.purchaseMm / 10).toFixed(0)}
         <span className="pl-1 text-lg font-bold text-ink-500">cm</span>
       </p>
+      {/*
+        重なったままでも長さは出る（学生の点検・2026-09-02）。
+        ありえない置き方なのに大きな数字だけが目に入るので、
+        そのまま書き写して提出できてしまう。
+        止めはせず、**数字のすぐ下**で、まだ書き写せる数字ではないと言う
+      */}
+      {overlapping && (
+        <p className="flex gap-1.5 pt-1 text-xs leading-relaxed text-seam">
+          <Icon name="warn" className="mt-[0.15em] h-[1.15em] w-[1.15em] shrink-0" />
+          <span className="min-w-0 flex-1"><T id="layout.overlap.total" /></span>
+        </p>
+      )}
       {/*
         この数字が概算であること（依頼者の指示・2026-08-28）。
         **結果の真下**に置く。ここを離すと、数字だけを書き写して
@@ -476,7 +521,12 @@ function Totals({
             icon="scissors"
             summary={
               <span className="tnum">
-                並べたぶん {(report.totalMm / 10).toFixed(0)}
+                {/*
+                  ここだけ小数第1位まで出す（学生の点検・2026-09-02）。
+                  もとは整数に丸めていたので「130 ＋ 20 → 切り上げ」と書いてあるのに
+                  出ている数字が 160 になり、式のとおりに計算しても合わなかった
+                */}
+                並べたぶん {(report.totalMm / 10).toFixed(1)}
                 <span className="px-1 text-ink-300">＋</span>
                 ゆとり {PURCHASE_MARGIN_MM / 10}
                 <span className="px-1 text-ink-300">→ 切り上げ</span>
@@ -1797,6 +1847,7 @@ function SectionCanvas({
       {/* 平面図に線を引くだけでは、折っていることが伝わらない。横から見た形を添える */}
       <FoldDiagram
         fold={section.fold}
+        half={isHalfFold(section)}
         nearMm={isHorizontalFold(section.fold) ? depth.top : depth.left}
         farMm={isHorizontalFold(section.fold) ? depth.bottom : depth.right}
         spanMm={isHorizontalFold(section.fold) ? L : W}

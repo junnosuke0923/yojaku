@@ -88,6 +88,7 @@ export function FabricView({ state, onChange, onLayout }: Props) {
       {/* 平面図に線を引くだけでは、折っていることが伝わらない。横から見た形を添える */}
       <FoldDiagram
         fold={section.fold}
+        half={isHalfFold(section)}
         nearMm={isHorizontalFold(section.fold) ? sr.foldDepth.top : sr.foldDepth.left}
         farMm={isHorizontalFold(section.fold) ? sr.foldDepth.bottom : sr.foldDepth.right}
         spanMm={isHorizontalFold(section.fold)
