@@ -1,5 +1,5 @@
-const CACHE = 'yojaku-2026-09-03 16:36'
-const FILES = ["./","./index.html","./manifest.webmanifest","./icon.svg","./icon-192.png","./icon-512.png","./sample-photo.jpg","./assets/index-B0SyUw1y.js","./assets/index-CoXh5euC.css"]
+const CACHE = 'yojaku-2026-09-03 17:59'
+const FILES = ["./","./index.html","./manifest.webmanifest","./icon.svg","./icon-192.png","./icon-512.png","./sample-photo.jpg","./assets/index-ByPim1bZ.js","./assets/index-CoXh5euC.css"]
 /*
   覚えたものを探すときの、ゆるめかた。
   ignoreVary が要る。配信の仕方によっては Vary という但し書きが付いていて、
