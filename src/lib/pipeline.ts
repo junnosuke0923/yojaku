@@ -14,6 +14,7 @@ import {
 } from './geom'
 import { buildObjectMask, closing, connectedComponents, opening, type Component, type Mask } from './mask'
 import { traceOuterContour } from './contour'
+import { sharpenCorners } from './corners'
 import { removeRulerOverhang } from './rulerStrip'
 import { buildScale, guessRuler, type RulerGuess, type RulerSpec, type ScaleResult } from './ruler'
 import { smoothClosed, smoothLevel, type SmoothLevel } from './smooth'
@@ -143,16 +144,31 @@ function shapeOf(rawPx: Polygon, scale: ScaleResult, smooth: SmoothLevel) {
   const mm = applyHToPolygon(scale.imageToMm, outlinePx)
   if (!mm) return null
 
-  const b = bounds(mm)
-  const outlineMm = mm.map((p) => ({ x: p.x - b.minX, y: p.y - b.minY }))
+  /*
+    丸まった角を、本当の角に立て直す（依頼者の指示・2026-09-03）。
+
+    実寸に直したあとで行う。写真のままだと遠近でゆがんでいて、
+    「まっすぐな辺かどうか」の判断ができない。
+    立て直したあとで点を間引き直すのは、辺の途中に等間隔の点が並んだままだと
+    描くのが重くなるため。間引いても角は残る（いちばん外れた点から残す方式なので）。
+  */
+  const epsMm = Math.max(0.4, level.epsilon * scale.mmPerPixel)
+  const sharp = simplify(sharpenCorners(mm), epsMm)
+  if (sharp.length < 3) return null
+
+  const b = bounds(sharp)
+  const outlineMm = sharp.map((p) => ({ x: p.x - b.minX, y: p.y - b.minY }))
   const widthMm = boundsWidth(b)
   const heightMm = boundsHeight(b)
   // 実寸に直したとき不自然に大きい／小さいものは、判定の失敗とみなす
   if (widthMm < 10 || heightMm < 10 || widthMm > 3000 || heightMm > 3000) return null
 
+  // 写真の上に出す線も、立て直した形に合わせる
+  const backPx = applyHToPolygon(scale.mmToImage, sharp)
+
   return {
     outlineMm,
-    outlinePx,
+    outlinePx: backPx ?? outlinePx,
     widthMm,
     heightMm,
     areaMm2: Math.abs(signedArea(outlineMm)),
