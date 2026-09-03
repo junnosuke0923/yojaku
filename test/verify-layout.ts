@@ -11,7 +11,7 @@
  *   実行: npm run verify:layout
  */
 
-import { initialPlan, applyToAll, buildSeam, foldGroups } from '../src/lib/seam'
+import { initialPlan, applyToAll, buildSeam, foldGroups, SEAM_INCLUDED_MM } from '../src/lib/seam'
 import { splitEdges } from '../src/lib/edges'
 import { bounds, signedArea, type Point } from '../src/lib/geom'
 import {
@@ -982,7 +982,88 @@ function packChecks() {
   }
 }
 
+
+/*
+  「わ」に指定した辺は、そこに突き当たる線がどんな角度で来ていても、
+  わの線より外へ飛び出さない（依頼者の指示・2026-09-03）。
+
+  折り山の向こう側は同じ型紙の鏡像なので、そこへ紙をはみ出させることはできない。
+  縫い代は「辺ごとに外へ帯を伸ばす」やり方で作っており、帯はその辺自身に直角な向きで
+  終わるため、わに斜めからぶつかると放っておけば必ず飛び出す。
+  ここでは、辺という辺をひとつずつ「わ」にして、全部の角度を調べる。
+*/
+function foldFlushChecks() {
+  console.log('\n■ 「わ」の辺は、どの角度から来る線もその線でまっすぐ切りそろえる')
+
+  const shapes: Array<{ name: string; poly: Point[] }> = [
+    { name: '鋭角と鈍角', poly: [{ x: 0, y: 0 }, { x: 200, y: 60 }, { x: 220, y: 360 }, { x: 0, y: 400 }] },
+    { name: '直角', poly: rect(200, 400) },
+    { name: '大きく斜め', poly: [{ x: 0, y: 0 }, { x: 240, y: 150 }, { x: 200, y: 330 }, { x: 0, y: 400 }] },
+  ]
+
+  for (const s of shapes) {
+    for (const mm of [10, 40]) {
+      const base = initialPlan(s.poly, mm)
+      let worst = 0
+      let worstNo = 0
+      for (let gi = 0; gi < base.groups.length; gi++) {
+        const plan = { ...base, allowancesMm: base.allowancesMm.map((a, i) => (i === gi ? 0 : a)) }
+        const r = buildSeam(plan)
+        if (!r) { worst = 999; break }
+        const out = outsideFold(r.cutLineMm, r.finishedLineMm, base.groups[gi], mm)
+        if (out > worst) { worst = out; worstNo = base.groups[gi].no }
+      }
+      ok(`${s.name}・縫い代${mm / 10}cm`, worst <= 1.0,
+        worst <= 1.0 ? 'どの辺をわにしても、はみ出しは 1mm 未満' : `辺${worstNo} で ${worst.toFixed(1)}mm はみ出した`)
+    }
+  }
+
+  {
+    // 「縫い代つき」の辺は折り山ではない。足す量は同じ 0 でも、切りそろえる線は無い
+    const base = initialPlan([{ x: 0, y: 0 }, { x: 200, y: 60 }, { x: 220, y: 360 }, { x: 0, y: 400 }], 40)
+    const g = base.groups[0]
+    const asFold = buildSeam({ ...base, allowancesMm: base.allowancesMm.map((a, i) => (i === 0 ? 0 : a)) })
+    const asIncluded = buildSeam({ ...base, allowancesMm: base.allowancesMm.map((a, i) => (i === 0 ? SEAM_INCLUDED_MM : a)) })
+    const a = asFold ? outsideFold(asFold.cutLineMm, asFold.finishedLineMm, g, 40) : 999
+    const b = asIncluded ? outsideFold(asIncluded.cutLineMm, asIncluded.finishedLineMm, g, 40) : 0
+    ok('「縫い代つき」の辺は切りそろえない', a <= 1.0 && b > 2,
+      `わ ${a.toFixed(1)}mm / 縫い代つき ${b.toFixed(1)}mm`)
+  }
+}
+
+/**
+ * 裁ち切り線が「わ」の線より外へどれだけ出ているか(mm)。
+ *
+ * わの線は、その辺の両端をまっすぐ結んだ線。なぞりが波打っている辺もあるので、
+ * その辺自身がいちばん外に出ている量を基準（0）にして測る。
+ * 見るのは、その辺の前後にある裁ち切り線だけ。離れたところの角は別の辺の話になる。
+ */
+function outsideFold(cut: Point[], finished: Point[], g: { start: number; end: number }, seamMm: number): number {
+  const n = finished.length
+  const p0 = finished[g.start % n]
+  const p1 = finished[g.end % n]
+  const len = Math.hypot(p1.x - p0.x, p1.y - p0.y)
+  if (len < 1e-6) return 0
+  const tx = (p1.x - p0.x) / len
+  const ty = (p1.y - p0.y) / len
+  const outward = (q: Point) => (q.x - p0.x) * ty - (q.y - p0.y) * tx
+  const along = (q: Point) => (q.x - p0.x) * tx + (q.y - p0.y) * ty
+
+  let base = 0
+  for (let i = g.start; i <= g.end; i++) base = Math.max(base, outward(finished[i % n]))
+
+  const reach = seamMm * 3 + 2
+  let worst = 0
+  for (const q of cut) {
+    const t = along(q)
+    if (t < -reach || t > len + reach) continue
+    worst = Math.max(worst, outward(q) - base)
+  }
+  return worst
+}
+
 packChecks()
 warpChecks()
+foldFlushChecks()
 console.log(failures === 0 ? '\nすべて通りました。' : `\n${failures} 件、期待どおりになりませんでした。`)
 process.exit(failures === 0 ? 0 : 1)

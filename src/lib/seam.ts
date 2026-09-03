@@ -100,7 +100,9 @@ export function buildSeam(plan: SeamPlan): SeamResult | null {
   if (pts.length < 3) return null
 
   const maxAllowance = plan.allowancesMm.reduce((m, a) => Math.max(m, a), 0)
-  const pad = Math.ceil(maxAllowance) + 2
+  /** 「わ」に突き当たる帯を、いったん行き過ぎさせる長さ(mm)。あとで線で切りそろえる */
+  const reach = maxAllowance + 4
+  const pad = Math.ceil(maxAllowance) + 6
 
   const b = bounds(pts)
   const width = Math.ceil(b.maxX - b.minX) + pad * 2 + 2
@@ -125,6 +127,19 @@ export function buildSeam(plan: SeamPlan): SeamResult | null {
     // 負の値（縫い代つき）は、足す量としては 0 と同じ
     const mm = Math.max(0, plan.allowancesMm[g])
     for (let i = start; i < end; i++) perPoint[i % n] = mm
+  }
+
+  /*
+    「わ（折り山）」にしてある点だけに印を付ける。
+
+    縫い代 0 と同じに見えるが、混ぜてはいけない。縫い代つきの辺（SEAM_INCLUDED_MM）も
+    足す量は 0 になるが、あちらは折り山ではないので、切りそろえる線が存在しない。
+  */
+  const isFold = new Uint8Array(n)
+  for (let g = 0; g < plan.groups.length; g++) {
+    if (plan.allowancesMm[g] !== 0) continue
+    const { start, end } = plan.groups[g]
+    for (let i = start; i < end; i++) isFold[i % n] = 1
   }
 
   /*
@@ -178,16 +193,27 @@ export function buildSeam(plan: SeamPlan): SeamResult | null {
     if (mm <= 0) continue // 0 ＝ 折り山。何も足さない
     const a = gridPts[i]
     const b = gridPts[(i + 1) % n]
-    // 隣の帯とのあいだに髪の毛ほどの隙間が残らないよう、進む向きにわずかに伸ばす
-    const ex = ux[i] * 0.5
-    const ey = uy[i] * 0.5
+    /*
+      隣の帯とのあいだに髪の毛ほどの隙間が残らないよう、進む向きにわずかに伸ばす。
+
+      ただし「わ」に突き当たる側だけは、わざと大きく行き過ぎさせる（依頼者の指示・2026-09-03）。
+      帯はその辺自身に直角な向きで終わるので、わに斜めからぶつかると、
+      鋭角なら線がわを越えて飛び出し、鈍角なら手前で止まってくぼみが残る。
+      いったん越えさせておいて、あとでわの線でまっすぐ切りそろえる。
+    */
+    const gA = isFold[(i - 1 + n) % n] ? reach : 0.5
+    const gB = isFold[(i + 1) % n] ? reach : 0.5
+    const ax = a.x - ux[i] * gA
+    const ay = a.y - uy[i] * gA
+    const bx = b.x + ux[i] * gB
+    const by = b.y + uy[i] * gB
     const ox = nx[i] * mm
     const oy = ny[i] * mm
     fillPolygon(grid, [
-      { x: a.x - ex, y: a.y - ey },
-      { x: b.x + ex, y: b.y + ey },
-      { x: b.x + ex + ox, y: b.y + ey + oy },
-      { x: a.x - ex + ox, y: a.y - ey + oy },
+      { x: ax, y: ay },
+      { x: bx, y: by },
+      { x: bx + ox, y: by + oy },
+      { x: ax + ox, y: ay + oy },
     ])
   }
 
@@ -223,6 +249,44 @@ export function buildSeam(plan: SeamPlan): SeamResult | null {
     }
 
     fillPolygon(grid, corner ? [p, q1, corner, q2] : [p, q1, q2])
+  }
+
+  /*
+    3. 「わ」の線で、外へ出たぶんをまっすぐ切り落とす（依頼者の指示・2026-09-03）。
+
+    折り山の向こう側は、同じ型紙の鏡像である。そこへ紙をはみ出させることも、
+    中心に切り欠きを残すこともできない。だからわに突き当たる線は、
+    どんな角度で来ていても、わの線でまっすぐ切りそろえる。
+
+    切る線は、その辺の両端をまっすぐ結んだ線。消すのはその向こう側ぜんぶ。
+    範囲を狭めてはいけない。帯は辺の外側へも斜めへも回り込むので、
+    途中で打ち切ると取り残しの島ができ、輪郭のなぞりがその島を拾ってしまう。
+
+    消したあとに出来上がり線をもう一度塗り直す。
+    なぞった線は少し波打っているし、学生が曲がった辺をわに選ぶこともある。
+    そのとき型紙そのものを切り落としてしまわないため。
+    切り落とすのはあくまで「後から足した縫い代」だけにする。
+  */
+  const foldLines = plan.groups.filter((_, g) => plan.allowancesMm[g] === 0)
+  if (foldLines.length > 0) {
+    const far = grid.width + grid.height
+    for (const { start, end } of foldLines) {
+      const p0 = gridPts[start % n]
+      const p1 = gridPts[end % n]
+      const dx = p1.x - p0.x
+      const dy = p1.y - p0.y
+      const len = Math.hypot(dx, dy)
+      if (len < 1e-6) continue
+      const tx = dx / len
+      const ty = dy / len
+      // 正の回り方にそろえてあるので (dy, -dx) が外を向く
+      const at = (t: number, s: number) => ({
+        x: p0.x + tx * t + ty * s,
+        y: p0.y + ty * t - tx * s,
+      })
+      fillPolygon(grid, [at(-far, 0), at(len + far, 0), at(len + far, far), at(-far, far)], 0)
+    }
+    fillPolygon(grid, gridPts)
   }
 
   const traced = traceOuterContour(grid)
