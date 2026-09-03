@@ -528,6 +528,7 @@ export function LayoutView({
             })
           }
           onDrop={() => dropSection(section.id)}
+          purchaseMm={state.sections.length === 1 ? report.purchaseMm : undefined}
         />
       ))}
 
@@ -1058,7 +1059,7 @@ function today(): string {
 
 function SectionCanvas({
   index, section, report, state, partMap, active, selectedId, canDrop, countOf, topOnlyOf,
-  onActivate, onSelect, onMove, onFold, onHalf, onDrop,
+  onActivate, onSelect, onMove, onFold, onHalf, onDrop, purchaseMm,
 }: {
   index: number
   section: Section
@@ -1084,6 +1085,13 @@ function SectionCanvas({
   onFold: (fold: FoldMode, halfFold?: boolean) => void
   onHalf: (halfFold: boolean) => void
   onDrop: () => void
+  /**
+   * 買ってくる長さ(mm)。**生地が1枚のときだけ**渡す。
+   *
+   * 何枚かに分けているときは、買う長さは全部を足したものなので、
+   * 一枚の絵の上に書くと「この生地でこれだけ買う」と読めてしまう
+   */
+  purchaseMm?: number
 }) {
   const svgRef = useRef<SVGSVGElement>(null)
   const drag = useRef<
@@ -2233,6 +2241,35 @@ function SectionCanvas({
           >
             {zoom.k.toFixed(1)}倍 ／ もとの大きさへ
           </button>
+        )}
+        {/*
+          いま何センチ使っているかを、絵の中にも小さく出す（依頼者の案・2026-09-03
+          「配置している生地の上側の緑の余白内などにも小さめでもいいので、
+          用尺の表記がそこにもあると動かしながら用尺が変わる様子が分かっていい」）。
+
+          **主役は「並べたぶん」のほう。** 買ってくる長さは 10cm 単位に切り上げてあるので、
+          型紙を少し動かしただけでは数字が動かず、「動かすと変わる」ことが見えない。
+          切り上げる前の長さを先に置いて、そこから買う長さへ渡す。
+
+          答えそのものは、これまでどおり画面のいちばん下に大きく置いてある
+          （依頼者の指示・2026-08-27「結びとして下に置く」）。ここは作業中の目盛りなので、
+          小さく、控えめな色にして、下の結びと役どころを取り違えないようにする。
+
+          絵（svg）の外に置いてあるので、**画像に書き出したものには入らない**。
+          書き出した図の数字は、下に付く帯にまとめてある（依頼者の指示・2026-09-01）。
+          指も通す（`pointer-events-none`）。ここは図をずらすためにつかむ場所でもある
+        */}
+        {used > 0 && (
+          <div className="pointer-events-none absolute left-2 top-2 z-10 rounded-lg bg-white/90 px-2 py-1 shadow-sm">
+            <p className="tnum text-[11px] font-bold leading-tight text-ink-700">
+              並べたぶん {(report.yardageMm / 10).toFixed(1)} cm
+            </p>
+            {purchaseMm !== undefined && (
+              <p className="tnum text-[11px] leading-tight text-ink-500">
+                買う {(purchaseMm / 10).toFixed(0)} cm
+              </p>
+            )}
+          </div>
         )}
         <svg
           ref={svgRef}
