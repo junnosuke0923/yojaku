@@ -618,8 +618,13 @@ function PartRow({
         </div>
       </div>
 
-      {/* 開いているときだけ、縫い代のパネルがカードの中に出る */}
-      {body && <div className="pt-3">{body}{nav}</div>}
+      {/*
+        開いているときだけ、縫い代のパネルがカードの中に出る。
+        隣のパーツへの行き来は、パネルの**いちばん上**に置く。
+        下に置くと、押しに行くのにパネルの丈だけ巻き下ろすことになる
+        （依頼者の指摘・2026-09-04）
+      */}
+      {body && <div className="pt-3">{nav}{body}</div>}
     </li>
   )
 }
@@ -629,7 +634,13 @@ function PartRow({
  *
  * パネルは縦 736px あるので、1つ目を決め終えた指は画面のずっと下にいる。
  * そこから次のパーツの行へ進むには、自分で巻き戻さなければならなかった。
- * **決め終わったその場所に、次への口を置く。**
+ *
+ * 置き場所は**パネルのいちばん上**（依頼者の指摘・2026-09-04）。
+ * はじめは下——「決め終わったその場所」——に置いたが、それだと
+ * 押しに行くのにパネルの丈だけ巻き下ろすことになり、
+ * 移動そのものにスクロールが要る。カードを開けばすぐ目に入る場所へ移した。
+ * 別のカードを開くとそのカードは画面の上へ呼び戻されるので（`scrollIntoView`）、
+ * 上に置いてあれば、続けて何枚も送るあいだ指は同じところに留まれる。
  *
  * 前へも後ろへも行けるようにしてある。戻って1つだけ直し、また続きへ帰れること。
  *
@@ -648,7 +659,7 @@ function PartNav({ index, total, onGo }: {
   const first = index === 0
   const last = index === total - 1
   return (
-    <div className="mt-3 flex items-center gap-2 border-t border-ink-100 pt-3">
+    <div className="mb-3 flex items-center gap-2 border-b border-ink-100 pb-3">
       <button
         type="button"
         onClick={() => onGo(index - 1)}
