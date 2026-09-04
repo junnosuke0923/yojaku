@@ -44,6 +44,14 @@ type Props = {
 /** 番号のふきだしを、辺からどれだけ外へ押し出すか(mm) */
 const LABEL_PUSH_MM = 22
 
+/** 寄れる上限。「測る」「並べる」と同じ */
+const MAX_ZOOM = 6
+
+/** 押したのか、ずらし始めたのか。この画素より動いたら「ずらした」 */
+const TAP_SLOP_PX = 8
+
+const clampTo = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v)
+
 export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded, turnDeg, onTurn }: Props) {
   const [selected, setSelected] = useState(0)
   const [bulkCm, setBulkCm] = useState(1)
@@ -124,6 +132,130 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded, turnDeg
   }
 
   const turnEnd = () => { turning.current = null }
+
+  /*
+    指で寄る（依頼者の指示・2026-09-04）。
+
+    「測る」と「並べる」にはもとから入っていて、この画面にだけ無かった。
+    しかもこの図は下の操作のぶんを引いた残りに収める指定なので、
+    画面の縦が短い端末ほど小さくなる（下限の 140px まで縮む）。
+    その大きさで辺を押し分けるのは難しい。
+
+    やり方は「並べる」と同じで、**枠は変えず、見る窓（viewBox）だけを狭める**。
+    図の中の座標系はそのままなので、辺の当たり判定も、
+    つまみの角度の計算（`getScreenCTM`）も、書き直さずに効く。
+  */
+  const [zoom, setZoom] = useState({ k: 1, x: view.x, y: view.y })
+
+  const viewW = view.w / zoom.k
+  const viewH = view.h / zoom.k
+  const vx = clampTo(zoom.x, view.x, view.x + view.w - viewW)
+  const vy = clampTo(zoom.y, view.y, view.y + view.h - viewH)
+
+  /**
+   * 添えものを、画面の上で同じ大きさに保つための割り算。
+   *
+   * 線（型紙の枠・縫い代の帯・わの記号）は型紙に実際にあるものなので、
+   * 寄れば太くなってよい。番号やつまみは読む／つまむために添えてあるだけなので、
+   * いっしょに大きくすると、寄って見ようとしている当の辺を覆いかくす。
+   * 「並べる」で決めてある区別に合わせた
+   */
+  const lbl = (v: number) => v / zoom.k
+
+  const pointers = useRef(new Map<number, { x: number; y: number }>())
+  const pinch = useRef<{ d0: number; k0: number; ox: number; oy: number } | null>(null)
+  const pan = useRef<{ px: number; py: number; vx: number; vy: number } | null>(null)
+  /** 押した辺。指を離すまで決めない */
+  const tapEdge = useRef<number | null>(null)
+  /** 指を置いた場所と、そこから動いたかどうか */
+  const tap = useRef<{ x: number; y: number; moved: boolean } | null>(null)
+
+  const rectOf = () => {
+    const r = svgRef.current?.getBoundingClientRect()
+    return r && r.width > 0 && r.height > 0 ? r : null
+  }
+  /** 画面の点を、図の中の座標に直す */
+  const spotOf = (cx: number, cy: number) => {
+    const r = rectOf()
+    if (!r) return { x: vx, y: vy }
+    return { x: vx + ((cx - r.left) / r.width) * viewW, y: vy + ((cy - r.top) / r.height) * viewH }
+  }
+  /** 倍率と窓の左上を決める。つまんだ点が指のあいだに残るように置く */
+  const zoomAround = (k: number, cx: number, cy: number, ox: number, oy: number) => {
+    const r = rectOf()
+    if (!r) return
+    const kk = clampTo(k, 1, MAX_ZOOM)
+    const w = view.w / kk
+    const h = view.h / kk
+    setZoom({
+      k: kk,
+      x: clampTo(ox - ((cx - r.left) / r.width) * w, view.x, view.x + view.w - w),
+      y: clampTo(oy - ((cy - r.top) / r.height) * h, view.y, view.y + view.h - h),
+    })
+  }
+
+  /** つまみの上で始まった操作か。図をずらす対象から外す */
+  const onKnob = (e: PointerEvent) => !!(e.target as Element).closest?.('[data-knob]')
+
+  /*
+    下りは**捕まえる側（capture）**で受ける。
+    辺の上で始まった指も、まず必ずここを通るので、
+    前に押した辺が残ったままにならない
+  */
+  const svgDown = (e: PointerEvent) => {
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    tapEdge.current = null
+    tap.current = { x: e.clientX, y: e.clientY, moved: false }
+    if (pointers.current.size === 2) {
+      // 二本目が触れた。まわすのも、ずらすのも、押すのもやめて、つまむほうへ移る
+      turning.current = null
+      pan.current = null
+      tap.current = null
+      const [a, b] = [...pointers.current.values()]
+      const mid = spotOf((a.x + b.x) / 2, (a.y + b.y) / 2)
+      pinch.current = { d0: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), k0: zoom.k, ox: mid.x, oy: mid.y }
+    } else if (pointers.current.size === 1 && zoom.k > 1 && !onKnob(e)) {
+      pan.current = { px: e.clientX, py: e.clientY, vx, vy }
+    }
+  }
+
+  const svgMove = (e: PointerEvent) => {
+    if (pointers.current.has(e.pointerId)) {
+      pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    }
+    const t = tap.current
+    if (t && Math.hypot(e.clientX - t.x, e.clientY - t.y) > TAP_SLOP_PX) t.moved = true
+
+    const g = pinch.current
+    if (g && pointers.current.size >= 2) {
+      const [a, b] = [...pointers.current.values()]
+      const d = Math.hypot(a.x - b.x, a.y - b.y)
+      if (d >= 1) zoomAround(g.k0 * (d / g.d0), (a.x + b.x) / 2, (a.y + b.y) / 2, g.ox, g.oy)
+      return
+    }
+    // まわしている最中は、図をずらさない
+    if (turning.current) return
+    const q = pan.current
+    if (q && t?.moved) {
+      const r = rectOf()
+      if (!r) return
+      setZoom({
+        k: zoom.k,
+        x: clampTo(q.vx - ((e.clientX - q.px) / r.width) * viewW, view.x, view.x + view.w - viewW),
+        y: clampTo(q.vy - ((e.clientY - q.py) / r.height) * viewH, view.y, view.y + view.h - viewH),
+      })
+    }
+  }
+
+  const svgUp = (e: PointerEvent) => {
+    pointers.current.delete(e.pointerId)
+    if (pointers.current.size < 2) pinch.current = null
+    if (pointers.current.size === 0) pan.current = null
+    // 押した辺が決まるのは、ここ。動かずに離したときだけ
+    if (tapEdge.current !== null && tap.current && !tap.current.moved) pick(tapEdge.current)
+    tapEdge.current = null
+    tap.current = null
+  }
 
   /**
    * 辺を選び直す。自分で入れた数字は、そのつど空にする。
@@ -236,9 +368,14 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded, turnDeg
         1画面に収まる状態をできるだけ保てる（依頼者の指示・2026-08-27）。
         ただし縮みすぎると辺を押せなくなるので、下限も決めてある
       */}
+      <div className="relative">
       <svg
         ref={svgRef}
-        viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
+        viewBox={`${vx} ${vy} ${viewW} ${viewH}`}
+        onPointerDownCapture={svgDown}
+        onPointerMove={svgMove}
+        onPointerUp={svgUp}
+        onPointerCancel={svgUp}
         data-tour="seam-figure"
         className="w-full rounded-xl border border-ink-100 bg-table"
         style={{
@@ -275,8 +412,8 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded, turnDeg
           strokeLinejoin="round"
         />
 
-        {/* 地の目線とパーツ名 */}
-        <PatternMarks poly={shifted} hasNap={hasNap} name={name} />
+        {/* 地の目線とパーツ名。名前は寄っても画面の上で同じ大きさに保つ */}
+        <PatternMarks poly={shifted} hasNap={hasNap} name={name} fontShrink={zoom.k} />
 
         {/* 「わ」の辺に付ける作図の記号。地の目線より後に描いて、隠れないようにする */}
         {plan.groups.map((g, gi) => (plan.allowancesMm[gi] === 0 ? foldMark(g) : null))}
@@ -303,14 +440,15 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded, turnDeg
             strokeWidth={26}
             strokeLinecap="round"
             style={{ cursor: 'pointer' }}
-            onPointerDown={() => pick(gi)}
+            onPointerDown={() => { tapEdge.current = gi }}
           />
         ))}
 
         {/* 番号。まとまりの真ん中から外へ押し出す */}
         {plan.groups.map((g, gi) => {
           const mm = plan.allowancesMm[gi]
-          const push = mm + LABEL_PUSH_MM
+          // 押し出す量も割る。そうしないと、寄ったときに番号だけが遠くへ飛んでいく
+          const push = mm + lbl(LABEL_PUSH_MM)
           const cx = g.midpoint.x + view.dx + g.outward.x * push
           const cy = g.midpoint.y + view.dy + g.outward.y * push
           const on = gi === selected
@@ -318,11 +456,11 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded, turnDeg
             <g
               key={`no-${g.no}`}
               style={{ cursor: 'pointer' }}
-              onPointerDown={() => pick(gi)}
+              onPointerDown={() => { tapEdge.current = gi }}
             >
-              <circle cx={cx} cy={cy} r={14} fill={on ? '#b4433a' : '#ffffff'}
-                stroke={on ? '#b4433a' : '#9aa69e'} strokeWidth={1.6} />
-              <text x={cx} y={cy + 6} textAnchor="middle" fontSize={17}
+              <circle cx={cx} cy={cy} r={lbl(14)} fill={on ? '#b4433a' : '#ffffff'}
+                stroke={on ? '#b4433a' : '#9aa69e'} strokeWidth={lbl(1.6)} />
+              <text x={cx} y={cy + lbl(6)} textAnchor="middle" fontSize={lbl(17)}
                 fill={on ? '#ffffff' : '#5c665f'} fontWeight={700}>
                 {g.no}
               </text>
@@ -332,8 +470,8 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded, turnDeg
               */}
               {mm === 0 && (
                 <text
-                  x={cx + g.outward.x * 24} y={cy + g.outward.y * 24 + 6}
-                  textAnchor="middle" fontSize={15} fill="#2b332d"
+                  x={cx + g.outward.x * lbl(24)} y={cy + g.outward.y * lbl(24) + lbl(6)}
+                  textAnchor="middle" fontSize={lbl(15)} fill="#2b332d"
                 >
                   わ
                 </text>
@@ -349,12 +487,13 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded, turnDeg
         */}
         {(() => {
           // 図のまわりの余白は 52mm。つまみの半径 15 を足しても、はみ出さない位置
-          const hx = view.right + 26
-          const hy = view.top - 26
+          const hx = view.right + lbl(26)
+          const hy = view.top - lbl(26)
           const held = turnDeg !== 0
           const color = held ? '#b4433a' : '#5c665f'
           return (
             <g
+              data-knob=""
               style={{ cursor: 'grab', touchAction: 'none' }}
               onPointerDown={turnStart}
               onPointerMove={turnMove}
@@ -367,21 +506,40 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded, turnDeg
               {/* 軸とつまみを結ぶ線。どこを軸にまわるのかが分かる */}
               <line
                 x1={view.cx} y1={view.cy} x2={hx} y2={hy}
-                stroke={color} strokeOpacity={0.28} strokeWidth={1.4} strokeDasharray="5 5"
+                stroke={color} strokeOpacity={0.28} strokeWidth={lbl(1.4)} strokeDasharray={`${lbl(5)} ${lbl(5)}`}
               />
               {/* 指で当てやすいように、見えない広い下地を敷く */}
-              <circle cx={hx} cy={hy} r={26} fill="transparent" />
-              <circle cx={hx} cy={hy} r={15} fill="#ffffff" stroke={color} strokeWidth={2} />
+              <circle cx={hx} cy={hy} r={lbl(26)} fill="transparent" />
+              <circle cx={hx} cy={hy} r={lbl(15)} fill="#ffffff" stroke={color} strokeWidth={lbl(2)} />
               {/* まわる向きの矢。四分の三の弧に、先端の三角をひとつ */}
               <path
-                d={`M${hx} ${hy - 8} A8 8 0 1 1 ${hx - 8} ${hy}`}
-                fill="none" stroke={color} strokeWidth={2.2} strokeLinecap="round"
+                d={`M${hx} ${hy - lbl(8)} A${lbl(8)} ${lbl(8)} 0 1 1 ${hx - lbl(8)} ${hy}`}
+                fill="none" stroke={color} strokeWidth={lbl(2.2)} strokeLinecap="round"
               />
-              <path d={`M${hx - 11.4} ${hy - 3} L${hx - 4.6} ${hy - 3} L${hx - 8} ${hy + 3.6} Z`} fill={color} />
+              <path
+                d={`M${hx - lbl(11.4)} ${hy - lbl(3)} L${hx - lbl(4.6)} ${hy - lbl(3)} L${hx - lbl(8)} ${hy + lbl(3.6)} Z`}
+                fill={color}
+              />
             </g>
           )
         })()}
       </svg>
+
+      {/*
+        寄ったあと、元へ戻る口。等倍のあいだは出さない
+        （押すもののない札を画面に残さない）。
+        いま何倍かも札の中で言う。数字だけを置くと、何のための数字か分からなくなる
+      */}
+      {zoom.k > 1.01 && (
+        <button
+          type="button"
+          onClick={() => setZoom({ k: 1, x: view.x, y: view.y })}
+          className="tnum absolute right-2 top-2 rounded-lg border border-ink-100 bg-white/90 px-2.5 py-1.5 text-xs font-bold text-ink-700"
+        >
+          {zoom.k.toFixed(1)}倍 ／ ぜんぶ見る
+        </button>
+      )}
+      </div>
 
       {/*
         まわす操作の段。

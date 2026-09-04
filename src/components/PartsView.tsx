@@ -125,6 +125,13 @@ export function PartsView({ state, onChange, onAddMore, onLayout }: Props) {
                     onReplace={replace}
                   />
                 ) : null}
+                nav={p.id === openId && patterns.length > 1 ? (
+                  <PartNav
+                    index={i}
+                    total={patterns.length}
+                    onGo={(n) => { const t = patterns[n]; if (t) setOpenId(t.id) }}
+                  />
+                ) : null}
               />
             ))}
           </ul>
@@ -372,7 +379,7 @@ function SeamBody({ part, hasNap, onPatch, onReplace }: {
 }
 
 function PartRow({
-  part, hasNap, first, open, body, onOpen, onPatch, onRemove,
+  part, hasNap, first, open, body, nav, onOpen, onPatch, onRemove,
 }: {
   part: StoredPart
   hasNap: boolean
@@ -382,6 +389,8 @@ function PartRow({
   open: boolean
   /** 開いているときに、カードの中に出すもの（縫い代のパネル） */
   body: ReactNode
+  /** パネルの終わりに置く、隣のパーツへの行き来 */
+  nav?: ReactNode
   onOpen: () => void
   onPatch: (over: Partial<StoredPart>) => void
   onRemove: () => void
@@ -610,8 +619,56 @@ function PartRow({
       </div>
 
       {/* 開いているときだけ、縫い代のパネルがカードの中に出る */}
-      {body && <div className="pt-3">{body}</div>}
+      {body && <div className="pt-3">{body}{nav}</div>}
     </li>
+  )
+}
+
+/**
+ * 隣のパーツへの行き来（依頼者の指示・2026-09-04）。
+ *
+ * パネルは縦 736px あるので、1つ目を決め終えた指は画面のずっと下にいる。
+ * そこから次のパーツの行へ進むには、自分で巻き戻さなければならなかった。
+ * **決め終わったその場所に、次への口を置く。**
+ *
+ * 前へも後ろへも行けるようにしてある。戻って1つだけ直し、また続きへ帰れること。
+ *
+ * 端では押せなくしてある。最後のパーツから先は「生地を決める」——
+ * 別の段階への移動なので、この段には混ぜない。
+ * ひとつの並びに二種類の行き先を置くと、どこへ行くのか読めなくなる
+ */
+function PartNav({ index, total, onGo }: {
+  index: number
+  total: number
+  onGo: (i: number) => void
+}) {
+  const side = 'flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2.5 text-sm font-bold'
+  const live = 'border-mat-300 text-mat-700 active:bg-mat-50'
+  const dead = 'border-ink-100 text-ink-300'
+  const first = index === 0
+  const last = index === total - 1
+  return (
+    <div className="mt-3 flex items-center gap-2 border-t border-ink-100 pt-3">
+      <button
+        type="button"
+        onClick={() => onGo(index - 1)}
+        disabled={first}
+        className={`${side} ${first ? dead : live}`}
+      >
+        <Icon name="back" className="h-4 w-4 shrink-0" />
+        前のパーツ
+      </button>
+      <span className="tnum shrink-0 text-xs font-bold text-ink-300">{index + 1} / {total}</span>
+      <button
+        type="button"
+        onClick={() => onGo(index + 1)}
+        disabled={last}
+        className={`${side} ${last ? dead : live}`}
+      >
+        次のパーツ
+        <Icon name="chevron" className="h-4 w-4 shrink-0" />
+      </button>
+    </div>
   )
 }
 
