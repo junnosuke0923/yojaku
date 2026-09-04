@@ -404,6 +404,24 @@ export function LayoutView({
   const place = (partId: string) => {
     const part = state.parts.find((p) => p.id === partId)
     const rest = part && !isReserve(part) ? part.needed - takenOf(partId) : undefined
+    /*
+      **要る枚数より多くは置けない**（依頼者の指示・2026-09-05
+      「前のセクションで型紙の枚数を設定したら、
+        その枚数しか型紙を置けないようにしたい」）。
+
+      もとは何度でも押せたので、いくらでも同じ型紙を出せてしまった。
+      置いたぶんはそのまま要尺に効くので、押し間違いがそのまま
+      「生地を余分に買う」という数字になっていた。
+
+      数えるのは置いた**数**ではなく、そこから取れる**枚数**。
+      二重のところに置いた1つは2枚ぶんなので、
+      1つ置いただけで足りてしまうことがある（`takenOf` を見よ）。
+      逆に、置いたものを一重のところへ動かせば足りなくなり、また出せるようになる。
+
+      棚の札のほうも押せなくしてあるが、ここでも止める。
+      数え方が変わったときに、片方だけ直して素通りするのを防ぐため
+    */
+    if (rest !== undefined && rest <= 0) return
     const made = nextPlacement(state.placements, partId, rest)
     onChange({ ...state, placements: [...state.placements, made] })
     setFlashId(made.id)
@@ -3482,15 +3500,22 @@ function Dock({
                 <button
                   type="button"
                   onClick={() => onPlace(p.id)}
+                  /*
+                    そろった型紙は、もう出せない（依頼者の指示・2026-09-05）。
+                    押せる見た目のまま何も起きないのがいちばん困るので、
+                    枠と字を薄くして「もう押すところではない」と分かるようにし、
+                    理由は下の一行で言う
+                  */
+                  disabled={rest <= 0}
                   aria-label={
                     rest > 0
                       ? `${p.name}を生地に置く。あと ${rest} 枚`
-                      : `${p.name}をもう1つ置く。すでにそろっています`
+                      : `${p.name}は置き終わりました。これ以上は置けません`
                   }
                   className={`flex items-center gap-2 rounded-xl border px-2.5 py-1.5 ${
                     rest > 0
                       ? 'border-mat-300 bg-white active:bg-mat-100'
-                      : 'border-ink-100 bg-white/60 active:bg-mat-100'
+                      : 'border-ink-100 bg-white/50 opacity-60'
                   }`}
                 >
                   <Silhouette part={partMap.get(p.id)} />
@@ -3513,6 +3538,20 @@ function Dock({
               </li>
             ))}
           </ul>
+        )}
+
+        {/*
+          押せなくなった札があるときだけ、その理由を言う
+          （PartsView の「枚数は 12 枚までです」と同じ考え方——
+          上限そのものは黙って効かせず、**届いたときにだけ**理由を出す）。
+
+          直しに行く先まで書く。ここで枚数は変えられないので、
+          「増やせない」とだけ言われても手が止まる
+        */}
+        {open && order.some(({ rest }) => rest <= 0) && (
+          <p className="pb-2 text-[11px] leading-tight text-ink-300">
+            置けるのは、「縫い代」で決めた枚数までです
+          </p>
         )}
       </div>
     </div>
