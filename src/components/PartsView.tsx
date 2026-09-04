@@ -400,7 +400,7 @@ function PartRow({
   open: boolean
   /** 開いているときに、カードの中に出すもの（縫い代のパネル） */
   body: ReactNode
-  /** パネルの終わりに置く、隣のパーツへの行き来 */
+  /** カードのいちばん上に置く、隣のパーツへの行き来 */
   nav?: ReactNode
   onOpen: () => void
   onPatch: (over: Partial<StoredPart>) => void
@@ -451,6 +451,52 @@ function PartRow({
   const opened = part.openFold === true && folds > 0
   const seam = seamSummary(part)
 
+  /**
+   * 枚数の増減。**開いているあいだは名前の行に入れ、閉じているあいだは自分の行に出す。**
+   *
+   * 名前の一覧は最長でも「スカート前」の5文字なので、名前の右は大きく余っている
+   * （依頼者の指示・2026-09-05「パーツ名はそれほど長くなるわけではないので、
+   * 横長にする必要はありません」）。そこへ枚数を入れると、
+   * 開いた頭が3行から2行になり、縫い代のパネルがそのぶん上がる。
+   *
+   * 名前をじぶんで打ち込んでいるあいだだけは、入力欄と「やめる」で行が埋まるので、
+   * 閉じているときと同じように自分の行へ落とす
+   */
+  const count = (
+    <>
+      {/*
+        1 / 2 / 4 の3つだけ選べる形だった（学生の点検・2026-09-02
+        「3枚要るときはどうするのか分かりませんでした」）。
+        三段スカートの段、フリル、共布のループなど、3枚も5枚もふつうにある。
+        押す場所はむしろ減るので、1画面に収める方針とも喧嘩しない
+      */}
+      <span className="flex shrink-0 items-center overflow-hidden rounded-lg border border-ink-100">
+        <button
+          type="button"
+          disabled={part.needed <= 1}
+          onClick={() => onPatch({ needed: Math.max(1, part.needed - 1) })}
+          aria-label="枚数を減らす"
+          className="tap px-3 py-1.5 text-sm font-bold text-ink-500 disabled:opacity-25"
+        >
+          −
+        </button>
+        <span className="tnum min-w-6 text-center text-sm font-bold text-ink-900">
+          {part.needed}
+        </span>
+        <button
+          type="button"
+          disabled={part.needed >= MAX_NEEDED}
+          onClick={() => onPatch({ needed: Math.min(MAX_NEEDED, part.needed + 1) })}
+          aria-label="枚数を増やす"
+          className="tap px-3 py-1.5 text-sm font-bold text-ink-500 disabled:opacity-25"
+        >
+          ＋
+        </button>
+      </span>
+      <span className="shrink-0 text-[11px] text-ink-300">枚</span>
+    </>
+  )
+
   return (
     <li
       ref={liRef}
@@ -459,6 +505,33 @@ function PartRow({
         open ? 'border-mat-500' : 'border-ink-100'
       }`}
     >
+      {/*
+        開いているあいだ、カードの**いちばん上**に「このカードから出る」操作だけを集める
+        （依頼者の指示・2026-09-05「前のパーツと次のパーツは、
+        名称よりも上に置く方が良いように思います」）。
+
+        隣のパーツへ送るのも、閉じるのも、行き先はどちらもこのカードの外なので、
+        ひとつの帯に並べておく。カードを開くとそのカードは画面の上へ呼び戻されるので
+        （下の scrollIntoView）、いちばん上に置いてあれば、
+        続けて何枚送っても指は毎回まったく同じ場所に留まれる。
+        名前や枚数の行より下にあると、その行の高さが変わったぶんだけ現れる位置がずれる。
+
+        パーツが1つだけのときは nav が来ないので、閉じるだけがここに残る
+      */}
+      {open && (
+        <div className="mb-3 flex items-center gap-2 border-b border-ink-100 pb-3">
+          {nav}
+          <button
+            type="button"
+            onClick={onOpen}
+            aria-label="このパーツを閉じる"
+            className="tap ml-auto flex w-11 shrink-0 items-center justify-center self-stretch rounded-lg border border-ink-100 text-ink-500 active:bg-table"
+          >
+            <Icon name="close" className="h-4 w-4 shrink-0" />
+          </button>
+        </div>
+      )}
+
       <div className="flex gap-3">
         {/*
           小さな絵は、**閉じているあいだだけ**（依頼者の指摘・2026-09-04
@@ -535,6 +608,8 @@ function PartRow({
                 <option value={OWN_NAME}>じぶんで入れる…</option>
               </select>
             )}
+            {/* 開いているあいだは、名前の右に空いた場所へ枚数を入れて1行減らす */}
+            {open && !naming && count}
             <button
               type="button"
               onClick={onRemove}
@@ -545,64 +620,29 @@ function PartRow({
             </button>
           </div>
 
-          <div className="flex items-center gap-1.5">
-            <Icon name="part" className="h-3.5 w-3.5 shrink-0 text-ink-300" />
-            {/*
-              1 / 2 / 4 の3つだけ選べる形だった（学生の点検・2026-09-02
-              「3枚要るときはどうするのか分かりませんでした」）。
-              三段スカートの段、フリル、共布のループなど、3枚も5枚もふつうにある。
-              押す場所はむしろ減るので、1画面に収める方針とも喧嘩しない
-            */}
-            <span className="flex shrink-0 items-center overflow-hidden rounded-lg border border-ink-100">
-              <button
-                type="button"
-                disabled={part.needed <= 1}
-                onClick={() => onPatch({ needed: Math.max(1, part.needed - 1) })}
-                aria-label="枚数を減らす"
-                className="tap px-3 py-1.5 text-sm font-bold text-ink-500 disabled:opacity-25"
-              >
-                −
-              </button>
-              <span className="tnum min-w-6 text-center text-sm font-bold text-ink-900">
-                {part.needed}
-              </span>
-              <button
-                type="button"
-                disabled={part.needed >= MAX_NEEDED}
-                onClick={() => onPatch({ needed: Math.min(MAX_NEEDED, part.needed + 1) })}
-                aria-label="枚数を増やす"
-                className="tap px-3 py-1.5 text-sm font-bold text-ink-500 disabled:opacity-25"
-              >
-                ＋
-              </button>
-            </span>
-            <span className="shrink-0 text-[11px] text-ink-300">枚</span>
-            {/*
-              開いているあいだは、大きさのかわりに閉じる口を置く。
-              大きさはパネルの終わりに「縫い代まで入れた大きさ」として出ている
-            */}
-            {open ? (
-              <button
-                type="button"
-                onClick={onOpen}
-                className="ml-auto flex shrink-0 items-center gap-1 rounded-lg border border-ink-100 px-2.5 py-1.5 text-[11px] font-bold text-ink-500 active:bg-table"
-              >
-                閉じる
-                <Icon name="chevron" className="h-3.5 w-3.5 shrink-0 -rotate-90" />
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={onOpen}
-                className="tnum ml-auto flex min-w-0 items-center gap-1 truncate text-[11px] text-ink-500"
-              >
-                <Icon name="scissors" className="h-3.5 w-3.5 shrink-0" />
-                {size
-                  ? `${(size.widthMm / 10).toFixed(1)} × ${(size.heightMm / 10).toFixed(1)}`
-                  : '—'}
-              </button>
-            )}
-          </div>
+          {/*
+            枚数の行。開いているあいだは上の行に混ぜてあるので出さない。
+            大きさの数字も、開いていればパネルの終わりに
+            「縫い代まで入れた大きさ」として出ている
+          */}
+          {(!open || naming) && (
+            <div className="flex items-center gap-1.5">
+              <Icon name="part" className="h-3.5 w-3.5 shrink-0 text-ink-300" />
+              {count}
+              {!open && (
+                <button
+                  type="button"
+                  onClick={onOpen}
+                  className="tnum ml-auto flex min-w-0 items-center gap-1 truncate text-[11px] text-ink-500"
+                >
+                  <Icon name="scissors" className="h-3.5 w-3.5 shrink-0" />
+                  {size
+                    ? `${(size.widthMm / 10).toFixed(1)} × ${(size.heightMm / 10).toFixed(1)}`
+                    : '—'}
+                </button>
+              )}
+            </div>
+          )}
 
           {/*
             ＋ が上限で黙って効かなくなっていた（学生の点検・2026-09-02・2巡目）。
@@ -656,13 +696,8 @@ function PartRow({
         </div>
       </div>
 
-      {/*
-        開いているときだけ、縫い代のパネルがカードの中に出る。
-        隣のパーツへの行き来は、パネルの**いちばん上**に置く。
-        下に置くと、押しに行くのにパネルの丈だけ巻き下ろすことになる
-        （依頼者の指摘・2026-09-04）
-      */}
-      {body && <div className="pt-3">{nav}{body}</div>}
+      {/* 開いているときだけ、縫い代のパネルがカードの中に出る */}
+      {body && <div className="pt-3">{body}</div>}
     </li>
   )
 }
@@ -673,12 +708,16 @@ function PartRow({
  * パネルは縦 736px あるので、1つ目を決め終えた指は画面のずっと下にいる。
  * そこから次のパーツの行へ進むには、自分で巻き戻さなければならなかった。
  *
- * 置き場所は**パネルのいちばん上**（依頼者の指摘・2026-09-04）。
+ * 置き場所は**カードのいちばん上**、名前よりも上（依頼者の指示・2026-09-05）。
  * はじめは下——「決め終わったその場所」——に置いたが、それだと
- * 押しに行くのにパネルの丈だけ巻き下ろすことになり、
- * 移動そのものにスクロールが要る。カードを開けばすぐ目に入る場所へ移した。
+ * 押しに行くのにパネルの丈だけ巻き下ろすことになり、移動そのものにスクロールが要る。
+ * 次にパネルの頭へ移したが、それでも名前と枚数の2行ぶん下だった。
  * 別のカードを開くとそのカードは画面の上へ呼び戻されるので（`scrollIntoView`）、
- * 上に置いてあれば、続けて何枚も送るあいだ指は同じところに留まれる。
+ * カードの先頭に置いてはじめて、続けて何枚送っても指が毎回同じ場所に留まる。
+ * 上の行の高さが変われば（枚数の上限の注意書き、名前の打ち込み中）
+ * そのぶん現れる位置がずれてしまうため。
+ *
+ * 「閉じる」を隣に並べるのは `PartRow` の側。ここは行き来の2つだけを返す。
  *
  * 前へも後ろへも行けるようにしてある。戻って1つだけ直し、また続きへ帰れること。
  *
@@ -697,7 +736,7 @@ function PartNav({ index, total, onGo }: {
   const first = index === 0
   const last = index === total - 1
   return (
-    <div className="mb-3 flex items-center gap-2 border-b border-ink-100 pb-3">
+    <div className="flex min-w-0 flex-1 items-center gap-2">
       <button
         type="button"
         onClick={() => onGo(index - 1)}

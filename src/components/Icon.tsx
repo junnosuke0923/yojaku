@@ -29,7 +29,7 @@ export type IconName =
   | 'cloth' | 'selvage' | 'clothWidth' | 'yardage' | 'layout' | 'hold'
   | 'grain' | 'grainSide' | 'nap' | 'napNone' | 'flip' | 'mirror' | 'nest'
   | 'question' | 'hint' | 'warn' | 'check'
-  | 'plus' | 'trash' | 'back' | 'chevron' | 'undo' | 'redo' | 'save' | 'packUp' | 'list'
+  | 'plus' | 'close' | 'trash' | 'back' | 'chevron' | 'undo' | 'redo' | 'save' | 'packUp' | 'list'
   | 'turnLeft' | 'turnRight'
 
 /**
@@ -303,6 +303,9 @@ const SHAPES: Record<IconName, ReactNode> = {
   /* ----------------------------------------------------------- 操作 */
 
   plus: <path d="M12 5.2v13.6M5.2 12h13.6" />,
+
+  /** 開いているカードを閉じる。plus と同じ中心・同じ腕の長さで、45度ぶん傾けたもの */
+  close: <path d="M6.6 6.6l10.8 10.8M17.4 6.6L6.6 17.4" />,
 
   trash: (
     <>
