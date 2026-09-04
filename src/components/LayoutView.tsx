@@ -27,7 +27,7 @@ import {
   PURCHASE_MARGIN_MM, PURCHASE_ROUND_MM, SELVAGE_MM, SNAP_MM, toggleFoldSide,
   packedUp, pulledIn,
   type Fabric, type FoldMark, type FoldMode, type PlacedPart, type Placement,
-  type Section, type Side,
+  type Problem, type Section, type Side,
 } from '../lib/fabric'
 import { defaultName, MAX_SAVES, putSave, type Save } from '../lib/saves'
 import { renderLayoutImage, saveImage, type Sheet } from '../lib/exportImage'
@@ -76,6 +76,27 @@ const MIN_VIEW_MM = 400
  * これ以上寄れても、どこを見ているのか分からなくなるだけ
  */
 const MAX_ZOOM = 6
+
+/**
+ * 「押した」と「引きずった」の境目（画面の点）。
+ *
+ * 指を置いたまま止めていても、この距離ぶんは必ず揺れる。
+ * ここを超えて初めて引きずったと見なす
+ */
+const TAP_SLOP = 6
+
+/**
+ * 生地の絵の高さの上限（依頼者の指摘・2026-09-04）。
+ *
+ * 絵の高さは生地の丈そのままなので、型紙を置くほど絵が縦に伸びる。
+ * 下端の手元（棚）は画面に貼り付いているので隠れはしないが、
+ * **絵と手元が一度に目に入らない**と、押した札がどこへ出たのか分からない。
+ *
+ * ふつうの丈（スカート1着ぶん）では、この上限に当たらない。
+ * 当たるのは丈の長いもの（コートなど）だけで、そのときは絵ごと小さくなる。
+ * 縮めた先で突き合わせるために、二本指で寄る操作をすでに入れてある
+ */
+const SHEET_MAX_H = 'min(58vh, 580px)'
 
 /** 上と下からはみ出さないように収める */
 const clampTo = (v: number, lo: number, hi: number) =>
@@ -129,6 +150,34 @@ const DRAW_LIMIT_MS = 20000
 const CLOTH = '#fdfcf8'
 const CLOTH_FOLDED = '#efeee2'
 const CREASE = '#35664e'
+/** まちがっているところの色（`--color-seam` と同じ赤） */
+const ALERT = '#b4433a'
+
+/**
+ * まちがっている型紙の**上に重ねて出す**、短い言い方（依頼者の指示・2026-09-04）。
+ *
+ * 赤い枠と、絵の外の赤い注意書きは前から出ていたが、
+ * 「気づきにくい」と指摘された。理由は3つあった——
+ * (1) 赤い枠が、選んでいる緑の枠と**同じ太さ・同じ濃さ・同じ形**で、色だけが違った。
+ * (2) 赤い注意書きが**絵より上**にあり、生地の下のほうを触っていると画面の外にいた。
+ * (3) 「わの辺」の話なのに、型紙まるごとが赤くなるだけだった。
+ *
+ * そこで、何がまずいのかを**その型紙の上に赤字で直接書く**。
+ * 長い説明（どうすれば直るか）は絵の外の一覧に残してあるので、
+ * ここは「何が起きているか」だけを一息で読める長さにする。
+ *
+ * 図を画像に書き出すときの注記は図の外へ出す決まりだが、
+ * これは**その場で直してもらうための表示**なので、逆に上へ重ねてよい
+ */
+const ALERT_TEXT: Record<Problem['kind'], string> = {
+  offFold: 'わの位置が正しくありません',
+  noSuchFold: 'この折り方に、その折り山はありません',
+  tooWide: '生地の幅からはみ出しています',
+  tooDeep: '折り返しが深すぎます',
+  overlap: '型紙が重なっています',
+  acrossMeet: '出会い目をまたいでいます',
+  napLocked: '毛並みの向きがそろいません',
+}
 
 /**
  * みみの色。生地と同じように、**下になっている一枚のみみは少しだけ暗い**
@@ -145,6 +194,37 @@ export function LayoutView({
   state, onChange, onBack, saveName, onSaveName, onSaved, onUndo,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  /**
+   * 選んだ型紙の操作板を開いているか（依頼者の指摘・2026-09-04）。
+   *
+   * もとは、つかんだ瞬間に板が開いていた。板は画面の下端に出るので、
+   * **引きずるたびに手元（下の棚）が隠れる**。次の型紙を出すには、
+   * まず板を閉じることになっていた。
+   *
+   * 引きずるのと、選んで細かく決めるのは別の用事なので、分ける。
+   * **動かしたら開かない。動かさずに離した（＝押した）ときだけ開く。**
+   */
+  const [panelOpen, setPanelOpen] = useState(false)
+  /**
+   * 手元（画面の下端の棚）を開いているか。
+   *
+   * たためるようにしてある（依頼者の要望・2026-09-04）。
+   * 生地の下のほうへ型紙を置くときは、棚がその場所にかぶさるため。
+   * たたんでも細い帯は残す——消えてしまうと、戻し方が分からなくなる
+   */
+  const [dockOpen, setDockOpen] = useState(true)
+  /**
+   * いま出したばかりの型紙。少しのあいだ光らせる。
+   *
+   * 押した札と、生地の上に出てきたものを結びつけるための合図
+   * （依頼者の指摘・2026-09-04「形が似ていると置き間違える」）
+   */
+  const [flashId, setFlashId] = useState<string | null>(null)
+  useEffect(() => {
+    if (!flashId) return
+    const t = setTimeout(() => setFlashId(null), 1600)
+    return () => clearTimeout(t)
+  }, [flashId])
   const [activeSection, setActiveSection] = useState(state.sections[0]?.id ?? 's1')
   /** 生地を1つ消した直後か。しばらく置いてから、ひとりでに引っ込む */
   const [dropped, setDropped] = useState(false)
@@ -253,8 +333,18 @@ export function LayoutView({
       placements: state.placements.map((p) => (p.id === id ? resnap({ ...p, ...over }) : p)),
     }, group)
 
-  const place = (partId: string) => {
-    const id = `pl${state.placements.length}_${partId}`
+  /**
+   * 型紙を1つ、ぶつからない場所へ出す。**置き場所を決めて返すだけ。**
+   *
+   * 1つずつ押したときと「ぜんぶ出す」で、まったく同じ道を通すために分けてある。
+   * すでに置いてあるものは `list` で渡す——まとめて出すときは、
+   * まだ画面に反映されていない途中の並びを見ながら次の場所を決めるため
+   */
+  const nextPlacement = (list: Placement[], partId: string, rest?: number): Placement => {
+    // 消したあとに置き直すと番号がぶつかることがあるので、空いている番号まで送る
+    let n = list.length
+    while (list.some((q) => q.id === `pl${n}_${partId}`)) n += 1
+    const id = `pl${n}_${partId}`
     /*
       「わ」の辺を持つ型紙は、置いた瞬間から折り山に当てておく
       （依頼者の指摘・2026-08-31）。置いただけの状態は左上（＝縦わなら折り山そのもの）
@@ -277,7 +367,8 @@ export function LayoutView({
       詰めて並べてあげるのではなく、ぶつからない場所へ出すだけ。
       どこへ動かすかは、これまでどおり本人が指で決める
     */
-    const sr = report.sections.find((sc) => sc.id === activeSection)
+    const rep = list === state.placements ? report : computeYardage(fabric, list, partMap)
+    const sr = rep.sections.find((sc) => sc.id === activeSection)
     const at = part && sr
       ? freeSpotFor(partSizeOf(part, { ...fresh, snapTo }), sr, {
         x: snapTo === 'left' ? 0
@@ -286,16 +377,71 @@ export function LayoutView({
         y: snapTo === 'top' ? 0 : undefined,
       })
       : { xMm: 0, yMm: 0 }
-    onChange({
-      ...state,
-      placements: [...state.placements, { ...fresh, snapTo, ...at }],
-    })
-    setSelectedId(id)
+    const made: Placement = { ...fresh, snapTo, ...at }
+    /*
+      要る枚数を超えてしまうときは、**上の一枚だけを裁つ**印を付けて出す
+      （学生の点検・2026-09-02・2巡目。ここで3〜4分止まっている）。
+
+      半分に折った生地では、見えている面が丸ごと二重なので、置けば必ず2枚とれる。
+      1枚しか要らない型紙は、置いた瞬間に「1 多い」になり、
+      動かしても回しても消せない——という行き止まりになっていた。
+      実物の裁断でも、1枚でよいものは下の層を避けて上だけ裁つ。
+      その手つきを最初から当てておく。あとから2枚に変えることもできる
+    */
+    if (rest !== undefined && rest > 0) {
+      const after = computeYardage(fabric, [...list, made], partMap)
+      const got = after.counts.find((c) => c.placementId === made.id)?.count ?? 1
+      if (got > rest) return { ...made, topOnly: true }
+    }
+    return made
+  }
+
+  /*
+    出したあと、その型紙を選んだ状態にはしない（依頼者の指摘・2026-09-04）。
+    選ぶと操作板が下から出てきて、手元の棚をふさいでしまう。
+    代わりに、出てきたものをしばらく光らせて「これが出た」とだけ言う
+  */
+  const place = (partId: string) => {
+    const part = state.parts.find((p) => p.id === partId)
+    const rest = part && !isReserve(part) ? part.needed - takenOf(partId) : undefined
+    const made = nextPlacement(state.placements, partId, rest)
+    onChange({ ...state, placements: [...state.placements, made] })
+    setFlashId(made.id)
+  }
+
+  /**
+   * 要る枚数ぶんを、まとめて生地へ出す（依頼者の指示・2026-09-04）。
+   *
+   * 裁ち合わせの実物では、型紙はもう手元に全部そろっている。
+   * 1枚ずつ「取ってくる」のはこの道具の都合でしかないので、
+   * 一息で出しきって、**並べ替えだけを学生の仕事にする**。
+   *
+   * 出すたびに取れる枚数が変わる（二重のところに置けば1つで2枚）ので、
+   * 1つ足すごとに数え直す。足りていれば、そのパーツは飛ばす
+   */
+  const placeAll = () => {
+    let list = state.placements
+    for (const part of state.parts) {
+      if (isReserve(part)) continue
+      // 数え直しながら足すので、万一いつまでも足りないときのために回数で止める
+      for (let guard = 0; guard < 40; guard += 1) {
+        const rep = computeYardage(fabric, list, partMap)
+        const taken = list
+          .filter((q) => q.partId === part.id)
+          .reduce((s, q) => s + (rep.counts.find((c) => c.placementId === q.id)?.count ?? 1), 0)
+        if (taken >= part.needed) break
+        list = [...list, nextPlacement(list, part.id, part.needed - taken)]
+      }
+    }
+    if (list === state.placements) return
+    onChange({ ...state, placements: list })
+    setFlashId(list[list.length - 1]?.id ?? null)
   }
 
   const remove = (id: string) => {
     onChange({ ...state, placements: state.placements.filter((p) => p.id !== id) })
     setSelectedId(null)
+    setPanelOpen(false)
   }
 
   /**
@@ -322,7 +468,7 @@ export function LayoutView({
       parts: [...state.parts, part],
       placements: [...state.placements, newPlacement(id, part.id, activeSection, at)],
     })
-    setSelectedId(id)
+    setFlashId(id)
   }
 
   /** 余白そのものを消す。置いてある場所もまとめて消える */
@@ -333,6 +479,7 @@ export function LayoutView({
       placements: state.placements.filter((p) => p.partId !== partId),
     })
     setSelectedId(null)
+    setPanelOpen(false)
   }
 
   const addSection = () => {
@@ -444,9 +591,20 @@ export function LayoutView({
 
   // 余白は「枚数」の話ではないので、足りない・足りているの数え上げには入れない
   const shortage = state.parts.filter((p) => !isReserve(p) && takenOf(p.id) < p.needed)
+  /** 要る数より多く置いている型紙。間違いではないので、赤くはしない */
+  const overPlaced = state.parts.filter((p) => !isReserve(p) && takenOf(p.id) > p.needed)
 
   return (
-    <section ref={rootRef} className="flex flex-col gap-3.5 pb-40">
+    <section
+      ref={rootRef}
+      /*
+        下端に出るもの（手元の棚、または選んだ型紙の操作板）の高さぶん、
+        本文の下に場所を空ける。たたんでいるときは帯のぶんだけでよい
+      */
+      className={`flex flex-col gap-3.5 ${
+        selected && panelOpen ? 'pb-40' : dockOpen ? 'pb-36' : 'pb-20'
+      }`}
+    >
       <Tour id="layout" />
       <button
         type="button"
@@ -514,11 +672,13 @@ export function LayoutView({
           partMap={partMap}
           active={activeSection === section.id}
           selectedId={selectedId}
+          flashId={flashId}
           canDrop={state.sections.length > 1}
           countOf={countOf}
           topOnlyOf={(id) => twoLayerOf(id) && countOf(id) === 1}
           onActivate={() => setActiveSection(section.id)}
-          onSelect={setSelectedId}
+          onSelect={(id) => { setSelectedId(id); setPanelOpen(false) }}
+          onOpen={(id) => { setSelectedId(id); setPanelOpen(true) }}
           onMove={patch}
           onFold={(fold, halfFold) => onChange(applyFoldChange(state, section.id, fold, halfFold))}
           onHalf={(halfFold) =>
@@ -536,8 +696,8 @@ export function LayoutView({
         区間は、パーツが入りきらなくなって初めて要る。
         ふだんは1つのままで、学生に「区間」という言葉すら見せない（判断7）。
 
-        めったに押さないボタンが、生地の絵と「置くパーツ」のあいだで
-        場所を取っていた（依頼者の指摘・2026-08-27）。
+        めったに押さないボタンが、生地の絵のすぐ下で場所を取っていた
+        （依頼者の指摘・2026-08-27）。
         白いボタンをやめて右寄せの小さな字にし、
         まだ何も置いていないうちは出さないようにしてある。
         言い方も、していること（生地を切り分ける）を先に置いた
@@ -586,20 +746,37 @@ export function LayoutView({
         </div>
       )}
 
-      <Tray
+      <ReserveTray
         state={state}
         takenOf={takenOf}
-        shortage={shortage}
         onPlace={place}
         onAddReserve={addReserve}
         onDropPart={dropPart}
       />
 
       {/*
+        枚数についての注意書き。
+        型紙の一覧を下端の手元へ移したので（依頼者の指示・2026-09-04）、
+        一覧に添えていたこの2つは**結果のすぐ手前**へ動かした。
+        「足りないまま／多いまま出た長さです」と読める場所になる
+      */}
+      {shortage.length > 0 && (
+        <Hint summary={<T id="layout.count.summary" />}>
+          <T id="layout.count.body" />
+        </Hint>
+      )}
+      {overPlaced.length > 0 && (
+        <Hint summary={<T id="layout.count.over.summary" />}>
+          <T id="layout.count.over.body" />
+        </Hint>
+      )}
+
+      {/*
         買ってくる長さは、この画面の**結び**として下に置く（依頼者の指示・2026-08-27）。
         上にあると、まだ何も並べていないうちから結果が目に入って、
         「並べる → 長さが出る」という順に読めない。
-        置くパーツのすぐ下なので、1つ置いて目を下ろせば、そのたびに変わるのが見える
+        並べているあいだ変わっていく数字は、絵の中の「並べたぶん」で見える。
+        ここは、そこから渡された結びの数字
       */}
       <Totals report={report} widthMm={state.fabricWidthMm} />
 
@@ -627,10 +804,28 @@ export function LayoutView({
         widthMm={state.fabricWidthMm}
         sections={state.sections}
         summaryText={summaryText}
-        onBeforeDraw={() => setSelectedId(null)}
+        onBeforeDraw={() => { setSelectedId(null); setPanelOpen(false) }}
       />
 
-      {selected && (
+      {/*
+        画面の下端は、いつも「いま押せるもの」だけにする。
+        ふだんは手元（まだ置いていない型紙の棚）、
+        型紙を押して細かく決めているあいだは、その操作板に入れ替わる。
+        2つ重ねると、下の棚が板に隠れて押せなくなる
+      */}
+      {!(selected && panelOpen) && (
+        <Dock
+          state={state}
+          partMap={partMap}
+          takenOf={takenOf}
+          open={dockOpen}
+          onToggle={() => setDockOpen((v) => !v)}
+          onPlace={place}
+          onPlaceAll={placeAll}
+        />
+      )}
+
+      {selected && panelOpen && (
         <Controls
           key={selected.id}
           placement={selected}
@@ -648,7 +843,7 @@ export function LayoutView({
           )}
           onPatch={(over) => patch(selected.id, over)}
           onRemove={() => remove(selected.id)}
-          onClose={() => setSelectedId(null)}
+          onClose={() => setPanelOpen(false)}
         />
       )}
     </section>
@@ -1058,8 +1253,9 @@ function today(): string {
 /* ------------------------------------------------------------- 生地の面 */
 
 function SectionCanvas({
-  index, section, report, state, partMap, active, selectedId, canDrop, countOf, topOnlyOf,
-  onActivate, onSelect, onMove, onFold, onHalf, onDrop, purchaseMm,
+  index, section, report, state, partMap, active, selectedId, flashId, canDrop,
+  countOf, topOnlyOf,
+  onActivate, onSelect, onOpen, onMove, onFold, onHalf, onDrop, purchaseMm,
 }: {
   index: number
   section: Section
@@ -1068,6 +1264,8 @@ function SectionCanvas({
   partMap: Map<string, PlacedPart>
   active: boolean
   selectedId: string | null
+  /** いま出したばかりの型紙。しばらく光らせる */
+  flashId: string | null
   canDrop: boolean
   countOf: (placementId: string) => number
   /**
@@ -1079,7 +1277,10 @@ function SectionCanvas({
    */
   topOnlyOf: (placementId: string) => boolean
   onActivate: () => void
+  /** つかんだ（＝これから動かすかもしれない）。印を付けるだけで、板は開かない */
   onSelect: (id: string) => void
+  /** 動かさずに離した＝押した。細かく決める板を開く */
+  onOpen: (id: string) => void
   onMove: (id: string, over: Partial<Placement>, group?: string) => void
   /** 折り方を変える。「きっちり折るか」も同時に決まるときは、いっしょに渡す */
   onFold: (fold: FoldMode, halfFold?: boolean) => void
@@ -1102,6 +1303,11 @@ function SectionCanvas({
       targets: Side[]
       /** つかんだ時点での下端の折り山の位置(mm)。引きずっているあいだ動かさない */
       bottomY: number
+      /**
+       * 指が動いたか。**押しただけなのか、引きずったのか**を分けるために持つ。
+       * 押しただけなら操作板を開き、引きずったなら開かない（依頼者の指摘・2026-09-04）
+       */
+      moved: boolean
     } | null
   >(null)
   /**
@@ -1266,9 +1472,20 @@ function SectionCanvas({
     top: { lx: bxMid, ly: -(h / 2) - W * 0.012 },
     bottom: { lx: bxMid, ly: L + OPEN + h / 2 + W * 0.012 },
   }[side])
-  const badPlacements = new Set(
-    report.problems.flatMap((p) => (p.placementId ? [p.placementId] : [])),
-  )
+  /**
+   * まちがっている型紙と、その上に出す短い言い方（`ALERT_TEXT` を見よ）。
+   *
+   * 重なりは**両方**を赤くする。片方だけ赤くしても、
+   * 相手がどれなのか図から読めないため
+   */
+  const badPlacements = new Map<string, { kind: Problem['kind']; text: string }>()
+  for (const pb of report.problems) {
+    for (const id of [pb.placementId, pb.otherPlacementId]) {
+      if (id && !badPlacements.has(id)) {
+        badPlacements.set(id, { kind: pb.kind, text: ALERT_TEXT[pb.kind] })
+      }
+    }
+  }
 
   /**
    * 大きい裁ち合わせ図の、端の札（「わ」「みみ」）も押せるようにする
@@ -1446,12 +1663,19 @@ function SectionCanvas({
       w: box?.w ?? 0, h: box?.h ?? 0, group: `drag${dragSeq}`,
       targets: part ? foldEdgeSides(part, p).filter((sd) => foldSides.includes(sd)) : [],
       bottomY: L,
+      moved: false,
     }
   }
 
   const moveDrag = (e: PointerEvent) => {
     const d = drag.current
     if (!d) return
+    /*
+      指はまったく止まらないので、少しの震えでは「動かした」と見なさない。
+      押したつもりが引きずりになって、板が開かないのを防ぐ。
+      TAP_SLOP は画面の点で測る——寄っているときも手つきは同じなので
+    */
+    if (!d.moved && Math.hypot(e.clientX - d.px, e.clientY - d.py) > TAP_SLOP) d.moved = true
     const k = mmPerPx()
     const snap = (v: number) => Math.round(v / SNAP_MM) * SNAP_MM
     /*
@@ -1531,7 +1755,10 @@ function SectionCanvas({
   }
 
   const endDrag = () => {
-    if (drag.current?.targets.length) setHint(null)
+    const d = drag.current
+    if (d?.targets.length) setHint(null)
+    // 押しただけ（ほとんど動いていない）なら、細かく決める板を開く
+    if (d && !d.moved) onOpen(d.id)
     drag.current = null
   }
 
@@ -1704,6 +1931,41 @@ function SectionCanvas({
   const TIP = W * 0.019
 
   const pts = (poly: Polygon) => poly.map((q) => `${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(' ')
+
+  /**
+   * まちがっている型紙の印（依頼者の指示・2026-09-04）。
+   *
+   * 外周を**濃い赤の実線**にして、その型紙の上に赤字を重ねる。
+   * 選んでいる印（薄い緑の縁）とは太さも濃さも違うので、並んでも取り違えない。
+   *
+   * 赤字の帯は、型紙の幅より広くなってもそのまま出す。
+   * これは型紙の中身ではなく**直してもらうための呼びかけ**なので、
+   * 細い型紙で読めなくなるくらいなら、はみ出したほうがよい。
+   * 直せば消えるものなので、はみ出しっぱなしにはならない
+   */
+  const alertMark = (points: string, bw: number, bh: number, text: string) => {
+    const fs = lbl(W * 0.042)
+    const pad = fs * 0.6
+    const tw = text.length * fs + pad * 2
+    const th = fs * 1.9
+    return (
+      <g pointerEvents="none">
+        <polygon points={points} fill="none" stroke={ALERT}
+          strokeWidth={W * 0.016} strokeLinejoin="round" />
+        <rect
+          x={bw * 0.5 - tw * 0.5} y={bh * 0.5 - th * 0.5} width={tw} height={th}
+          rx={fs * 0.45} fill="#ffffff" fillOpacity={0.95}
+          stroke={ALERT} strokeWidth={lbl(W * 0.005)}
+        />
+        <text
+          x={bw * 0.5} y={bh * 0.5} fontSize={fs} fontWeight={700} fill={ALERT}
+          textAnchor="middle" dominantBaseline="middle"
+        >
+          {text}
+        </text>
+      </g>
+    )
+  }
 
   /**
    * 波打つ裁ち端。はさみで切った端は、定規で引いたようにはまっすぐにならない。
@@ -2282,8 +2544,18 @@ function SectionCanvas({
           data-sheet={index}
           data-viewbox={`${bx0 - PAD} ${-PAD} ${vbW} ${vbH}`}
           data-tour={index === 0 ? 'fabric' : undefined}
-          className="w-full select-none"
-          style={{ aspectRatio: `${vbW} / ${vbH}`, touchAction: 'none' }}
+          className="mx-auto w-full select-none"
+          style={{
+            aspectRatio: `${vbW} / ${vbH}`,
+            /*
+              高さの上限を、**幅の上限に置き換えて**かけている。
+              高さだけを止めると SVG の中身が枠の中で寄って余白ができ、
+              枠の幅と絵の幅が食い違う。指の動きを mm に直す換算（mmPerPx）は
+              枠の幅から出しているので、そこがずれると型紙が指から離れていく
+            */
+            maxWidth: `calc(${SHEET_MAX_H} * ${(vbW / vbH).toFixed(4)})`,
+            touchAction: 'none',
+          }}
           onPointerDown={canvasDown}
           onPointerMove={canvasMove}
           onPointerUp={canvasUp}
@@ -2503,8 +2775,15 @@ function SectionCanvas({
             // 縫い代の画面と同じ描き分け。縫い代の重なり具合を見ながら置けるように
             const { cut, finished, marks, center } = orientedPair(part, p)
             // 中心線と地の目線が重なるときだけ、地の目線を脇へどける
-            const bad = badPlacements.has(p.id)
+            const alert = badPlacements.get(p.id)
             const on = selectedId === p.id
+            /*
+              押した札と、生地の上に出てきたものを結びつける合図
+              （依頼者の指摘・2026-09-04「形が似ていると置き間違える」）。
+              選んだ印（細い緑の縁）とは別に、外側へ太い輪を1つ出して、
+              ひとりでに消えるまでのあいだだけ見せる
+            */
+            const lit = flashId === p.id
             const twice = countOf(p.id) === 2
             const topOnly = topOnlyOf(p.id)
             const stored = state.parts.find((x) => x.id === p.partId)
@@ -2527,10 +2806,16 @@ function SectionCanvas({
                   onPointerMove={moveDrag}
                   onPointerUp={endDrag}
                 >
-                  {(on || bad) && (
+                  {lit && (
                     <polygon
-                      points={pts(cut)} fill="none"
-                      stroke={bad ? '#b4433a' : '#35664e'}
+                      points={pts(cut)} fill="none" stroke="#35664e"
+                      strokeWidth={W * 0.05} strokeOpacity={0.5} strokeLinejoin="round"
+                      className="flash-ring"
+                    />
+                  )}
+                  {on && (
+                    <polygon
+                      points={pts(cut)} fill="none" stroke="#35664e"
                       strokeWidth={W * 0.022} strokeOpacity={0.45} strokeLinejoin="round"
                     />
                   )}
@@ -2560,6 +2845,7 @@ function SectionCanvas({
                   >
                     あとで裁つ
                   </text>
+                  {alert && alertMark(pts(cut), box.w, box.h, alert.text)}
                 </g>
               )
             }
@@ -2572,15 +2858,22 @@ function SectionCanvas({
                 onPointerMove={moveDrag}
                 onPointerUp={endDrag}
               >
+                {lit && (
+                  <polygon
+                    points={pts(cut)} fill="none" stroke="#35664e"
+                    strokeWidth={W * 0.05} strokeOpacity={0.5} strokeLinejoin="round"
+                    className="flash-ring"
+                  />
+                )}
                 {/*
                   選んでいる印は、縫い代の外側にもう一回り描く。
                   縫い代の線そのものを緑にすると、青い帯＝縫い代 という約束が崩れる
                 */}
-                {(on || bad) && (
+                {on && (
                   <polygon
                     points={pts(cut)}
                     fill="none"
-                    stroke={bad ? '#b4433a' : '#35664e'}
+                    stroke="#35664e"
                     strokeWidth={W * 0.022}
                     strokeOpacity={0.45}
                     strokeLinejoin="round"
@@ -2704,6 +2997,40 @@ function SectionCanvas({
                       上だけ
                     </text>
                   </g>
+                )}
+                {/*
+                  まちがっているときの印は、いちばん最後に描く。
+                  縫い代の帯・名前・地の目線・ほかの印より上に出さないと、
+                  いちばん読んでほしいものがいちばん下に隠れる
+                */}
+                {alert && (
+                  <>
+                    {/*
+                      「わ」の話は、辺の話。型紙まるごとを赤くするだけでは
+                      どの辺を折り山に当てるのかが読めないので、その辺自体を赤くする
+                    */}
+                    {alert.kind === 'offFold' && marks.map((m, i) => {
+                      /*
+                        `a`・`b` は「わ」の記号を描くための 20mm の目安であって、
+                        辺そのものではない。辺の長さは `lengthMm` が持っているので、
+                        真ん中から両側へ伸ばして**辺いっぱい**に引く
+                      */
+                      const ux = (m.b.x - m.a.x) / (FOLD_MARK_REF_MM * 2)
+                      const uy = (m.b.y - m.a.y) / (FOLD_MARK_REF_MM * 2)
+                      const cx = (m.a.x + m.b.x) * 0.5
+                      const cy = (m.a.y + m.b.y) * 0.5
+                      const h = m.lengthMm * 0.5
+                      return (
+                        <path
+                          key={i}
+                          d={`M${(cx - ux * h).toFixed(1)} ${(cy - uy * h).toFixed(1)}`
+                            + ` L${(cx + ux * h).toFixed(1)} ${(cy + uy * h).toFixed(1)}`}
+                          fill="none" stroke={ALERT} strokeWidth={W * 0.016} strokeLinecap="round"
+                        />
+                      )
+                    })}
+                    {alertMark(pts(cut), box.w, box.h, alert.text)}
+                  </>
                 )}
               </g>
             )
@@ -3051,86 +3378,170 @@ function SectionCanvas({
   )
 }
 
-/* ----------------------------------------------------------- パーツ置き場 */
+/* --------------------------------------------------------- 手元（下の棚） */
 
-function Tray({
-  state, takenOf, shortage, onPlace, onAddReserve, onDropPart,
+/** 型紙の形そのものを、小さく描く。名前が「パーツ1」でも、形で選べるように */
+function Silhouette({ part }: { part: PlacedPart | undefined }) {
+  if (!part || part.cutLineMm.length < 3) {
+    return <span className="h-7 w-7 shrink-0 rounded border border-ink-100 bg-white" />
+  }
+  const xs = part.cutLineMm.map((q) => q.x)
+  const ys = part.cutLineMm.map((q) => q.y)
+  const x0 = Math.min(...xs)
+  const y0 = Math.min(...ys)
+  const w = Math.max(1, Math.max(...xs) - x0)
+  const h = Math.max(1, Math.max(...ys) - y0)
+  const pad = Math.max(w, h) * 0.08
+  return (
+    <svg
+      viewBox={`${x0 - pad} ${y0 - pad} ${w + pad * 2} ${h + pad * 2}`}
+      className="h-7 w-7 shrink-0"
+      aria-hidden="true"
+    >
+      <polygon
+        points={part.cutLineMm.map((q) => `${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(' ')}
+        fill="#ffffff" stroke="#5c665f" strokeWidth={Math.max(w, h) * 0.035}
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+/**
+ * まだ置いていない型紙を、画面の下端に横一列で並べる（依頼者の指示・2026-09-04）。
+ *
+ * もとは、生地の絵の**下に続く縦の一覧**から「置く」を押していた。
+ * 絵の高さは生地の丈そのままなので、型紙を置くほど絵が伸び、
+ * 一覧はそのぶん下へ遠ざかる。**枚数が多いときほど往復が長くなる**という、
+ * いちばん助けが要る場面でいちばん遠くなる作りだった
+ * （依頼者の指摘「すごく上下の動きがある」「置き間違いも起こりうる」）。
+ *
+ * 画面の下端に貼り付けてしまえば、絵がどれだけ伸びても遠ざからない。
+ * 横一列なので、型紙が10枚あっても高さは変わらない。
+ * 札には型紙の形そのものを描く——名前が「パーツ1／2／3」でも形で選べる。
+ *
+ * まだ置いていないものを先に、そろったものを後ろに並べる。
+ * いつでも左端を押せばよい形にしておくと、目で探さなくて済む
+ */
+function Dock({
+  state, partMap, takenOf, open, onToggle, onPlace, onPlaceAll,
+}: {
+  state: PartsState
+  partMap: Map<string, PlacedPart>
+  takenOf: (partId: string) => number
+  open: boolean
+  onToggle: () => void
+  onPlace: (partId: string) => void
+  onPlaceAll: () => void
+}) {
+  const patterns = state.parts.filter((p) => !isReserve(p))
+  if (patterns.length === 0) return null
+  const restOf = (p: StoredPart) => p.needed - takenOf(p.id)
+  const left = patterns.reduce((sum, p) => sum + Math.max(0, restOf(p)), 0)
+  // まだ足りないものが先。同じなら、もとの並び順のまま
+  const order = patterns
+    .map((p, i) => ({ p, i, rest: restOf(p) }))
+    .sort((a, b) => (b.rest > 0 ? 1 : 0) - (a.rest > 0 ? 1 : 0) || a.i - b.i)
+
+  return (
+    <div className="safe-b fixed inset-x-0 bottom-0 z-10 border-t-2 border-mat-500 bg-mat-50 px-3 pt-1.5 shadow-[0_-12px_32px_rgba(43,51,45,0.22)]">
+      <div className="mx-auto flex max-w-md flex-col gap-1.5">
+        {/*
+          たたむための帯（依頼者の要望・2026-09-04）。
+          生地の下のほうへ型紙を置くときは、棚がその場所にかぶさるため。
+          たたんでも帯は残す——まるごと消すと、戻し方が画面から消える。
+          帯そのものが押す場所なので、指の当たる幅を目いっぱい取ってある
+        */}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={open}
+            className="tap flex min-w-0 flex-1 items-center gap-1.5 py-0.5 text-left"
+          >
+            <Icon
+              name="chevron"
+              className={`h-4 w-4 shrink-0 text-mat-600 ${open ? 'rotate-90' : '-rotate-90'}`}
+            />
+            <span className="truncate text-xs font-bold text-mat-700">
+              {left > 0 ? `まだ置いていない型紙 ${left} 枚` : 'ぜんぶ置きました'}
+            </span>
+          </button>
+          {open && left > 0 && (
+            <button
+              type="button"
+              onClick={onPlaceAll}
+              className="shrink-0 rounded-lg border border-mat-500 bg-white px-2.5 py-1 text-xs font-bold text-mat-700 active:bg-mat-100"
+            >
+              ぜんぶ出す
+            </button>
+          )}
+        </div>
+
+        {open && (
+          <ul className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-2">
+            {order.map(({ p, rest }) => (
+              <li key={p.id} className="shrink-0">
+                <button
+                  type="button"
+                  onClick={() => onPlace(p.id)}
+                  aria-label={
+                    rest > 0
+                      ? `${p.name}を生地に置く。あと ${rest} 枚`
+                      : `${p.name}をもう1つ置く。すでにそろっています`
+                  }
+                  className={`flex items-center gap-2 rounded-xl border px-2.5 py-1.5 ${
+                    rest > 0
+                      ? 'border-mat-300 bg-white active:bg-mat-100'
+                      : 'border-ink-100 bg-white/60 active:bg-mat-100'
+                  }`}
+                >
+                  <Silhouette part={partMap.get(p.id)} />
+                  <span className="flex flex-col items-start leading-tight">
+                    <span className="max-w-[7.5rem] truncate text-xs font-bold text-ink-900">
+                      {p.name}
+                    </span>
+                    {rest > 0 ? (
+                      <span className="tnum text-[11px] font-bold text-seam">あと {rest}</span>
+                    ) : rest < 0 ? (
+                      <span className="tnum text-[11px] text-ink-300">{-rest} 多い</span>
+                    ) : (
+                      <span className="flex items-center gap-0.5 text-[11px] text-mat-600">
+                        <Icon name="check" className="h-3 w-3 shrink-0" />
+                        そろいました
+                      </span>
+                    )}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------- あとで裁つぶんの棚 */
+
+/**
+ * 型紙のほうの一覧は、下端の手元（`Dock`）へ移した（依頼者の指示・2026-09-04）。
+ * ここに残すのは「あとで裁つぶん」だけ。
+ *
+ * これは型紙ではなく**寸法を打ち込む用紙**なので、横一列の札には収まらない。
+ * 出番も、置きはじめではなく「ひととおり並べたあと」なので、本文に置いたままでよい
+ */
+function ReserveTray({
+  state, takenOf, onPlace, onAddReserve, onDropPart,
 }: {
   state: PartsState
   takenOf: (partId: string) => number
-  shortage: { id: string }[]
   onPlace: (partId: string) => void
   onAddReserve: (name: string, widthMm: number, heightMm: number) => void
   onDropPart: (partId: string) => void
 }) {
-  const row = (p: StoredPart) => {
-    const taken = takenOf(p.id)
-    const done = taken >= p.needed
-    const reserve = isReserve(p)
-    return (
-      <li
-        key={p.id}
-        className={`flex items-center gap-3 rounded-xl border px-3 py-2 ${
-          reserve ? 'border-dashed border-hold-400 bg-hold-50' : 'border-ink-100 bg-white'
-        }`}
-      >
-        <Icon
-          name={reserve ? 'hold' : 'part'}
-          className={`h-4 w-4 shrink-0 ${reserve ? 'text-hold-600' : 'text-mat-600'}`}
-        />
-        <span className="min-w-0 flex-1 truncate text-sm font-bold text-ink-900">
-          {p.name}
-          {reserve && (
-            <span className="ml-1.5 tnum text-xs font-normal text-hold-600">
-              {(p.widthMm / 10).toFixed(0)} × {(p.heightMm / 10).toFixed(0)} cm
-            </span>
-          )}
-        </span>
-        {reserve ? (
-          <button
-            type="button"
-            onClick={() => onDropPart(p.id)}
-            aria-label={`${p.name}の余白を消す`}
-            className="rounded-lg border border-ink-100 bg-white p-1.5 text-ink-500"
-          >
-            <Icon name="trash" className="h-4 w-4" />
-          </button>
-        ) : (
-          <span className={`tnum shrink-0 text-xs ${done ? 'text-mat-600' : 'text-seam'}`}>
-            {taken} / {p.needed} 枚
-            {/*
-              数字だけでは、それが困ったことなのか分からなかった
-              （学生の点検・2026-09-02）。足りないのか、多いのかを言う
-            */}
-            {taken < p.needed && <span className="pl-1">（あと {p.needed - taken}）</span>}
-            {taken > p.needed && (
-              <span className="pl-1 text-ink-300">（{taken - p.needed} 多い）</span>
-            )}
-          </span>
-        )}
-        {/*
-          余白は足した時点で生地に置かれている（学生の点検・2026-09-02・2巡目）。
-          そこへ一覧からも「置く」が出ていたので、押すと同じ余白が2つ並んだ。
-          生地から外したときだけ、置きなおす口として戻す。
-          型紙のほうは何枚でも置けるので、これまでどおり出しつづける
-        */}
-        {(!reserve || taken === 0) && (
-          <button
-            type="button"
-            onClick={() => onPlace(p.id)}
-            className="rounded-lg bg-mat-500 px-3 py-1.5 text-sm font-bold text-white active:bg-mat-600"
-          >
-            置く
-          </button>
-        )}
-      </li>
-    )
-  }
-
   const patterns = state.parts.filter((p) => !isReserve(p))
   const reserves = state.parts.filter(isReserve)
-  /** 要る数より多く置いている型紙。間違いではないので、赤くはしない */
-  const over = patterns.filter((p) => takenOf(p.id) > p.needed)
   /*
     本物の型紙と、あとで裁つ用の場所を、同じ名前で両方置いている
     （学生の点検・2026-09-02）。仮縫いのあとで寸法が変わるものは
@@ -3140,33 +3551,57 @@ function Tray({
 
   return (
     <div data-tour="tray" className="flex flex-col gap-2">
-      <Heading icon="part">置くパーツ</Heading>
-      <ul className="flex flex-col gap-2">{patterns.map(row)}</ul>
-      {shortage.length > 0 && (
-        <Hint summary={<T id="layout.count.summary" />}>
-          <T id="layout.count.body" />
-        </Hint>
+      {/* 見出しだけでは何のことか分からなかった（学生の点検・2026-09-02） */}
+      <Heading icon="hold">あとで裁つぶん（場所だけ空けておく）</Heading>
+      {reserves.length > 0 && (
+        <ul className="flex flex-col gap-2">
+          {reserves.map((p) => (
+            <li
+              key={p.id}
+              className="flex items-center gap-3 rounded-xl border border-dashed border-hold-400 bg-hold-50 px-3 py-2"
+            >
+              <Icon name="hold" className="h-4 w-4 shrink-0 text-hold-600" />
+              <span className="min-w-0 flex-1 truncate text-sm font-bold text-ink-900">
+                {p.name}
+                <span className="ml-1.5 tnum text-xs font-normal text-hold-600">
+                  {(p.widthMm / 10).toFixed(0)} × {(p.heightMm / 10).toFixed(0)} cm
+                </span>
+              </span>
+              <button
+                type="button"
+                onClick={() => onDropPart(p.id)}
+                aria-label={`${p.name}の余白を消す`}
+                className="rounded-lg border border-ink-100 bg-white p-1.5 text-ink-500"
+              >
+                <Icon name="trash" className="h-4 w-4" />
+              </button>
+              {/*
+                余白は足した時点で生地に置かれている（学生の点検・2026-09-02・2巡目）。
+                そこへ一覧からも「置く」が出ていたので、押すと同じ余白が2つ並んだ。
+                生地から外したときだけ、置きなおす口として戻す
+              */}
+              {takenOf(p.id) === 0 && (
+                <button
+                  type="button"
+                  onClick={() => onPlace(p.id)}
+                  className="rounded-lg bg-mat-500 px-3 py-1.5 text-sm font-bold text-white active:bg-mat-600"
+                >
+                  置く
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
-      {over.length > 0 && (
-        <Hint summary={<T id="layout.count.over.summary" />}>
-          <T id="layout.count.over.body" />
-        </Hint>
-      )}
-
-      <div className="mt-3 flex flex-col gap-2">
-        {/* 見出しだけでは何のことか分からなかった（学生の点検・2026-09-02） */}
-        <Heading icon="hold">あとで裁つぶん（場所だけ空けておく）</Heading>
-        {reserves.length > 0 && <ul className="flex flex-col gap-2">{reserves.map(row)}</ul>}
-        {dup.map((r) => (
-          <p key={r.id} className="flex gap-2 text-xs leading-relaxed text-ink-500">
-            <Icon name="warn" className="mt-[0.15em] h-[1.15em] w-[1.15em] shrink-0 text-seam" />
-            <span className="min-w-0 flex-1">
-              <T id="layout.reserve.dup" vars={{ name: r.name }} />
-            </span>
-          </p>
-        ))}
-        <ReserveAdder onAdd={onAddReserve} />
-      </div>
+      {dup.map((r) => (
+        <p key={r.id} className="flex gap-2 text-xs leading-relaxed text-ink-500">
+          <Icon name="warn" className="mt-[0.15em] h-[1.15em] w-[1.15em] shrink-0 text-seam" />
+          <span className="min-w-0 flex-1">
+            <T id="layout.reserve.dup" vars={{ name: r.name }} />
+          </span>
+        </p>
+      ))}
+      <ReserveAdder onAdd={onAddReserve} />
     </div>
   )
 }

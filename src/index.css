@@ -115,8 +115,27 @@ input[type="range"] { accent-color: var(--color-mat-500); }
 }
 .panel-up { animation: panel-up .34s cubic-bezier(.22, 1, .36, 1) both; }
 
+/*
+  いま生地に出したばかりの型紙を囲む輪（依頼者の指摘・2026-09-04
+  「パーツの形状が似ていると置き間違える」）。
+
+  下の棚で押した札と、生地の上に出てきた型紙を結びつけるためだけの合図。
+  2回ふくらんで消える。**残らない**のが肝心で、
+  ずっと出していると「選んでいる印」と見分けがつかなくなる
+*/
+@keyframes flash-ring {
+  0%   { opacity: 0;   transform: scale(1); }
+  18%  { opacity: .85; }
+  50%  { opacity: .25; }
+  74%  { opacity: .8;  }
+  100% { opacity: 0;   }
+}
+.flash-ring { animation: flash-ring 1.6s ease-in-out both; }
+
 @media (prefers-reduced-motion: reduce) {
   .panel-up { animation: none; }
+  /* 動かさない代わりに、消えるまでのあいだ出しっぱなしにする */
+  .flash-ring { animation: none; opacity: .7; }
 }
 
 /*

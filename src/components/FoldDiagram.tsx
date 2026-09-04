@@ -30,9 +30,18 @@ const W = 1000
   絵の高さ。もとは 300 あり、いちばん上に
   「いま画面で見ているのは、この上の面」という矢印と説明を入れていた。
   枠の見出しが「横から見ると」と言っているので、それは落として詰めた
-  （依頼者の指示・2026-08-27）
+  （依頼者の指示・2026-08-27）。
+
+  そのあと 215 → 168 にもう一段詰めた（依頼者の指示・2026-09-04）。
+  布そのものは y=63〜153 しか使っておらず、下の3割は
+  **文字を並べるためだけの帯**だった。そこに居たのは
+  「わ」「ここがわ」「生地が一重」の3つ。3つとも、
+  自分が指しているものの**すぐそば**へ移してある——
+  「わ」は折り山の真横、「一重」は一重の真上、「ここがわ」は点線の真上。
+  字幕をやめて印そのものにした形なので、詰まると同時に読み方も揃った。
+  （どれか1つでも下へ戻すと、その帯が復活して H を戻すことになる）
 */
-const H = 215
+const H = 168
 /** 生地の厚み。見た目のためのもので、実寸ではない */
 const THICK = 16
 /** 下の一枚と、その上に折り返して乗っている一枚の高さ */
@@ -40,8 +49,13 @@ const LOWER = 145
 const UPPER = 145 - 74
 /** 折り山の丸み */
 const R = (LOWER - UPPER) / 2
-/** 折り山の丸みがはみ出す分の余白 */
-const PAD = 56
+/**
+ * 左右の余白。折り山の丸みがはみ出す分に加えて、
+ * 「わ」の一文字ぶんを外側に置けるだけ取ってある（PAD を狭めると「わ」が切れる）
+ */
+const PAD = 90
+/** 折り山の高さ。「わ」の文字を、折り山と同じ高さに置くための位置 */
+const CREASE_Y = (UPPER + LOWER) / 2
 /**
  * 両側から折ったとき、中央で出会うみみのあいだに残す隙間（依頼者の指示・2026-08-27）。
  *
@@ -166,7 +180,8 @@ export function FoldDiagram({ fold, half, nearMm, farMm, spanMm }: Props) {
             <g key={side}>
               <path d={`M${x} ${LOWER - 4} v-46`} stroke={CREASE} strokeWidth={5}
                 strokeDasharray="12 10" />
-              <text x={atStart ? 10 : W - 10} y={LOWER + 52} fontSize={30} fontWeight={700}
+              {/* 点線の印に、旗のように上から添える。下に書くと字幕になってしまう */}
+              <text x={atStart ? 10 : W - 10} y={LOWER - 62} fontSize={30} fontWeight={700}
                 fill={CREASE} textAnchor={atStart ? 'start' : 'end'}>ここがわ</text>
             </g>
           )
@@ -177,7 +192,14 @@ export function FoldDiagram({ fold, half, nearMm, farMm, spanMm }: Props) {
           <>
             <text x={near / 2} y={UPPER - 26} fontSize={30} fontWeight={700} fill={CREASE}
               textAnchor="middle">{layerLabel(near)}</text>
-            <text x={4} y={LOWER + 52} fontSize={30} fontWeight={700} fill={CREASE}>わ</text>
+            {/*
+              「わ」は、絵の下ではなく**折り山の真横**に置く（依頼者の指示・2026-09-04）。
+              断面図では、わは左右の端そのもの。下に書くとただの字幕だが、
+              横に置けばその文字が印になる。丸みのふくらみ（R）と
+              線の太さ（THICK / 2）を避けた外側に、少し離して置いている
+            */}
+            <text x={-R - THICK * 0.5 - 7} y={CREASE_Y + 11} fontSize={30} fontWeight={700}
+              fill={CREASE} textAnchor="end">わ</text>
             {/* 中央で出会っているときは、みみの名前をひとつだけ、その場所に置く */}
             {!metInMiddle && (
               <text x={near} y={UPPER - 26} fontSize={22} fill={FAINT} textAnchor="middle"
@@ -189,8 +211,8 @@ export function FoldDiagram({ fold, half, nearMm, farMm, spanMm }: Props) {
           <>
             <text x={W - far / 2} y={UPPER - 26} fontSize={30} fontWeight={700} fill={CREASE}
               textAnchor="middle">{layerLabel(far)}</text>
-            <text x={W - 4} y={LOWER + 52} fontSize={30} fontWeight={700} fill={CREASE}
-              textAnchor="end">わ</text>
+            <text x={W + R + THICK * 0.5 + 7} y={CREASE_Y + 11} fontSize={30} fontWeight={700}
+              fill={CREASE} textAnchor="start">わ</text>
             {!metInMiddle && (
               <text x={W - far} y={UPPER - 26} fontSize={22} fill={FAINT} textAnchor="middle"
                 dx={allDoubled ? edgeDx : -edgeDx}>{edgeName}</text>
@@ -214,8 +236,14 @@ export function FoldDiagram({ fold, half, nearMm, farMm, spanMm }: Props) {
             </text>
           </>
         )}
+        {/*
+          一重のところの名前。「生地が二重」が二重の真上にいるので、
+          こちらも**一重の真上**に置く（依頼者の指示・2026-09-04）。
+          層の名前は、その層のすぐ上——上下で同じ規則になる。
+          一重の部分には折り返した一枚が乗っていないので、ここは必ず空いている
+        */}
         {W - near - far > W * 0.16 && (
-          <text x={(near + (W - far)) / 2} y={LOWER + 52} fontSize={28} fill={FAINT}
+          <text x={(near + (W - far)) / 2} y={LOWER - 30} fontSize={28} fill={FAINT}
             textAnchor="middle">{
               folded
                 ? (W - near - far > W * 0.3 ? '生地が一重' : '一重')
