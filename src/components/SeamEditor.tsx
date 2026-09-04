@@ -542,48 +542,6 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded, turnDeg
       </div>
 
       {/*
-        まわす操作の段。
-
-        90 度ずつの押しボタンと、まっすぐでなくなったときだけ出る戻り道。
-        つまみ（図の上）は細かい直し、この押しボタンはきっちりした直角、
-        と役目を分けてある。小さい折り図の「押す／引きずる」と同じ二段構え
-      */}
-      <div className="flex items-center gap-2 rounded-xl border border-ink-100 bg-white px-3 py-2">
-        <Icon name="grain" className="h-4 w-4 shrink-0 text-ink-300" />
-        <span className="min-w-0 flex-1 text-xs leading-tight text-ink-300">
-          {isSquare(turnDeg)
-            ? <T id="seam.turn.hint" />
-            : <T id="seam.turn.skew" />}
-        </span>
-        <button
-          type="button"
-          onClick={() => onTurn(((turnDeg - 90) % 360 + 540) % 360 - 180)}
-          aria-label="左へ90度まわす"
-          className="flex h-8 w-9 shrink-0 items-center justify-center rounded-lg border border-ink-100 text-ink-700 active:bg-chalk"
-        >
-          <Icon name="turnLeft" className="h-4 w-4 shrink-0" />
-        </button>
-        <button
-          type="button"
-          onClick={() => onTurn(((turnDeg + 90) % 360 + 540) % 360 - 180)}
-          aria-label="右へ90度まわす"
-          className="flex h-8 w-9 shrink-0 items-center justify-center rounded-lg border border-ink-100 text-ink-700 active:bg-chalk"
-        >
-          <Icon name="turnRight" className="h-4 w-4 shrink-0" />
-        </button>
-        {/* 回しすぎたときの帰り道。まっすぐなときは出さない */}
-        {!isSquare(turnDeg) && (
-          <button
-            type="button"
-            onClick={() => onTurn(squaredTurn(turnDeg))}
-            className="shrink-0 rounded-lg border border-ink-100 px-2 py-1.5 text-xs font-bold text-ink-700 active:bg-chalk"
-          >
-            直角に戻す
-          </button>
-        )}
-      </div>
-
-      {/*
         まとめてと、1本ずつ。もとは別々の枠だったが、
         1画面に収めたいので同じ枠に入れてある（依頼者の指示・2026-08-27）
       */}
@@ -741,6 +699,68 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded, turnDeg
             {(seam.widthMm / 10).toFixed(1)} × {(seam.heightMm / 10).toFixed(1)} cm
           </span>
         </p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * まわす操作の段。
+ *
+ * 90 度ずつの押しボタンと、まっすぐでなくなったときだけ出る戻り道。
+ * つまみ（図の上）は細かい直し、この押しボタンはきっちりした直角、
+ * と役目を分けてある。小さい折り図の「押す／引きずる」と同じ二段構え。
+ *
+ * 置き場所はこの画面の**いちばん下**（依頼者の指摘・2026-09-04
+ * 「この画面での一番の仕事としては、縫いしろつけをすることになると思うので、
+ *   ……ちょっとこれが邪魔かなと思っています」）。
+ * もとは図のすぐ下に白い枠で置いていたが、それでは
+ * いちばんの仕事である縫い代の操作が一段ぶん押し下がるうえ、
+ * 図を見たあと最初に目に入るのがこれになってしまう。
+ * 向きを直すのは取り込んだ直後の一度きりで、
+ * 縫い代を決めるあいだ何度も使うものではないので、枠もやめて
+ * 区切りの線一本の静かな段にし、仕事が済んだ先へ下ろした。
+ *
+ * `SeamEditor` の外に出してあるのは、この段を「わ」の辺の設定よりも
+ * さらに後ろに置くため（並べるのは `SeamBody`）
+ */
+export function TurnRow({ turnDeg, onTurn }: {
+  turnDeg: number
+  onTurn: (deg: number) => void
+}) {
+  return (
+    <div className="flex items-center gap-2 border-t border-ink-100 pt-2.5">
+      <Icon name="grain" className="h-3.5 w-3.5 shrink-0 text-ink-300" />
+      <span className="min-w-0 flex-1 text-[11px] leading-tight text-ink-300">
+        {isSquare(turnDeg)
+          ? <T id="seam.turn.hint" />
+          : <T id="seam.turn.skew" />}
+      </span>
+      <button
+        type="button"
+        onClick={() => onTurn(((turnDeg - 90) % 360 + 540) % 360 - 180)}
+        aria-label="左へ90度まわす"
+        className="flex h-8 w-9 shrink-0 items-center justify-center rounded-lg border border-ink-100 text-ink-500 active:bg-chalk"
+      >
+        <Icon name="turnLeft" className="h-4 w-4 shrink-0" />
+      </button>
+      <button
+        type="button"
+        onClick={() => onTurn(((turnDeg + 90) % 360 + 540) % 360 - 180)}
+        aria-label="右へ90度まわす"
+        className="flex h-8 w-9 shrink-0 items-center justify-center rounded-lg border border-ink-100 text-ink-500 active:bg-chalk"
+      >
+        <Icon name="turnRight" className="h-4 w-4 shrink-0" />
+      </button>
+      {/* 回しすぎたときの帰り道。まっすぐなときは出さない */}
+      {!isSquare(turnDeg) && (
+        <button
+          type="button"
+          onClick={() => onTurn(squaredTurn(turnDeg))}
+          className="shrink-0 rounded-lg border border-ink-100 px-2 py-1.5 text-xs font-bold text-ink-700 active:bg-chalk"
+        >
+          直角に戻す
+        </button>
       )}
     </div>
   )

@@ -15,7 +15,7 @@ import {
 } from '../lib/store'
 import { Heading, Hint, Icon } from './Icon'
 import { PatternMarks } from './PatternMarks'
-import { SeamEditor } from './SeamEditor'
+import { SeamEditor, TurnRow } from './SeamEditor'
 import { T } from './TextTools'
 import { Tour } from './Tour'
 
@@ -374,6 +374,17 @@ function SeamBody({ part, hasNap, onPatch, onReplace }: {
       />
 
       <OpenFoldOption part={part} onPatch={onPatch} />
+
+      {/*
+        まわす操作は、縫い代の話がぜんぶ済んだいちばん下に置く
+        （依頼者の指摘・2026-09-04）。
+        この画面のいちばんの仕事は縫い代を付けることなので、
+        図とその操作のあいだに割り込ませない
+      */}
+      <TurnRow
+        turnDeg={part.turnDeg}
+        onTurn={(turnDeg) => onReplace(withTurn(part, turnDeg))}
+      />
     </div>
   )
 }
