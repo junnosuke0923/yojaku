@@ -460,9 +460,25 @@ function PartRow({
       }`}
     >
       <div className="flex gap-3">
-        <button type="button" onClick={onOpen} className="shrink-0" aria-label={`${part.name}の縫い代`}>
-          <Thumb part={part} hasNap={hasNap} placed={placed} />
-        </button>
+        {/*
+          小さな絵は、**閉じているあいだだけ**（依頼者の指摘・2026-09-04
+          「パーツを選んで、この大きな縫い代付けの画面を開いた時に、
+            上にある小さなアイコンは要らないですよね」）。
+
+          開けばすぐ下に同じ形の大きな図が出るので、同じものが二つ並ぶ。
+          一覧をながめて「どれのことか」を見分けるための絵なので、
+          もうその1枚を開いてしまったあとには役目が無い。
+
+          同じ理由で、開いているあいだは大きさの数字と
+          「縫い代を決める」の行も畳んである（どちらもパネルの中に出ている）。
+          残すのは、パネルの中では決められないこと——名前と枚数、
+          それに消すことと閉じること——だけ
+        */}
+        {!open && (
+          <button type="button" onClick={onOpen} className="shrink-0" aria-label={`${part.name}の縫い代`}>
+            <Thumb part={part} hasNap={hasNap} placed={placed} />
+          </button>
+        )}
 
         <div className="flex min-w-0 flex-1 flex-col gap-2">
           {/* 1画面に近づけるため、行を折り返させない（依頼者の指示・2026-08-27） */}
@@ -561,16 +577,31 @@ function PartRow({
               </button>
             </span>
             <span className="shrink-0 text-[11px] text-ink-300">枚</span>
-            <button
-              type="button"
-              onClick={onOpen}
-              className="tnum ml-auto flex min-w-0 items-center gap-1 truncate text-[11px] text-ink-500"
-            >
-              <Icon name="scissors" className="h-3.5 w-3.5 shrink-0" />
-              {size
-                ? `${(size.widthMm / 10).toFixed(1)} × ${(size.heightMm / 10).toFixed(1)}`
-                : '—'}
-            </button>
+            {/*
+              開いているあいだは、大きさのかわりに閉じる口を置く。
+              大きさはパネルの終わりに「縫い代まで入れた大きさ」として出ている
+            */}
+            {open ? (
+              <button
+                type="button"
+                onClick={onOpen}
+                className="ml-auto flex shrink-0 items-center gap-1 rounded-lg border border-ink-100 px-2.5 py-1.5 text-[11px] font-bold text-ink-500 active:bg-table"
+              >
+                閉じる
+                <Icon name="chevron" className="h-3.5 w-3.5 shrink-0 -rotate-90" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onOpen}
+                className="tnum ml-auto flex min-w-0 items-center gap-1 truncate text-[11px] text-ink-500"
+              >
+                <Icon name="scissors" className="h-3.5 w-3.5 shrink-0" />
+                {size
+                  ? `${(size.widthMm / 10).toFixed(1)} × ${(size.heightMm / 10).toFixed(1)}`
+                  : '—'}
+              </button>
+            )}
           </div>
 
           {/*
@@ -600,32 +631,28 @@ function PartRow({
             裾を 3cm にする、「わ」の辺を 0 にする、といった直す機会に気づけない。
             禁じたり止めたりはせず、いまどうなっているかを言うだけにしてある
           */}
-          <button
-            type="button"
-            onClick={onOpen}
-            aria-expanded={open}
-            data-tour={first ? 'seam-open' : undefined}
-            className="-mx-1 flex items-center gap-1.5 rounded-b-lg border-t border-ink-100 px-1 pt-2 pb-0.5 text-left active:bg-table"
-          >
-            <Icon name="seam" className="h-3.5 w-3.5 shrink-0 text-ink-300" />
-            <span className="min-w-0 truncate text-[11px] font-bold text-ink-700">
-              縫い代を決める
-            </span>
-            {folds > 0 && (
-              <span className="flex shrink-0 items-center gap-1 text-[11px] font-bold text-seam">
-                <Icon name="fold" className="h-3.5 w-3.5 shrink-0" />
-                {opened ? 'わにしないで裁つ' : `わ ${folds}本`}
+          {!open && (
+            <button
+              type="button"
+              onClick={onOpen}
+              aria-expanded={open}
+              data-tour={first ? 'seam-open' : undefined}
+              className="-mx-1 flex items-center gap-1.5 rounded-b-lg border-t border-ink-100 px-1 pt-2 pb-0.5 text-left active:bg-table"
+            >
+              <Icon name="seam" className="h-3.5 w-3.5 shrink-0 text-ink-300" />
+              <span className="min-w-0 truncate text-[11px] font-bold text-ink-700">
+                縫い代を決める
               </span>
-            )}
-            <span className="tnum ml-auto shrink-0 text-[11px] text-ink-500">{seam}</span>
-            {/* 開いていれば下向き。「この先」ではなく「ここが開いている」を言う */}
-            <Icon
-              name="chevron"
-              className={`h-4 w-4 shrink-0 transition-transform ${
-                open ? 'rotate-90 text-mat-600' : 'text-ink-300'
-              }`}
-            />
-          </button>
+              {folds > 0 && (
+                <span className="flex shrink-0 items-center gap-1 text-[11px] font-bold text-seam">
+                  <Icon name="fold" className="h-3.5 w-3.5 shrink-0" />
+                  {opened ? 'わにしないで裁つ' : `わ ${folds}本`}
+                </span>
+              )}
+              <span className="tnum ml-auto shrink-0 text-[11px] text-ink-500">{seam}</span>
+              <Icon name="chevron" className="h-4 w-4 shrink-0 text-ink-300" />
+            </button>
+          )}
         </div>
       </div>
 
