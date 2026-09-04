@@ -5,6 +5,7 @@
  * 取り違えると要尺が 1.67倍 または 0.6倍 ずれるため、人が確定させる。
  */
 
+import { useState } from 'react'
 import { RULERS, type RulerGuess, type RulerId } from '../lib/ruler'
 import { Icon, Note } from './Icon'
 import { T } from './TextTools'
@@ -16,6 +17,18 @@ type Props = {
 }
 
 export function RulerToggle({ value, guess, onChange }: Props) {
+  /**
+   * 「なぜこの定規と判断したか」を開いているか（依頼者の指示・2026-09-04）。
+   *
+   * 測る画面が1画面に収まらなくなっていた。
+   * 写真の形と選んでいる定規が一致しているときは、
+   * 見出しの横の「写真の形とも合っています」がすでに結論を言っているので、
+   * その根拠（縦横比の話）は「？」に畳んでよい。
+   * 食いちがっているときだけ、これまでどおり出しっぱなしにする
+   */
+  const [why, setWhy] = useState(false)
+  const matched = guess?.confident === true && guess.suggested === value
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
@@ -23,11 +36,24 @@ export function RulerToggle({ value, guess, onChange }: Props) {
           <Icon name="ruler" className="h-4 w-4 shrink-0 text-mat-600" />
           <T id="ruler.kind.title" strong="font-bold" />
         </span>
-        {guess?.confident && guess.suggested === value && (
-          <span className="flex items-center gap-1 text-xs text-mat-600">
+        {matched && (
+          <button
+            type="button"
+            onClick={() => setWhy((v) => !v)}
+            aria-expanded={why}
+            className="flex shrink-0 items-center gap-1.5 text-xs text-mat-600"
+          >
             <Icon name="check" className="h-3.5 w-3.5 shrink-0" />
             <T id="ruler.kind.match" strong="font-bold" />
-          </span>
+            <span
+              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+                why ? 'border-mat-500 bg-mat-50 text-mat-700' : 'border-ink-100 text-ink-300'
+              }`}
+            >
+              <Icon name="question" className="h-3 w-3 shrink-0" />
+            </span>
+            <span className="sr-only">{why ? '説明を閉じる' : 'くわしく'}</span>
+          </button>
         )}
       </div>
 
@@ -65,27 +91,39 @@ export function RulerToggle({ value, guess, onChange }: Props) {
         文はもう一方を指したままになり、どちらが効いているのか分からなかった。
         効いているのは常に**このトグルの値**なので、それを先に言う
       */}
-      <Note>
-        {guess && guess.suggested !== null && guess.suggested !== value ? (
-          <T
-            id="ruler.kind.override"
-            vars={{
-              picked: RULERS[value].label,
-              guessed: RULERS[guess.suggested].label,
-              ratio: guess.observedRatio > 0 ? guess.observedRatio.toFixed(1) : '—',
-            }}
-          />
-        ) : guess ? (
-          <>
+      {/* 一致しているときは「？」の中。それ以外は、これまでどおり出しっぱなし */}
+      {matched ? (
+        why && (
+          <p className="rounded-lg bg-chalk px-3 py-2 text-xs leading-relaxed text-ink-500">
             {guess.reason}
             {guess.observedRatio > 0 && (
               <span className="tnum"> （写真上の縦横比 {guess.observedRatio.toFixed(1)}）</span>
             )}
-          </>
-        ) : (
-          <T id="ruler.kind.note" />
-        )}
-      </Note>
+          </p>
+        )
+      ) : (
+        <Note>
+          {guess && guess.suggested !== null && guess.suggested !== value ? (
+            <T
+              id="ruler.kind.override"
+              vars={{
+                picked: RULERS[value].label,
+                guessed: RULERS[guess.suggested].label,
+                ratio: guess.observedRatio > 0 ? guess.observedRatio.toFixed(1) : '—',
+              }}
+            />
+          ) : guess ? (
+            <>
+              {guess.reason}
+              {guess.observedRatio > 0 && (
+                <span className="tnum"> （写真上の縦横比 {guess.observedRatio.toFixed(1)}）</span>
+              )}
+            </>
+          ) : (
+            <T id="ruler.kind.note" />
+          )}
+        </Note>
+      )}
     </div>
   )
 }

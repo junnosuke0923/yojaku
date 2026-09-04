@@ -127,6 +127,8 @@ export function App() {
    * ふだんは偽で、長方形のまま定規へ持っていってもらう。理由は CornerPicker の先頭を参照
    */
   const [perspective, setPerspective] = useState(false)
+  /** 「ゆがみに合わせる」の説明を開いているか（既定は畳んだまま） */
+  const [taperHelp, setTaperHelp] = useState(false)
   const [green, setGreen] = useState<GreenParams>(DEFAULT_GREEN)
   const [tunerOpen, setTunerOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -1212,7 +1214,15 @@ export function App() {
           その場に輪郭が重なるだけ。**縫い代の画面には何も足していない**
         */}
         {step === 'ruler' && image && quad && !shown && (
-          <section className="flex flex-col gap-5">
+          /*
+            この画面だけ、あいだを 20px から 16px に詰めてある
+            （依頼者の指摘・2026-09-04「微妙に画面1つで収まっていない」）。
+
+            写真そのものの高さは削れない——四隅を合わせてもらう画面なので、
+            等倍では写真をまるごと見せるほかない。
+            説明を2つ「？」に畳んでもあと少し足りなかったので、最後はここで詰めた
+          */
+          <section className="flex flex-col gap-4">
             <QueueBar no={queueNo} total={queueTotal} onSkip={() => nextPhoto()} />
             {/*
               こちらで四隅を当てられたときは、頼むことが変わる（依頼者の質問・2026-09-01）。
@@ -1247,35 +1257,49 @@ export function App() {
             />
 
             {/*
-              すぼまりが出ていたときの知らせ。**切り替えずに言うだけ**。
-              押すかどうかは学生に決めてもらう（依頼者の報告・2026-09-01）
-            */}
-            {!perspective && autoTaper && (
-              <Note icon="hint">
-                <T id="ruler.taper.note" />
-              </Note>
-            )}
-
-            {/*
               斜め撮りの逃げ道。ふだんは開かない。
               4隅を自由にすると指のずれがそのまま歪みになるので、既定にはしない
               （lib/ruler.ts の buildScale を参照）
             */}
-            <button
-              type="button"
-              onClick={() => {
-                // 台形から戻るときは、いちばん近い長方形に直してから渡す
-                if (perspective && quad) adjustQuad(rectifyQuad(quad))
-                // 行くときは、すぼまりから採れた台形があればそれを渡す。
-                // 自動では当てないが、押した人には手間をかけさせない
-                if (!perspective && autoTaper) setQuad(autoTaper)
-                setPerspective((v) => !v)
-              }}
-              className="flex items-center gap-1.5 self-start text-xs font-bold text-mat-700"
-            >
-              <Icon name={perspective ? 'back' : 'hint'} className="h-4 w-4 shrink-0" />
-              {perspective ? '長方形のまま合わせる（おすすめ）' : '斜めから撮ってしまった（ゆがみに合わせる）'}
-            </button>
+            {/*
+              説明は「？」に畳んで、右に置く（依頼者の指示・2026-09-04）。
+              もとは、すぼまりを見つけたときだけ絵の下に注意書きの箱を出していたが、
+              そのぶん測る画面が1画面に収まらなくなっていた。
+              説明が要る人だけが押す形にすれば、高さは1行で済む
+            */}
+            <div className="flex items-center gap-2 self-stretch">
+              <button
+                type="button"
+                onClick={() => {
+                  // 台形から戻るときは、いちばん近い長方形に直してから渡す
+                  if (perspective && quad) adjustQuad(rectifyQuad(quad))
+                  // 行くときは、すぼまりから採れた台形があればそれを渡す。
+                  // 自動では当てないが、押した人には手間をかけさせない
+                  if (!perspective && autoTaper) setQuad(autoTaper)
+                  setPerspective((v) => !v)
+                }}
+                className="flex min-w-0 items-center gap-1.5 text-left text-xs font-bold text-mat-700"
+              >
+                <Icon name={perspective ? 'back' : 'hint'} className="h-4 w-4 shrink-0" />
+                {perspective ? '長方形のまま合わせる（おすすめ）' : '斜めから撮ってしまった（ゆがみに合わせる）'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setTaperHelp((v) => !v)}
+                aria-expanded={taperHelp}
+                className={`ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${
+                  taperHelp ? 'border-mat-500 bg-mat-50 text-mat-700' : 'border-ink-100 text-ink-300'
+                }`}
+              >
+                <Icon name="question" className="h-3.5 w-3.5 shrink-0" />
+                <span className="sr-only">{taperHelp ? '説明を閉じる' : 'くわしく'}</span>
+              </button>
+            </div>
+            {taperHelp && (
+              <p className="rounded-lg bg-chalk px-3 py-2 text-xs leading-relaxed text-ink-500">
+                <T id="ruler.taper.note" strong="font-bold" />
+              </p>
+            )}
             {/*
               「ゆがみに合わせる」ときの注意。こちらで切り替えたときと、
               学生が自分で押したときとで、言うべきことが違う。
