@@ -105,70 +105,144 @@ function PartShape({ part }: { part: PatternPart }) {
 }
 
 /**
- * 見つかった形ひとつぶん。押すと「取り込む／取り込まない」が切りかわる。
+ * カードの中の小さな形。輪郭だけを描く。
+ *
+ * 外接する四角も地の目の矢印も入れない。
+ * この大きさでは線が重なって、かえって形が読めなくなる。
+ * こまかいところを見たい人は、カードを開いて大きな絵で見る。
+ */
+function PartThumb({ part }: { part: PatternPart }) {
+  const b = bounds(part.outlineMm)
+  const w = Math.max(b.maxX - b.minX, 1)
+  const h = Math.max(b.maxY - b.minY, 1)
+  const d = part.outlineMm
+    .map((p, i) => `${i === 0 ? 'M' : 'L'}${(p.x - b.minX).toFixed(1)} ${(p.y - b.minY).toFixed(1)}`)
+    .join('') + 'Z'
+  const pad = Math.max(w, h) * 0.04
+  return (
+    <svg
+      viewBox={`${-pad} ${-pad} ${w + pad * 2} ${h + pad * 2}`}
+      className="h-full w-full"
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden="true"
+    >
+      <path
+        d={d}
+        fill="rgba(53,102,78,0.16)"
+        stroke="#35664e"
+        strokeWidth={Math.max(w, h) * 0.035}
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+/**
+ * 見つかった形ひとつぶん。
  *
  * 写真には型紙のほかに、消しゴムや紙片や手が写り込む。
  * それを機械に見分けさせようとはしない。細長い型紙を「これは道具でしょう」と
  * 捨てられるほうが困るし、確信の持てない自動判定を学生に見せない、
  * というのがこのアプリの方針でもある。
  * 見分けるのは人がして、**外すのを1タップにする**（依頼者の指示・2026-08-31）。
+ *
+ * 2026-09-04、依頼者の指示で小さくした。
+ * 形が拾えているかは、この上の写真で一覧できる。
+ * カードに残る仕事は「数字の確認」と「外す操作」の2つだけなので、
+ * 1枚 509px あった絵を 48px のサムネイルにした。
+ *
+ * ただし**こまかいところは見えなくなる**ので、押すと大きな絵が開く。
+ * それにともない、押す＝外す をやめて、外すのは左の ✓ に分けた。
+ * 1つの的に2つの意味を持たせない。
  */
-function PartCard({ part, on, onToggle }: {
+function PartCard({ part, index, on, onToggle }: {
   part: PatternPart
+  /** 写真の上の番号と同じもの（1 から数える） */
+  index: number
   on: boolean
   onToggle: () => void
 }) {
+  const [open, setOpen] = useState(false)
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-pressed={on}
-      className={`flex w-full flex-col gap-3 rounded-xl border p-4 text-left transition-opacity ${
-        on ? 'border-mat-500 bg-white' : 'border-ink-100 bg-white opacity-45'
+    <div
+      className={`rounded-xl border transition-opacity ${
+        on ? 'border-mat-500 bg-white' : 'border-ink-100 bg-white opacity-50'
       }`}
     >
-      {/*
-        面積は出さない（依頼者の指示・2026-08-31）。
-        要尺は「生地の上に並べたときの丈」で決まるので、面積は使いどころがない。
-        使わない数字を並べると、確かめるべき最大丈・最大幅がその中に埋もれる
-      */}
-      <span className="flex items-center gap-2 text-sm font-bold text-ink-700">
-        <span
-          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md ${
-            on ? 'bg-mat-500 text-white' : 'border border-ink-300 text-transparent'
-          }`}
+      <div className="flex items-center gap-2.5 p-2.5">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-pressed={on}
+          className="flex h-11 w-11 shrink-0 items-center justify-center"
         >
-          <Icon name="check" className="h-3.5 w-3.5" />
-        </span>
-        <Icon name="part" className="h-4 w-4 shrink-0 text-mat-600" />
-        {part.name}
-      </span>
-
-      <PartShape part={part} />
-
-      {/* 縦は地の目の矢印、横は寸法線。数字がどちら向きの寸法か、絵で分かる */}
-      <div className="grid grid-cols-2 gap-2">
-        <div className="rounded-lg bg-mat-50 px-3 py-2">
-          <span className="flex items-center gap-1.5 text-xs text-mat-600">
-            <Icon name="grain" className="h-3.5 w-3.5 shrink-0" />
-            {/* 画面によって「丈」「最大丈」と呼び分けていた（学生の点検・2026-09-02） */}
-            丈（地の目方向）
+          <span
+            className={`flex h-6 w-6 items-center justify-center rounded-md ${
+              on ? 'bg-mat-500 text-white' : 'border border-ink-300 text-transparent'
+            }`}
+          >
+            <Icon name="check" className="h-4 w-4" />
           </span>
-          <span className="tnum text-2xl font-bold text-mat-700">{cm(part.heightMm)}<span className="ml-1 text-sm">cm</span></span>
-        </div>
-        <div className="rounded-lg bg-mat-50 px-3 py-2">
-          <span className="flex items-center gap-1.5 text-xs text-mat-600">
-            <Icon name="grainSide" className="h-3.5 w-3.5 shrink-0" />
-            幅
+          <span className="sr-only">{on ? `${part.name}を外す` : `${part.name}を取り込む`}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+        >
+          {/* 写真の番号と同じ数字を先頭に。名前そのものが「パーツ1」なので、絵の隣に置くだけでよい */}
+          <span className="h-12 w-12 shrink-0"><PartThumb part={part} /></span>
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="text-xs font-bold text-ink-700">{index} ・ {part.name}</span>
+            {/*
+              面積は出さない（依頼者の指示・2026-08-31）。
+              要尺は「生地の上に並べたときの丈」で決まるので、面積は使いどころがない。
+              数字を小さくはしたが、消しはしない——
+              実寸が合っているかを確かめられる、この画面で唯一の手がかりなので
+            */}
+            <span className="flex items-baseline gap-3">
+              <span className="flex items-baseline gap-1">
+                <Icon name="grain" className="h-3 w-3 shrink-0 translate-y-[0.1em] text-mat-600" />
+                {/* 画面によって「丈」「最大丈」と呼び分けていた（学生の点検・2026-09-02） */}
+                <span className="text-[10px] text-mat-600">丈</span>
+                <span className="tnum text-lg font-bold leading-tight text-mat-700">{cm(part.heightMm)}<span className="ml-0.5 text-[10px]">cm</span></span>
+              </span>
+              <span className="flex items-baseline gap-1">
+                <Icon name="grainSide" className="h-3 w-3 shrink-0 translate-y-[0.1em] text-mat-600" />
+                <span className="text-[10px] text-mat-600">幅</span>
+                <span className="tnum text-lg font-bold leading-tight text-mat-700">{cm(part.widthMm)}<span className="ml-0.5 text-[10px]">cm</span></span>
+              </span>
+            </span>
           </span>
-          <span className="tnum text-2xl font-bold text-mat-700">{cm(part.widthMm)}<span className="ml-1 text-sm">cm</span></span>
-        </div>
+          <span
+            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${
+              open ? 'border-mat-500 bg-mat-50 text-mat-700' : 'border-ink-100 text-ink-300'
+            }`}
+          >
+            <Icon
+              name="chevron"
+              className={`h-3.5 w-3.5 shrink-0 transition-transform ${open ? '-rotate-90' : 'rotate-90'}`}
+            />
+          </span>
+          <span className="sr-only">{open ? '形を閉じる' : '形を大きく見る'}</span>
+        </button>
       </div>
 
-      <span className={`text-xs font-bold ${on ? 'text-mat-600' : 'text-ink-300'}`}>
-        {on ? '取り込みます' : '取り込みません（押すと戻ります）'}
-      </span>
-    </button>
+      {!on && (
+        <p className="px-2.5 pb-2.5 text-xs font-bold text-ink-300">
+          取り込みません（左の ✓ を押すと戻ります）
+        </p>
+      )}
+
+      {open && (
+        <div className="px-2.5 pb-2.5">
+          {/* 縦は地の目の矢印、横は寸法線。数字がどちら向きの寸法か、絵で分かる */}
+          <PartShape part={part} />
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -220,6 +294,37 @@ function PhotoOverlay({ bitmap, result, excluded }: {
       ctx.stroke()
     }
     ctx.setLineDash([])
+
+    /*
+      輪郭に番号を振る（依頼者の指示・2026-09-04）。
+      この写真を型紙カードより先に出すことにしたので、
+      写真は「形が拾えているか」を一覧する場所になった。
+      ただし番号が無いと、おかしい形を見つけても
+      **どのカードを押せばよいか**が分からない。
+      下のカードの名前（パーツ1…）と同じ番号を、ここに置く。
+
+      置き場所は外接する四角の中心。型紙は縦長の凸に近い形がほとんどで、
+      重心よりも「見た目の真ん中」に近い
+    */
+    const r = Math.max(11, w * 0.032)
+    ctx.font = `700 ${(r * 1.25).toFixed(1)}px system-ui, sans-serif`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    result.parts.forEach((part, i) => {
+      const off = excluded.has(part.id)
+      const b = bounds(part.outlinePx)
+      const cx = (b.minX + b.maxX) * 0.5 * k
+      const cy = (b.minY + b.maxY) * 0.5 * k
+      ctx.beginPath()
+      ctx.arc(cx, cy, r, 0, Math.PI * 2)
+      ctx.fillStyle = off ? 'rgba(255,255,255,0.72)' : 'rgba(255,255,255,0.94)'
+      ctx.fill()
+      ctx.lineWidth = 1.5
+      ctx.strokeStyle = off ? 'rgba(154,166,158,0.9)' : '#35664e'
+      ctx.stroke()
+      ctx.fillStyle = off ? '#9aa69e' : '#35664e'
+      ctx.fillText(String(i + 1), cx, cy + r * 0.06)
+    })
   }, [bitmap, result, excluded, w])
 
   return (
@@ -238,45 +343,78 @@ function PhotoOverlay({ bitmap, result, excluded }: {
  *
  * 選んだところがすぐ下のカードに出るので、
  * 押しては見て、を繰り返して決められる（依頼者の指示・2026-08-31）。
+ *
+ * ふだんは畳んでおく（依頼者の指示・2026-09-04）。
+ * ほとんどの人は既定のままでよく、いじる必要があるのは
+ * 実物の線がほんとうに波打っているときだけ。
+ * ただし**いま何が効いているか**は畳んだままでも見えるようにしてある。
+ * 畳んで隠れるのは選び直す手段であって、いまの状態ではない。
  */
 function SmoothPicker({ value, onChange }: {
   value: SmoothLevel
   onChange: (v: SmoothLevel) => void
 }) {
+  const [open, setOpen] = useState(false)
+  const current = SMOOTH_LEVELS.find((lv) => lv.key === value)
   return (
     <div className="flex flex-col gap-2.5 rounded-xl border border-ink-100 bg-white px-4 py-3.5">
-      <span className="flex items-center gap-2 text-sm font-bold text-ink-700">
+      {/* 行そのものを押せるようにする。小さな矢じりだけを的にすると指では狙いにくい */}
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 text-left text-sm font-bold text-ink-700"
+      >
         <Icon name="smooth" className="h-4 w-4 shrink-0 text-mat-600" />
         線のなめらかさ
-        {/*
-          「どれが正解なのか分かりません。要尺に影響するのかも分からず、
-          『大きさは変わりません』を見つけてやっと安心しました」
-          （学生の点検・2026-09-02）。安心する一文は「？」の中ではなく、
-          選ぶところの隣に出す
-        */}
-        <span className="font-normal text-ink-300"><T id="ruler.smooth.safe" /></span>
-      </span>
-      <div className="grid grid-cols-4 gap-2">
-        {SMOOTH_LEVELS.map((lv) => (
-          <button
-            key={lv.key}
-            type="button"
-            onClick={() => onChange(lv.key)}
-            aria-pressed={value === lv.key}
-            className={`rounded-lg px-2 py-2 text-sm font-bold ${
-              value === lv.key ? 'bg-mat-500 text-white' : 'border border-ink-100 text-ink-700'
+        <span className="ml-auto flex shrink-0 items-center gap-1.5 text-xs font-normal text-ink-500">
+          いま {current?.label}
+          <span
+            className={`flex h-6 w-6 items-center justify-center rounded-full border ${
+              open ? 'border-mat-500 bg-mat-50 text-mat-700' : 'border-ink-100 text-ink-300'
             }`}
           >
-            {lv.label}
-          </button>
-        ))}
-      </div>
-      <Hint
-        icon="smooth"
-        summary={<T id="ruler.smooth.summary" />}
-      >
-        <T id="ruler.smooth.body" />
-      </Hint>
+            <Icon
+              name="chevron"
+              className={`h-3.5 w-3.5 shrink-0 transition-transform ${open ? '-rotate-90' : 'rotate-90'}`}
+            />
+          </span>
+        </span>
+        <span className="sr-only">{open ? '閉じる' : '変える'}</span>
+      </button>
+
+      {open && (
+        <>
+          <div className="grid grid-cols-4 gap-2">
+            {SMOOTH_LEVELS.map((lv) => (
+              <button
+                key={lv.key}
+                type="button"
+                onClick={() => onChange(lv.key)}
+                aria-pressed={value === lv.key}
+                className={`rounded-lg px-2 py-2 text-sm font-bold ${
+                  value === lv.key ? 'bg-mat-500 text-white' : 'border border-ink-100 text-ink-700'
+                }`}
+              >
+                {lv.label}
+              </button>
+            ))}
+          </div>
+          {/*
+            「どれが正解なのか分かりません。要尺に影響するのかも分からず、
+            『大きさは変わりません』を見つけてやっと安心しました」
+            （学生の点検・2026-09-02）。安心する一文は「？」の中ではなく、
+            選ぶところの隣に出す
+          */}
+          <span className="text-xs text-ink-300"><T id="ruler.smooth.safe" /></span>
+          <Hint
+            icon="smooth"
+            summary={<T id="ruler.smooth.summary" />}
+          >
+            <T id="ruler.smooth.body" />
+          </Hint>
+        </>
+      )}
     </div>
   )
 }
@@ -316,18 +454,19 @@ export function ResultView({ bitmap, result, excluded, onToggle, smooth, onSmoot
             <T id="ruler.check.main" strong="font-bold" />
           </p>
           {/*
-            「px が何なのか習っていません」（学生の点検・2026-09-02）。
-            言葉を言い換える。数字そのものは、定規の読み取りが
-            大きくずれていないかを見る手がかりとして残す
+            直し方は、頼みごとより一段小さく置く（依頼者の指示・2026-09-04）。
+            同じ大きさで2文並べると、この緑の枠だけで画面をふさいでしまう
           */}
-          {/*
-            「点」が何なのか伝わらなかった（学生の点検・2026-09-02・2巡目）。
-            px を言い換えただけで、まだ単位の名前のままだった。
-            何と何を並べた数字なのかを、文にして言う
-          */}
-          <p className="tnum mt-2 text-xs text-mat-600">
-            写真の点ひとつが、実物の {result.scale.mmPerPixel.toFixed(3)} mm にあたります
+          <p className="mt-1 text-xs leading-relaxed text-mat-600">
+            <T id="ruler.check.how" />
           </p>
+          {/*
+            「写真の点ひとつが、実物の 0.412 mm にあたります」をやめた
+            （依頼者の指示・2026-09-04）。
+            学生にとっては知らなくてよい数字で、二度も言い換えたのに
+            伝わらなかった（学生の点検・2026-09-02 と 2巡目）。
+            確かめてもらうための数字は、下のカードの丈と幅（cm）のほう
+          */}
         </div>
       </div>
 
@@ -340,8 +479,6 @@ export function ResultView({ bitmap, result, excluded, onToggle, smooth, onSmoot
         </div>
       )}
 
-      {result.parts.length > 0 && <SmoothPicker value={smooth} onChange={onSmooth} />}
-
       {result.parts.length === 0 ? (
         <div className="flex gap-2.5 rounded-xl border border-seam bg-white px-4 py-4 text-sm leading-relaxed text-seam">
           <Icon name="warn" className="mt-[0.15em] h-5 w-5 shrink-0" />
@@ -351,6 +488,24 @@ export function ResultView({ bitmap, result, excluded, onToggle, smooth, onSmoot
         </div>
       ) : (
         <>
+          {/*
+            写真を先に出す（依頼者の指示・2026-09-04）。
+            「形がきちんと拾えているか」は、ここで一覧するのがいちばん速い。
+            もとはカード3枚（1527px）の下にあり、たどり着くころには
+            どのカードを見ていたか分からなくなっていた。
+            輪郭には下のカードと同じ番号を振ってある
+          */}
+          <div className="flex flex-col gap-2">
+            <span className="flex items-center gap-2 text-sm font-bold text-ink-700">
+              <Icon name="photo" className="h-4 w-4 shrink-0 text-mat-600" />
+              写真の上での切り抜き位置
+            </span>
+            <PhotoOverlay bitmap={bitmap} result={result} excluded={excluded} />
+          </div>
+
+          {/* なめらかさを変えると、すぐ上の写真の輪郭がその場で変わる */}
+          <SmoothPicker value={smooth} onChange={onSmooth} />
+
           {result.parts.length > 1 && (
             <p className="flex items-start gap-2 text-xs leading-relaxed text-ink-500">
               <Icon name="hint" className="mt-[0.2em] h-[1.15em] w-[1.15em] shrink-0 text-mat-600" />
@@ -359,24 +514,20 @@ export function ResultView({ bitmap, result, excluded, onToggle, smooth, onSmoot
               </span>
             </p>
           )}
-          {result.parts.map((p) => (
-            <PartCard
-              key={p.id}
-              part={p}
-              on={!excluded.has(p.id)}
-              onToggle={() => onToggle(p.id)}
-            />
-          ))}
+          {/* カードは小さくなったので、あいだも詰める（20px では離れて見える） */}
+          <div className="flex flex-col gap-2">
+            {result.parts.map((p, i) => (
+              <PartCard
+                key={p.id}
+                part={p}
+                index={i + 1}
+                on={!excluded.has(p.id)}
+                onToggle={() => onToggle(p.id)}
+              />
+            ))}
+          </div>
         </>
       )}
-
-      <div className="flex flex-col gap-2">
-        <span className="flex items-center gap-2 text-sm font-bold text-ink-700">
-          <Icon name="photo" className="h-4 w-4 shrink-0 text-mat-600" />
-          写真の上での切り抜き位置
-        </span>
-        <PhotoOverlay bitmap={bitmap} result={result} excluded={excluded} />
-      </div>
     </div>
   )
 }
