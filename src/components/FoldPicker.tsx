@@ -23,9 +23,11 @@
  * 引きずるほうは、押すことの上位互換ではなく、
  * 「半分に折る」の選択をひとつの動作にまとめるためのもの。
  *
- * 絵そのものは、これから直すことになっている（依頼者・2026-08-28）。
- * 辺の描き分けは `creasePath` / `selvagePath` / `cutPath` に分けてあるので、
- * 見た目を変えるときはそこだけ差し替えればよい。
+ * 絵は、**大きい裁ち合わせ図とまったく同じ印**で描いてある
+ * （依頼者の指示・2026-09-04）。この画面で覚えた印を、
+ * 並べる画面でもう一度読み替えることにならないように。
+ * 組み立ては `LayoutView` の `sheet` / `turnTo` / `selvagePath` を写したもので、
+ * 寸法だけ、この小さい箱で読める大きさに取り直してある（`TURN` のあたり参照）。
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -74,9 +76,6 @@ const MARGIN: Record<Side, number> = {
   left: X0, right: VW - X1, top: Y0, bottom: VH - Y1,
 }
 
-/** 折り山が外へふくらむ量 */
-const SP = 5
-
 /** これより浅く引いて離したら、折らなかったことにする */
 const OFF_UNDER = 0.12
 /** きっちり折った先まで、これだけ近づいたら吸い付く */
@@ -85,6 +84,34 @@ const SNAP_NEAR = 0.76
 const CLOTH = '#fdfcf8'
 const CREASE = '#35664e'
 const EDGE = '#b6bcb4'
+/** 下になっている一枚 */
+const CLOTH_UNDER = '#efeee2'
+/** みみ */
+const SELV = '#8d8a78'
+/** 生地の輪郭 */
+const OUTLINE = '#b8b6a4'
+
+/*
+  折り返りまわりの寸法。大きい裁ち合わせ図の割合（生地幅の 4.1% / 5.2%）を
+  そのまま使うと、この箱（生地の幅 50）では 2px にしかならず消える。
+  **割合ではなく読める大きさ**に取り直しつつ、
+  たがいの比（回り込みの深さ ÷ ずらし幅 ≒ 0.8）は大きい図に合わせてある。
+  比さえ保てば、回り込みの形そのものは大きい図と同じになる
+*/
+/** 折り山の端で、折り山から離れる向きへ走る量（大きい図の TURN） */
+const TURN = 5
+/** 折り山の線が、身頃の裁ち端より先へ出る量（大きい図の TIP） */
+const TIP = 2.3
+/** 折り山から離れる向きへ、下の一枚がのぞく量（大きい図の RIM） */
+const GROW = 5.4
+/** 折り山に沿う向きへ、下の一枚をずらす量（大きい図の UNDER_SHIFT） */
+const SHIFT = 6.2
+/** みみの帯の幅 */
+const SBW = 3
+/** みみのピン穴の間隔 */
+const PITCH = 5
+/** 両わできっちり折ったとき、出会う端どうしのすきま */
+const GAP = 2.4
 
 const SIDE_NAMES: Record<Side, string> = {
   left: '左', right: '右', top: '上', bottom: '下',
@@ -127,20 +154,8 @@ function flapBox(s: Side, d: number) {
   return { x: X0, y: Y1 - d, width: w, height: d }
 }
 
-/** 折り山。辺の外側へゆるくふくらませる。ここが「山」になる */
-function creasePath(s: Side) {
-  const [ax, ay, bx, by] = ENDS[s]
-  const [ox, oy] = OUT[s]
-  const cx = (ax + bx) / 2 + ox * SP * 2
-  const cy = (ay + by) / 2 + oy * SP * 2
-  return `M${ax} ${ay} Q${cx} ${cy} ${bx} ${by}`
-}
-
-/** 裁ち端。はさみで切った端なので、うっすら波打たせる */
-const cutPath = (s: Side) => wavyPath(...ENDS[s])
-
 /** 好きな2点のあいだを、波打つ線でつなぐ */
-function wavyPath(ax: number, ay: number, bx: number, by: number) {
+function wavyPath(ax: number, ay: number, bx: number, by: number, amp = 1.6) {
   const horizontal = ay === by
   const span = horizontal ? bx - ax : by - ay
   const step = span / 6
@@ -148,12 +163,253 @@ function wavyPath(ax: number, ay: number, bx: number, by: number) {
   for (let i = 0; i < 6; i++) {
     const mid = i * step + step / 2
     const to = (i + 1) * step
-    const off = i % 2 === 0 ? -1.6 : 1.6
+    const off = i % 2 === 0 ? -amp : amp
     d += horizontal
       ? ` Q${ax + mid} ${ay + off} ${ax + to} ${ay}`
       : ` Q${ax + off} ${ay + mid} ${ax} ${ay + to}`
   }
   return d
+}
+
+/** 波の、書き出しの M を除いた部分だけ。輪郭の途中に差し込んで使う */
+function wavySeg(ax: number, ay: number, bx: number, by: number, amp: number) {
+  const d = wavyPath(ax, ay, bx, by, amp)
+  return d.slice(d.indexOf('Q'))
+}
+
+type Box = { x0: number; y0: number; x1: number; y1: number }
+const boxOf = (x0: number, y0: number, x1: number, y1: number): Box => ({ x0, y0, x1, y1 })
+const flagsOf = (ss: Side[]): Record<Side, boolean> => ({
+  left: ss.includes('left'), right: ss.includes('right'),
+  top: ss.includes('top'), bottom: ss.includes('bottom'),
+})
+
+/**
+ * 折り山の端の、回り込みのひと筆。大きい裁ち合わせ図の `turnTo` と同じもの
+ * （制御点の比 0.55 / 0.28 は、依頼者のイラレの図から採った値）。
+ *
+ * 折り山の上の点では折り山と平行な向き、裁ち端の上の点では裁ち端と平行な向きで
+ * 出入りする三次曲線。**上の一枚と下の一枚が、同じ頂点からこれを描く**ので、
+ * 2本合わせて半円に見え、生地がそこで回り込んでいることが分かる。
+ *
+ * 角をまるめるのとは別のことで、こちらだけが「折り返っている」ことを言う。
+ * ここを角のまるみで済ませていたため、
+ * 「折り返り部分の半円を描くような折り返り描写がちゃんとできていません」と
+ * 指摘された（依頼者・2026-09-04。大きい図でも同じ指摘を受けている・2026-08-30）
+ */
+function turnTo(
+  fx: number, fy: number, tx: number, ty: number,
+  fromFold: boolean, vertical: boolean,
+) {
+  let c1x: number, c1y: number, c2x: number, c2y: number
+  if (vertical) {
+    if (fromFold) {
+      c1x = fx; c1y = fy + 0.55 * (ty - fy); c2x = fx + 0.28 * (tx - fx); c2y = ty
+    } else {
+      c1x = fx + 0.28 * (tx - fx); c1y = fy; c2x = tx; c2y = ty + 0.55 * (fy - ty)
+    }
+  } else if (fromFold) {
+    c1x = fx + 0.55 * (tx - fx); c1y = fy; c2x = tx; c2y = fy + 0.28 * (ty - fy)
+  } else {
+    c1x = fx; c1y = fy + 0.55 * (ty - fy); c2x = fx + 0.28 * (tx - fx); c2y = ty
+  }
+  return `C${c1x} ${c1y} ${c2x} ${c2y} ${tx} ${ty}`
+}
+
+/**
+ * 生地1枚の輪郭。大きい裁ち合わせ図の `sheet` と同じ組み立て。
+ * 裁ち端は波、みみと折り山はまっすぐ。折り山の端だけは、角を落とさず回り込ませる。
+ *
+ * `apex` は、**ずれた側の折り山の端で2枚が集まる頂点**。
+ * 上の一枚と下の一枚に同じ値を渡すと、2枚の裁ち端がそこで出会って半円になる
+ */
+function sheetPath(b: Box, ss: Side[], apex: number) {
+  const f = flagsOf(ss)
+  const vert = f.left || f.right
+  const tipNear = vert ? b.y0 + TIP : b.x0 + TIP
+  type C = { i: [number, number]; o: [number, number]; v: boolean }
+  const corner = (
+    fold: 'l' | 'r' | 't' | 'b' | null,
+    at: 'tl' | 'tr' | 'br' | 'bl',
+    cx: number, cy: number,
+  ): C => {
+    if (!fold) return { i: [cx, cy], o: [cx, cy], v: vert }
+    if (fold === 'l') {
+      return at === 'tl'
+        ? { i: [b.x0, tipNear], o: [b.x0 + TURN, b.y0], v: true }
+        : { i: [b.x0 + TURN, b.y1], o: [b.x0, apex], v: true }
+    }
+    if (fold === 'r') {
+      return at === 'tr'
+        ? { i: [b.x1 - TURN, b.y0], o: [b.x1, tipNear], v: true }
+        : { i: [b.x1, apex], o: [b.x1 - TURN, b.y1], v: true }
+    }
+    if (fold === 't') {
+      return at === 'tl'
+        ? { i: [b.x0, b.y0 + TURN], o: [tipNear, b.y0], v: false }
+        : { i: [apex, b.y0], o: [b.x1, b.y0 + TURN], v: false }
+    }
+    return at === 'br'
+      ? { i: [b.x1, b.y1 - TURN], o: [apex, b.y1], v: false }
+      : { i: [tipNear, b.y1], o: [b.x0, b.y1 - TURN], v: false }
+  }
+  const foldAt = (a: Side, bb: Side): 'l' | 'r' | 't' | 'b' | null =>
+    (f[a] ? a[0] : f[bb] ? bb[0] : null) as 'l' | 'r' | 't' | 'b' | null
+  const TL = corner(foldAt('left', 'top'), 'tl', b.x0, b.y0)
+  const TR = corner(foldAt('right', 'top'), 'tr', b.x1, b.y0)
+  const BR = corner(foldAt('right', 'bottom'), 'br', b.x1, b.y1)
+  const BL = corner(foldAt('left', 'bottom'), 'bl', b.x0, b.y1)
+  // 角をまたぐひと筆。折り山の側から出るのか、裁ち端の側から出るのかで向きが変わる
+  const link = (c: C, fromFold: boolean) =>
+    c.i[0] === c.o[0] && c.i[1] === c.o[1]
+      ? '' : turnTo(c.i[0], c.i[1], c.o[0], c.o[1], fromFold, c.v)
+  return [
+    `M${TL.o[0]} ${TL.o[1]}`,
+    f.top ? `L${TR.i[0]} ${TR.i[1]}` : wavySeg(TL.o[0], b.y0, TR.i[0], b.y0, 1.3),
+    link(TR, f.top),
+    `L${BR.i[0]} ${BR.i[1]}`,
+    link(BR, f.right),
+    f.bottom ? `L${BL.i[0]} ${BL.i[1]}` : wavySeg(BR.o[0], b.y1, BL.i[0], b.y1, 1.3),
+    link(BL, f.bottom),
+    `L${TL.i[0]} ${TL.i[1]}`,
+    link(TL, f.left),
+    'Z',
+  ].join(' ')
+}
+
+/**
+ * みみ1本ぶんの道。生地の輪郭とまったく同じ形を、内側へ `o` だけ寄せて引く。
+ *
+ * **横わのときは、みみも折り山の端でいっしょに回り込む。**
+ * まっすぐな帯を回り込みの手前で止めていたため、
+ * 「横わのすべてで、みみの部分の折り返しの描写がとちゅうで途切れています」と
+ * 指摘された（依頼者・2026-09-04。大きい図でも同じ指摘を受けている・2026-08-30
+ * 「耳もやはり折り返しの円弧に沿ってカーブしないと自然に見えません」）。
+ * 平行曲線ではなく**平行移動**なので、輪郭と同じ `turnTo` に
+ * ずらした座標を渡すだけでよい。
+ */
+function selvageLine(b: Box, side: 'left' | 'right', o: number, ss: Side[], apex: number) {
+  const f = flagsOf(ss)
+  const x = side === 'left' ? b.x0 + o : b.x1 - o
+  if (!f.top && !f.bottom) return `M${x} ${b.y0} L${x} ${b.y1}`
+  const ap = side === 'left' ? b.x0 + TIP + o : apex - o
+  const yTop = f.top ? b.y0 + TURN : b.y0
+  const yBot = f.bottom ? b.y1 - TURN : b.y1
+  return [
+    f.top ? `M${ap} ${b.y0} ${turnTo(ap, b.y0, x, yTop, true, false)}` : `M${x} ${yTop}`,
+    `L${x} ${yBot}`,
+    f.bottom ? turnTo(x, yBot, ap, b.y1, false, false) : '',
+  ].join(' ')
+}
+
+/**
+ * みみ。実物のみみには、織るときの機械のピン穴が点々と並んでいる。
+ * 3本（帯・細線・ピン穴）とも同じ道に沿って引くので、
+ * 回り込みのところでも粒がその曲線に乗ってくれる
+ */
+function selvage(b: Box, side: 'left' | 'right', ss: Side[], apex: number, key: string) {
+  const mid = selvageLine(b, side, SBW / 2, ss, apex)
+  const inner = selvageLine(b, side, SBW, ss, apex)
+  return (
+    <g key={key} fill="none" stroke={SELV}>
+      <path d={mid} strokeWidth={SBW} opacity={0.18} />
+      <path d={inner} strokeWidth={0.4} opacity={0.3} />
+      <path
+        d={mid} strokeWidth={1.2} opacity={0.65} strokeLinecap="round"
+        strokeDasharray={`0 ${PITCH}`} strokeDashoffset={-PITCH * 0.6}
+      />
+    </g>
+  )
+}
+
+/** 生地1枚ぶん（面・織り目・輪郭・みみ） */
+function sheetOf(b: Box, ss: Side[], apex: number, fill: string, key: string) {
+  const d = sheetPath(b, ss, apex)
+  const f = flagsOf(ss)
+  return (
+    <g key={key}>
+      <path d={d} fill={fill} />
+      <path d={d} fill="url(#fp-weave)" />
+      <path d={d} fill="none" stroke={OUTLINE} strokeWidth={0.8} />
+      {!f.left && selvage(b, 'left', ss, apex, `${key}-l`)}
+      {!f.right && selvage(b, 'right', ss, apex, `${key}-r`)}
+    </g>
+  )
+}
+
+/**
+ * 生地ぜんたい。大きい裁ち合わせ図とまったく同じ印で描く
+ * （依頼者の指示・2026-09-04）。この画面で覚えた印を、
+ * 並べる画面でもう一度読み替えることにならないように。
+ *
+ * 折ってあるところは、**同じ大きさの紙を2枚、少しずらして重ねた形**で描く。
+ * 折り山の側で2枚はつながっているので、そちら側の端はそろえたまま、
+ * 折り山に沿う向きへ `SHIFT` だけずらす（縦の折りなら下、横の折りなら右）。
+ *
+ * **きっちり折り切ったときだけ**、折り山から離れる向きへも `GROW` だけ広げる。
+ * すると動いた端が向かい側の端に重なった形になり、端が2本並んで見える。
+ * これが「きっちり折ってある」ことの印で、今までは点々の線1本で言っていたもの。
+ * 途中までしか折らないときは、動いた端は面の途中にあるので広げない。
+ *
+ * 両わできっちり折ったときは、上の一枚が真ん中で2枚に分かれて出会う。
+ * 縦の両わで真ん中に来るのは**みみ**、横の上下わで来るのは**裁ち端**
+ */
+function fabricFigure(ss: Side[], half: boolean) {
+  const full = boxOf(X0, Y0, X1, Y1)
+  const vs = ss.filter(isVerticalSide)
+  const hs = ss.filter((s) => !isVerticalSide(s))
+  // ずれた側の折り山の端で、上の一枚と下の一枚の裁ち端が集まる頂点
+  const apex = vs.length > 0 ? Y1 + TIP : X1 + TIP
+  if (ss.length === 0) return sheetOf(full, [], apex, CLOTH, 'fp-one')
+
+  const u = boxOf(full.x0, full.y0, full.x1, full.y1)
+  if (vs.length > 0) { u.y0 += SHIFT; u.y1 += SHIFT } else { u.x0 += SHIFT; u.x1 += SHIFT }
+  if (half && vs.length === 1) { if (vs[0] === 'left') u.x1 += GROW; else u.x0 -= GROW }
+  if (half && hs.length === 1) { if (hs[0] === 'top') u.y1 += GROW; else u.y0 -= GROW }
+
+  let tops: React.ReactNode[]
+  if (half && vs.length === 2) {
+    const cx = (X0 + X1) / 2
+    tops = [
+      sheetOf(boxOf(X0, Y0, cx - GAP / 2, Y1), ['left'], apex, CLOTH, 'fp-top-l'),
+      sheetOf(boxOf(cx + GAP / 2, Y0, X1, Y1), ['right'], apex, CLOTH, 'fp-top-r'),
+    ]
+  } else if (half && hs.length === 2) {
+    const cy = (Y0 + Y1) / 2
+    tops = [
+      sheetOf(boxOf(X0, Y0, X1, cy - GAP / 2), ['top'], apex, CLOTH, 'fp-top-t'),
+      sheetOf(boxOf(X0, cy + GAP / 2, X1, Y1), ['bottom'], apex, CLOTH, 'fp-top-b'),
+    ]
+  } else {
+    tops = [sheetOf(full, ss, apex, CLOTH, 'fp-top')]
+  }
+  return <>{sheetOf(u, ss, apex, CLOTH_UNDER, 'fp-under')}{tops}</>
+}
+
+/**
+ * 折り山の線。ずれた側の端は、2枚の裁ち端が集まる頂点まで伸ばす。
+ * その先は生地が半円で回り込むので、線がそこで終わっていても途切れて見えない
+ */
+function creasePath(s: Side) {
+  const apex = isVerticalSide(s) ? Y1 + TIP : X1 + TIP
+  return isVerticalSide(s)
+    ? `M${s === 'left' ? X0 : X1} ${Y0 + TIP} L${s === 'left' ? X0 : X1} ${apex}`
+    : `M${X0 + TIP} ${s === 'top' ? Y0 : Y1} L${apex} ${s === 'top' ? Y0 : Y1}`
+}
+
+/** 「わ」の字に添える、折り山の印。大きい図の札と同じヘアピン */
+function hairpin(cx: number, cy: number, sz: number, s: Side) {
+  const r = sz * 0.3
+  const d = `M${cx + sz / 2} ${cy - r} H${cx - sz / 2 + r}`
+    + ` A${r} ${r} 0 0 0 ${cx - sz / 2 + r} ${cy + r}`
+    + ` H${cx + sz / 2}`
+  const rot = { left: 0, right: 180, top: 90, bottom: 270 }[s]
+  return (
+    <path
+      d={d} fill="none" stroke={CREASE} strokeWidth={sz * 0.18} strokeLinecap="round"
+      transform={rot ? `rotate(${rot} ${cx} ${cy})` : undefined}
+    />
+  )
 }
 
 /**
@@ -415,10 +671,15 @@ export function FoldPicker({ fold, half, onEdge, onHint }: Props) {
           <feDropShadow dx="0" dy="1.2" stdDeviation="1.6"
             floodColor="#2f3b33" floodOpacity="0.34" />
         </filter>
+        {/* 織り目。生地であることを、色ではなく面の質で言う */}
+        <pattern id="fp-weave" width={2} height={2} patternUnits="userSpaceOnUse">
+          <path d="M0 0 H2 M0 1 H2" stroke="#000" strokeWidth={0.25} opacity={0.05} />
+          <path d="M0 0 V2 M1 0 V2" stroke="#000" strokeWidth={0.25} opacity={0.035} />
+        </pattern>
       </defs>
 
-      {/* 生地の面 */}
-      <rect x={X0} y={Y0} width={X1 - X0} height={Y1 - Y0} fill={CLOTH} />
+      {/* 生地。折ってあるところは、ずらして重ねた2枚で描く */}
+      {fabricFigure(sides, half)}
 
       {/* 引きずっている最中の一枚。指の深さにそのまま付いてくる */}
       {live && sheet(live.side, live.d, `live-${live.side}`, false)}
@@ -432,23 +693,16 @@ export function FoldPicker({ fold, half, onEdge, onHint }: Props) {
       {flip && !live && sheet(
         flip.side, snugDepth(flip.side), `flip-${flip.side}-${flip.seq}`, true)}
 
-      {/* 辺。「わ」なら太い緑の山、そうでなければ、みみ（点々）か裁ち端（波） */}
-      {(['left', 'right', 'top', 'bottom'] as Side[]).map((s) => {
-        if (on(s) || live?.side === s) {
-          return (
-            <path key={`e-${s}`} d={creasePath(s)} stroke={CREASE} strokeWidth={4}
-              fill="none" strokeLinecap="round" />
-          )
-        }
-        const [ax, ay, bx, by] = ENDS[s]
-        return isVerticalSide(s) ? (
-          // みみ。実物のみみに並んでいる、織り機のピン穴
-          <line key={`e-${s}`} x1={ax} y1={ay} x2={bx} y2={by}
-            stroke={EDGE} strokeWidth={2} strokeLinecap="round" strokeDasharray="1 5" />
-        ) : (
-          <path key={`e-${s}`} d={cutPath(s)} stroke={EDGE} strokeWidth={1.4} fill="none" />
-        )
-      })}
+      {/*
+        折り山。みみと裁ち端は生地そのものが持っているので、ここでは足さない
+        （`fabricFigure` が輪郭といっしょに引いている）
+      */}
+      {(['left', 'right', 'top', 'bottom'] as Side[])
+        .filter((s) => on(s) || live?.side === s)
+        .map((s) => (
+          <path key={`e-${s}`} d={creasePath(s)} stroke={CREASE} strokeWidth={1.8}
+            fill="none" strokeLinecap="round" />
+        ))}
 
       {/*
         きっちり折り切ったときに、動いたみみが来る位置。引きずっている最中だけ出して、
@@ -467,40 +721,25 @@ export function FoldPicker({ fold, half, onEdge, onHint }: Props) {
         )
       })()}
 
-      {/* 「わ」の字。辺の外側に置く */}
+      {/* 「わ」の字と、⊂ の印。大きい図の折り山の札の上2行と同じ */}
       {sides.map((s) => {
         const [ax, ay, bx, by] = ENDS[s]
         const [ox, oy] = OUT[s]
+        const mx = (ax + bx) / 2
+        const my = (ay + by) / 2
+        // 縦わは上下に積み、横わは横に並べる。どちらも図の外の余白に収まる置き方
+        const [hx, hy] = isVerticalSide(s) ? [mx + ox * 11, my - 8] : [mx - 12, my + oy * 11]
+        const [tx, ty] = isVerticalSide(s) ? [mx + ox * 12, my + 10] : [mx + 7, my + oy * 11 + 5]
         return (
-          <text
-            key={`t-${s}`}
-            x={(ax + bx) / 2 + ox * 17}
-            y={(ay + by) / 2 + oy * 15 + 5}
-            fontSize={14} fontWeight={700} fill={CREASE} textAnchor="middle"
-          >わ</text>
+          <g key={`t-${s}`}>
+            {hairpin(hx, hy, 8, s)}
+            <text
+              x={tx} y={ty}
+              fontSize={13} fontWeight={700} fill={CREASE} textAnchor="middle"
+            >わ</text>
+          </g>
         )
       })}
-
-      {/*
-        きっちり折ってあることの印。動いたみみが行き着いた先に、点々を置く。
-
-        両わなら、左右のみみが中央で出会うので真ん中に1本。
-        片わなら、動いたみみは**向かい側のみみの上に重なる**ので、
-        その辺のすぐ内側にもう1本置いて、みみが2本あることを示す
-        （依頼者の指摘・2026-08-28。この図は折りたたんだあとの面なので、
-        「半分」は図の真ん中ではなく図の端になる）。
-      */}
-      {half && !live && (() => {
-        const v = sides.filter(isVerticalSide)
-        if (v.length === 0) return null
-        const at = v.length === 2
-          ? (X0 + X1) / 2
-          : (v[0] === 'left' ? X1 - 3.5 : X0 + 3.5)
-        return (
-          <line x1={at} y1={Y0} x2={at} y2={Y1}
-            stroke={EDGE} strokeWidth={2} strokeLinecap="round" strokeDasharray="1 5" />
-        )
-      })()}
 
       {/* さわる口。見えないが、辺の外側まで広く取ってある */}
       {(['left', 'right', 'top', 'bottom'] as Side[]).map((s) => {
