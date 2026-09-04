@@ -398,11 +398,25 @@ export function placedPartOf(part: StoredPart): PlacedPart | null {
       // 辺に沿う向き。外向きの法線を 90 度まわしたもの
       const tx = g.outward.y
       const ty = -g.outward.x
+      /*
+        辺そのものの点列も一緒に持たせる。
+        辺を丸ごと赤くするときに使う。
+        写真からなぞった辺はほんの少し曲がっているので、
+        向きと長さから作ったまっすぐな線では重ならない
+      */
+      const pts = plan.path.points
+      const np = pts.length
+      const line: Polygon = []
+      for (let k = g.start; k <= g.end; k++) {
+        const q = pts[k % np]
+        line.push({ x: q.x + sx, y: q.y + sy })
+      }
       foldMarksMm.push({
         a: { x: cx - tx * R, y: cy - ty * R },
         b: { x: cx + tx * R, y: cy + ty * R },
         inn: { x: cx - g.outward.x * R, y: cy - g.outward.y * R },
         lengthMm: g.lengthMm,
+        line,
       })
     }
   }
@@ -416,7 +430,7 @@ export function placedPartOf(part: StoredPart): PlacedPart | null {
     finishedLineMm: move(finishedLineMm),
     hasFoldEdge,
     foldMarksMm: foldMarksMm.map((m) => ({
-      a: mv(m.a), b: mv(m.b), inn: mv(m.inn), lengthMm: m.lengthMm,
+      a: mv(m.a), b: mv(m.b), inn: mv(m.inn), lengthMm: m.lengthMm, line: move(m.line),
     })),
     centerLineMm: centerLineMm
       ? { a: mv(centerLineMm.a), b: mv(centerLineMm.b) }

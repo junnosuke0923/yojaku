@@ -288,6 +288,19 @@ export type FoldMark = {
   inn: Point
   /** もとの辺の長さ(mm)。短い辺に大きく描くとはみ出すので、大きさの上限に使う */
   lengthMm: number
+  /**
+   * 辺そのものの点列（角から角まで）。
+   *
+   * これを持たずに `a`・`b` の向きと `lengthMm` から
+   * まっすぐな線を作って描いていたところ、
+   * 写真からなぞった辺は完全にはまっすぐでないため、
+   * 真ん中の接線の向きへ伸びて型紙からはみ出した
+   * （依頼者の報告・2026-09-04。前スカートの前中心を「わ」にしたとき、
+   * 左上の角の外へ赤い棒が飛び出した）。
+   * 長さも、弧の長さと弦の長さは別のものなので一致しない。
+   * 辺を赤くするなら、辺そのものを描くしかない
+   */
+  line: Polygon
 }
 
 /** 「わ」の記号の 3 点を作るときの、a–b 間の長さ(mm)。向きを取り出すためだけの目安 */
@@ -375,7 +388,7 @@ export function orientedPair(
   // 「わ」の記号も中心線も、裁ち切り線とまったく同じ計算に通す
   const marks = part.foldMarksMm.map((m) => {
     const [a, bb, inn] = move(spin([m.a, m.b, m.inn]))
-    return { a, b: bb, inn, lengthMm: m.lengthMm }
+    return { a, b: bb, inn, lengthMm: m.lengthMm, line: move(spin(m.line)) }
   })
   let center: { a: Point; b: Point } | null = null
   if (part.centerLineMm) {

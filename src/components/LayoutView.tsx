@@ -3009,26 +3009,23 @@ function SectionCanvas({
                       「わ」の話は、辺の話。型紙まるごとを赤くするだけでは
                       どの辺を折り山に当てるのかが読めないので、その辺自体を赤くする
                     */}
-                    {alert.kind === 'offFold' && marks.map((m, i) => {
+                    {alert.kind === 'offFold' && marks.map((m, i) => (
                       /*
-                        `a`・`b` は「わ」の記号を描くための 20mm の目安であって、
-                        辺そのものではない。辺の長さは `lengthMm` が持っているので、
-                        真ん中から両側へ伸ばして**辺いっぱい**に引く
+                        辺そのものの点列をそのままなぞる。
+                        以前は真ん中の向きと辺の長さからまっすぐな線を作っていたが、
+                        写真からなぞった辺は完全にはまっすぐでなく、弧の長さも弦より長い。
+                        そのため型紙から離れて、角の外へ赤い棒が飛び出していた
+                        （依頼者の報告・2026-09-04）。
+
+                        外周の赤線より太く引く。同じ太さだと外周に完全に隠れてしまい、
+                        「どの辺を折り山に当てるのか」が読めない。
+                        端は切りっぱなし（butt）にして、角より先へ出さない
                       */
-                      const ux = (m.b.x - m.a.x) / (FOLD_MARK_REF_MM * 2)
-                      const uy = (m.b.y - m.a.y) / (FOLD_MARK_REF_MM * 2)
-                      const cx = (m.a.x + m.b.x) * 0.5
-                      const cy = (m.a.y + m.b.y) * 0.5
-                      const h = m.lengthMm * 0.5
-                      return (
-                        <path
-                          key={i}
-                          d={`M${(cx - ux * h).toFixed(1)} ${(cy - uy * h).toFixed(1)}`
-                            + ` L${(cx + ux * h).toFixed(1)} ${(cy + uy * h).toFixed(1)}`}
-                          fill="none" stroke={ALERT} strokeWidth={W * 0.016} strokeLinecap="round"
-                        />
-                      )
-                    })}
+                      <polyline
+                        key={i} points={pts(m.line)} fill="none" stroke={ALERT}
+                        strokeWidth={W * 0.034} strokeLinejoin="round" strokeOpacity={0.9}
+                      />
+                    ))}
                     {alertMark(pts(cut), box.w, box.h, alert.text)}
                   </>
                 )}
