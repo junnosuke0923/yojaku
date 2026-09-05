@@ -2140,21 +2140,12 @@ function SectionCanvas({
    */
   const by0 = foldSides.includes('top') ? 0 : -EDGE_GAP
   const by1 = foldSides.includes('bottom') ? L + OPEN : L + EDGE_GAP
+  /**
+   * 面を丸ごと覆っているときの、下の一枚の箱。
+   * 半端な折り返しのときは、下に来るのが**折り返した一枚のほう**なので、
+   * この箱は使わない（`underBoxes` を見よ）
+   */
   const under = { x0: bx0, y0: by0, x1: bx1, y1: by1 }
-  if (!allDoubled && hasUnder) {
-    /*
-      端だけ折り返したとき。下の一枚は**面ぜんぶを敷いたまま**にしておき、
-      折り返した一枚の先へ `UNDER_SHIFT` だけのぞかせる。
-
-      いただいた図では下の一枚のほうをずらしてあるが、そのとおりにすると
-      一重のところの端が面の外へ寄り、そこへ置いた型紙が生地からはみ出て見える。
-      型紙を置ける面は `[0, W] × [0, L]` のままでなければならないので、
-      ずらすのではなく、**のぞく側だけ伸ばす**。見た目は同じで、面は動かない
-    */
-    if (foldVertical) under.y1 += UNDER_SHIFT
-    else under.x1 += UNDER_SHIFT
-  }
-
   if (allDoubled) {
     if (foldVertical) {
       under.y0 += UNDER_SHIFT
@@ -2417,9 +2408,26 @@ function SectionCanvas({
       2つの折り返しが近づいたぶんは `OPENX` で開けてあるので、
       ふつうの折り返しとまったく同じ描き方で、帯2本と隙間が収まる
     */
-    if (flaps.length > 0 && !flaps.some((f) => f.full)) {
+    /*
+      **折り返しは、面の下へ折り込む**（依頼者の判断・2026-09-05）。
+
+      もとは折り返した一枚を面の上に重ねて描いていた。けれども折らない図は
+      「生地の表面が上を向いて置かれた」絵なので、折り返しを上に重ねると
+      **その部分だけ裏返っている**ことになり、1枚の図の中に表の面と裏の面が
+      同居する。一重のところで裁つ型紙は表から裁つのが基本なのに、
+      図ぜんぶが「折ったあとの上に来ている面」に見えてしまう。
+
+      折り込む形にすると、型紙を乗せる面は折り方によらず**いつも同じ一枚**になり、
+      折る深さを指で変えても面が動かない。二重であることは、面を裏返して見せる
+      のではなく、**下からもう一枚がのぞく**ことで伝える（`underBoxes`）。
+
+      例外は、左右から折ってみみが中央で出会うとき（`meetV`）。ここは
+      2本のみみのあいだの隙間から下の一枚がのぞいていることが図の要なので
+      （依頼者の指示・2026-08-27／2026-08-31）、上の面を2つに割って描く
+    */
+    if (meetV) {
       /*
-        端だけ折り返したとき（依頼者のイラレの図・生地折り方_02 の5〜8ページ目）。
+        両側から折って、みみが中央で出会うとき。
 
         上に来ているのは**折り返したぶんだけ**。ここを面ぜんぶで描いていたので、
         折り山で回り込む相手がおらず、U字の折り返しが出ていなかった。
@@ -2427,12 +2435,7 @@ function SectionCanvas({
         折り山の端で下の一枚と同じ頂点に集まり、半円に回り込む。
 
         みみの帯は面の外側にあるので、折り返した一枚の端も
-        `SEL_BW` ぶん外まで伸ばす。そうしないと帯が下の一枚の上に浮く。
-
-        横に折ったとき、折り返した一枚の先の端は**裁ち端**なので、
-        ここにも `EDGE_GAP` の余白を見せる（依頼者の指示・2026-08-31
-        「折り返った上側の生地の生地端のところは少し余白を見せておきたい」）。
-        縦に折ったときの先の端は裁ち端ではなく**みみ**なので、そのままでよい
+        `SEL_BW` ぶん外まで伸ばす。そうしないと帯が下の一枚の上に浮く
       */
       return flaps.map((f) => (
         f.side === 'left'
@@ -2446,14 +2449,56 @@ function SectionCanvas({
     }
     return sheet(bx0, by0, bx1, by1, cutTop, cutBottom, leadApex)
   })()
+  /** 下の一枚をずらす向き。縦の折りなら下へ、横の折りなら右へ */
+  const UB_DX = foldVertical ? 0 : UNDER_SHIFT
+  const UB_DY = foldVertical ? UNDER_SHIFT : 0
+  /**
+   * 下になっている一枚（複数あることがある）。
+   *
+   * 面が丸ごと二重のときは、同じ大きさの紙をずらして敷いた1枚。
+   * 半端な折り返しのときは、**折り返した一枚そのもの**が下に来る
+   * （依頼者の判断・2026-09-05「下へ折り込む」）。折り返した幅のぶんだけ
+   * ずらして敷いてあるので、その幅ぶんだけ裁ち端の先から紙がのぞく。
+   * のぞいている範囲＝二重になっている範囲になる
+   */
+  const underBoxes: Array<{
+    x0: number; y0: number; x1: number; y1: number
+    ct: boolean; cb: boolean; sides: Side[]
+  }> = allDoubled
+    ? [{ ...under, ct: cutTop, cb: cutBottom, sides: foldSides }]
+    : flaps.map((f) => (
+      f.side === 'left'
+        ? {
+          x0: bx0 + UB_DX, y0: by0 + UB_DY, x1: f.w + SEL_BW + UB_DX, y1: by1 + UB_DY,
+          ct: cutTop, cb: cutBottom, sides: ['left'] as Side[],
+        }
+        : f.side === 'right'
+          ? {
+            x0: W - f.w - SEL_BW + OPENX + UB_DX, y0: by0 + UB_DY,
+            x1: bx1 + UB_DX, y1: by1 + UB_DY,
+            ct: cutTop, cb: cutBottom, sides: ['right'] as Side[],
+          }
+          : f.side === 'top'
+            ? {
+              x0: bx0 + UB_DX, y0: by0 + UB_DY,
+              x1: bx1 + UB_DX, y1: f.h + EDGE_GAP + UB_DY,
+              ct: cutTop, cb: true, sides: ['top'] as Side[],
+            }
+            : {
+              x0: bx0 + UB_DX, y0: L - f.h - EDGE_GAP + UB_DY,
+              x1: bx1 + UB_DX, y1: by1 + UB_DY,
+              ct: true, cb: cutBottom, sides: ['bottom'] as Side[],
+            }
+    ))
   /**
    * 下になっている一枚の形。上の一枚とまったく同じ描き方で、
-   * 位置と大きさだけを `under` の箱に置きかえる。
+   * 位置と大きさだけを置きかえる。
    * 2枚が「同じ布を折っただけのもの」に見えるためには、
    * 端の描き分け（波・まっすぐ・角のまるみ）もそろっていなければならない
    */
   const underPath = hasUnder
-    ? sheet(under.x0, under.y0, under.x1, under.y1, cutTop, cutBottom, leadApex)
+    ? underBoxes.map((b) => sheet(b.x0, b.y0, b.x1, b.y1, b.ct, b.cb, leadApex, b.sides))
+      .join(' ')
     : null
 
   /**
@@ -2541,11 +2586,20 @@ function SectionCanvas({
    * みみは裁断に使わないので、型紙とは重ならない（依頼者の指示・2026-08-30）
    */
   const selvageStraight = (xEdge: number, outward: 1 | -1) => {
+    /*
+      下へ折り込んだときは、この帯は**面の下**にある（依頼者の判断・2026-09-05）。
+      色を下の一枚のものにそろえ、のぞいているところまで引き通す。
+      面の上に見えているのは、下でこの端が終わっていることの印——
+      ここから先は一重、という境目そのもの。つまむ持ち手もこの線に乗っている
+    */
+    const over = allDoubled ? 0 : UNDER_SHIFT
     const line = (o: number) => {
       const x = (xEdge + outward * o).toFixed(1)
-      return `M${x} ${by0.toFixed(1)} L${x} ${by1.toFixed(1)}`
+      return `M${x} ${by0.toFixed(1)} L${x} ${(by1 + over).toFixed(1)}`
     }
-    return selvageMarks(line(SEL_BW / 2), line(SEL_BW), SELVAGE)
+    return selvageMarks(
+      line(SEL_BW / 2), line(SEL_BW), allDoubled ? SELVAGE : SELVAGE_UNDER,
+    )
   }
 
   /**
@@ -2926,9 +2980,17 @@ function SectionCanvas({
               <path d={underPath} fill="none" stroke="#b8b6a4" strokeWidth={W * 0.004} />
               <g clipPath={`url(#${gid}-clip-under)`}>
                 {crestBands()}
-                {/* 下の一枚のみみ。点々が2列あること＝布が2枚あること */}
-                {selvages.map((s) => (
-                  selvageOn(under, s as 'left' | 'right', SELVAGE_UNDER, `usv-${s}`)
+                {/*
+                  下の一枚のみみ。点々が2列あること＝布が2枚あること。
+
+                  縦に折り込んだときは、下の一枚の遠いほうの端がそのまま
+                  「折り返した端」なので、`selvageStraight` が面の上まで
+                  引き通している。ここで重ねて引くと帯が二度塗りになる
+                */}
+                {(allDoubled || !foldVertical) && underBoxes.map((b, i) => (
+                  selvages.map((sd) => (
+                    selvageOn(b, sd as 'left' | 'right', SELVAGE_UNDER, `usv-${i}-${sd}`)
+                  ))
                 ))}
               </g>
             </>
@@ -3017,6 +3079,19 @@ function SectionCanvas({
                 */}
                 {horiz && selvageStraight(
                   f.side === 'left' ? f.w : W + OPENX - f.w, f.side === 'left' ? 1 : -1,
+                )}
+                {/*
+                  横に折ったときの折り返した端は、みみではなく**裁ち端**。
+                  下へ折り込んであるので面の下にあるが、そこで下の一枚が
+                  終わっていることの印として、うすい波を面の上に引いておく。
+                  縦に折ったときのみみの帯と同じ役目（依頼者の判断・2026-09-05）
+                */}
+                {!horiz && !allDoubled && (
+                  <path
+                    d={`M${bx0.toFixed(1)} ${sy.toFixed(1)}${waveSeg(bx0, bx1, sy)}`}
+                    fill="none" stroke={SELVAGE_UNDER.line}
+                    strokeWidth={W * 0.004} opacity={0.45}
+                  />
                 )}
               </g>
             )
