@@ -3233,7 +3233,10 @@ function SectionCanvas({
             線そのものは細いので、その両側に見えない帯を敷いて指の的をひろげる。
             型紙より**先に**描いてあるので、型紙が乗っているところでは型紙が勝つ。
             生地の空いているところでだけ、折り返しをつまめる。
-            型紙の上からでもつまめる小さなつまみは、型紙のあとに別に描いてある
+            型紙の上からでもつまめる小さなつまみは、型紙のあとに別に描いてある。
+
+            帯は、下の一枚がのぞいているところ（面の外）まで伸ばしてある。
+            つまみがそこに乗っているので、その周りもつまめないと具合が悪い
           */}
           {flaps.map((f) => {
             const horiz = f.side === 'left' || f.side === 'right'
@@ -3245,8 +3248,8 @@ function SectionCanvas({
                 data-ui="fold-grab"
                 x={horiz ? at - band / 2 : bx0}
                 y={horiz ? by0 : at - band / 2}
-                width={horiz ? band : bodyW}
-                height={horiz ? by1 - by0 : band}
+                width={horiz ? band : bodyW + UNDER_SHIFT}
+                height={horiz ? by1 - by0 + UNDER_SHIFT : band}
                 fill="none"
                 pointerEvents="all"
                 style={{ cursor: horiz ? 'ew-resize' : 'ns-resize' }}
@@ -3615,22 +3618,40 @@ function SectionCanvas({
             そこがつまめること自体が見えなくなる。
             矢の向きが、内へ入れる・外へ出すという動きそのものを言っている。
 
-            線に沿った置きどころは、はじまり側を空けておく。
-            そこには「生地が二重」の札が出るので、重ねると両方読めなくなる。
-            左（上）と右（下）でずらしてあるのは、両側から折って端どうしが
-            出会ったとき、2つのつまみが同じところに重なるのを避けるため
+            置きどころは、**下になっている一枚の端**（依頼者の指示・2026-09-05
+            「下の生地の耳に乗っかていて欲しい。さらに言うと下側あたりの方が
+            動かしたときにも分かりやすいのではないでしょうか？」）。
+
+            折り返した一枚は面の**下**へ入っているので、その端が目に見えるのは、
+            `UNDER_SHIFT` だけずらしたぶんだけのぞいている細い帯——縦に折ったなら
+            生地の下、横に折ったなら右——のところだけである。つまみをそこに置くと、
+            引きずったときにのぞいている帯そのものが伸び縮みするので、
+            **自分が動かしているのはどの一枚なのか**が目で分かる。
+            面の上（＝上の一枚）に置いていたときは、そこが上の生地の耳に見えてしまい、
+            下の一枚を動かしているという話が伝わらなかった。
+
+            両側から折って端どうしが近づくと、2つのつまみが同じところに来る。
+            そのときは、重なるぶんだけ**それぞれ自分の折り返しの側へ**ずらす。
+            出会い目をはさんで左のつまみが左、右のつまみが右に並ぶので、
+            どちらがどちらの持ち手なのかも、そのまま読める。
+            のぞいている帯からは外れないので、乗っている先は変わらない
           */}
           {flaps.map((f) => {
             const horiz = f.side === 'left' || f.side === 'right'
             const at = flapEdgeAt(f.side)
-            const near = f.side === 'left' || f.side === 'top'
-            const along = horiz
-              ? by0 + (by1 - by0) * (near ? 0.72 : 0.87)
-              : bx0 + bodyW * (near ? 0.72 : 0.87)
-            const cx = horiz ? at : along
-            const cy = horiz ? along : at
             const dw = W * (horiz ? 0.115 : 0.06)
             const dh = W * (horiz ? 0.06 : 0.115)
+            // 下の一枚がのぞいている帯の、まんなか
+            const along = (horiz ? by1 : bx1) + UNDER_SHIFT * 0.5
+            const mate: Side = horiz
+              ? (f.side === 'left' ? 'right' : 'left')
+              : (f.side === 'top' ? 'bottom' : 'top')
+            const apart = depth[mate] > 0 ? Math.abs(flapEdgeAt(mate) - at) : Infinity
+            const size = horiz ? dw : dh
+            const away = (f.side === 'left' || f.side === 'top' ? -1 : 1)
+              * Math.max(0, (size - apart) / 2)
+            const cx = horiz ? at + away : along
+            const cy = horiz ? along : at + away
             const a = W * 0.036
             const b = W * 0.015
             const arrow = horiz
