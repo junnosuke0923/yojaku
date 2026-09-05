@@ -130,6 +130,7 @@ export function PartsView({ state, onChange, onAddMore, onLayout }: Props) {
                     index={i}
                     total={patterns.length}
                     onGo={(n) => { const t = patterns[n]; if (t) setOpenId(t.id) }}
+                    onNext={onLayout}
                   />
                 ) : null}
               />
@@ -721,18 +722,31 @@ function PartRow({
  *
  * 前へも後ろへも行けるようにしてある。戻って1つだけ直し、また続きへ帰れること。
  *
- * 端では押せなくしてある。最後のパーツから先は「生地を決める」——
- * 別の段階への移動なので、この段には混ぜない。
- * ひとつの並びに二種類の行き先を置くと、どこへ行くのか読めなくなる
+ * **最後のパーツでは、右側が「生地を決める」に変わる**
+ * （依頼者の指示・2026-09-05「一番最後のパーツになっているものには
+ * 『次のパーツ』の代わりに『次のセクションへ』などというボタンにしてください。
+ * その際すぐにそれに気づけるように『生地を決める』と同じ緑色のボタンが
+ * 良いかと思っています」）。
+ *
+ * もとは端で押せなくしてあった。「別の段階への移動をこの段に混ぜない」
+ * という理屈だったが、実際に使うと**最後を決め終えた指が行き止まりに当たる**。
+ * 縫い代のパネルは縦に長いので、そこから下の「生地を決める」まで
+ * 巻き下ろすことになり、この行き来をカードの頭に置いた意味が消えていた。
+ * 行き先が変わることは、灰色と緑という**色そのもの**で言う。
+ * 文字だけでなく色が変わるので、押す前に気づける
  */
-function PartNav({ index, total, onGo }: {
+function PartNav({ index, total, onGo, onNext }: {
   index: number
   total: number
   onGo: (i: number) => void
+  /** 最後のパーツから先。次の段階（生地を決める）へ */
+  onNext: () => void
 }) {
-  const side = 'flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2.5 text-sm font-bold'
+  const side = 'flex min-w-0 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border px-3 py-2.5 text-sm font-bold'
   const live = 'border-mat-300 text-mat-700 active:bg-mat-50'
   const dead = 'border-ink-100 text-ink-300'
+  // 下の大きな「生地を決める →」と同じ緑。同じところへ行くものは同じ色にする
+  const go = 'border-mat-500 bg-mat-500 text-white active:bg-mat-600'
   const first = index === 0
   const last = index === total - 1
   return (
@@ -747,15 +761,21 @@ function PartNav({ index, total, onGo }: {
         前のパーツ
       </button>
       <span className="tnum shrink-0 text-xs font-bold text-ink-300">{index + 1} / {total}</span>
-      <button
-        type="button"
-        onClick={() => onGo(index + 1)}
-        disabled={last}
-        className={`${side} ${last ? dead : live}`}
-      >
-        次のパーツ
-        <Icon name="chevron" className="h-4 w-4 shrink-0" />
-      </button>
+      {last ? (
+        <button type="button" onClick={onNext} className={`${side} ${go}`}>
+          生地を決める
+          <Icon name="chevron" className="h-4 w-4 shrink-0" />
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onGo(index + 1)}
+          className={`${side} ${live}`}
+        >
+          次のパーツ
+          <Icon name="chevron" className="h-4 w-4 shrink-0" />
+        </button>
+      )}
     </div>
   )
 }
