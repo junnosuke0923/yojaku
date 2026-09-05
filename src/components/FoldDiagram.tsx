@@ -44,9 +44,14 @@ const W = 1000
 const H = 168
 /** 生地の厚み。見た目のためのもので、実寸ではない */
 const THICK = 16
-/** 下の一枚と、その上に折り返して乗っている一枚の高さ */
-const LOWER = 145
-const UPPER = 145 - 74
+/**
+ * 断面の2本の線の高さ。
+ * 折り返した一枚は**下へ折り込む**ので（依頼者の判断・2026-09-05）、
+ * ふだんは UPPER のほうが「折らずに広がっている一枚」になる。
+ * 端の名前をその下に置けるよう、全体を少し上へ寄せてある
+ */
+const LOWER = 128
+const UPPER = LOWER - 74
 /** 折り山の丸み */
 const R = (LOWER - UPPER) / 2
 /**
@@ -89,6 +94,17 @@ export function FoldDiagram({ fold, half, nearMm, farMm, spanMm }: Props) {
   const allDoubled = near + far >= W - (both ? MEET_GAP : 0) - 0.5
   /** 両側から折って、左右のみみが中央で突き合わさっている */
   const metInMiddle = both && allDoubled
+  /**
+   * 折り返した一枚を、下へ折り込んだ形で描くか（依頼者の判断・2026-09-05）。
+   *
+   * 裁ち合わせ図のほうの描き方に合わせる。断面図と裁ち合わせ図とで
+   * どちらの一枚が上なのかが食い違うと、並べて置いてある2つの図が
+   * そのまま食い違って見える。
+   * 左右から折ってみみが中央で出会うときだけは、裁ち合わせ図のほうも
+   * 折り返しを上に描いている（みみのあいだの隙間から下の一枚が
+   * のぞく図が要るため）ので、断面図もそれに合わせる
+   */
+  const flapUnder = !metInMiddle
   const folded = near > 0 || far > 0
   /**
    * 折り方は選んであるけれど、まだ何も「わに当てて」いない状態。
@@ -155,8 +171,8 @@ export function FoldDiagram({ fold, half, nearMm, farMm, spanMm }: Props) {
       {/* 左右に余白を取る。折り山の丸みが枠の外にふくらむため */}
       <svg viewBox={`${-PAD} 0 ${W + PAD * 2} ${H}`} className="w-full" role="img"
         aria-label={`${FOLD_LABELS[fold]}にした生地の断面`}>
-        {/* 下になっている一枚。端から端まである */}
-        <path d={`M0 ${LOWER} H${W}`} stroke={CLOTH} strokeWidth={THICK}
+        {/* 折らずに広がっている一枚。端から端まである。ふだんはこれが上に来る */}
+        <path d={`M0 ${flapUnder ? UPPER : LOWER} H${W}`} stroke={CLOTH} strokeWidth={THICK}
           strokeLinecap="butt" fill="none" />
 
         {/*
@@ -178,10 +194,10 @@ export function FoldDiagram({ fold, half, nearMm, farMm, spanMm }: Props) {
           const x = atStart ? 0 : W
           return (
             <g key={side}>
-              <path d={`M${x} ${LOWER - 4} v-46`} stroke={CREASE} strokeWidth={5}
+              <path d={`M${x} ${UPPER + 4} v46`} stroke={CREASE} strokeWidth={5}
                 strokeDasharray="12 10" />
-              {/* 点線の印に、旗のように上から添える。下に書くと字幕になってしまう */}
-              <text x={atStart ? 10 : W - 10} y={LOWER - 62} fontSize={30} fontWeight={700}
+              {/* 点線の印に、旗のように添える。折り込む先は下なので、下に置く */}
+              <text x={atStart ? 10 : W - 10} y={UPPER + 84} fontSize={30} fontWeight={700}
                 fill={CREASE} textAnchor={atStart ? 'start' : 'end'}>ここがわ</text>
             </g>
           )
@@ -202,7 +218,8 @@ export function FoldDiagram({ fold, half, nearMm, farMm, spanMm }: Props) {
               fill={CREASE} textAnchor="end">わ</text>
             {/* 中央で出会っているときは、みみの名前をひとつだけ、その場所に置く */}
             {!metInMiddle && (
-              <text x={near} y={UPPER - 26} fontSize={22} fill={FAINT} textAnchor="middle"
+              <text x={near} y={flapUnder ? LOWER + 26 : UPPER - 26} fontSize={22}
+                fill={FAINT} textAnchor="middle"
                 dx={allDoubled ? -edgeDx : edgeDx}>{edgeName}</text>
             )}
           </>
@@ -214,7 +231,8 @@ export function FoldDiagram({ fold, half, nearMm, farMm, spanMm }: Props) {
             <text x={W + R + THICK * 0.5 + 7} y={CREASE_Y + 11} fontSize={30} fontWeight={700}
               fill={CREASE} textAnchor="start">わ</text>
             {!metInMiddle && (
-              <text x={W - far} y={UPPER - 26} fontSize={22} fill={FAINT} textAnchor="middle"
+              <text x={W - far} y={flapUnder ? LOWER + 26 : UPPER - 26} fontSize={22}
+                fill={FAINT} textAnchor="middle"
                 dx={allDoubled ? edgeDx : -edgeDx}>{edgeName}</text>
             )}
           </>
@@ -243,7 +261,8 @@ export function FoldDiagram({ fold, half, nearMm, farMm, spanMm }: Props) {
           一重の部分には折り返した一枚が乗っていないので、ここは必ず空いている
         */}
         {W - near - far > W * 0.16 && (
-          <text x={(near + (W - far)) / 2} y={LOWER - 30} fontSize={28} fill={FAINT}
+          <text x={(near + (W - far)) / 2} y={flapUnder ? UPPER - 26 : LOWER - 30}
+            fontSize={28} fill={FAINT}
             textAnchor="middle">{
               folded
                 ? (W - near - far > W * 0.3 ? '生地が一重' : '一重')

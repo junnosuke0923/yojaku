@@ -2586,19 +2586,29 @@ function SectionCanvas({
    * みみは裁断に使わないので、型紙とは重ならない（依頼者の指示・2026-08-30）
    */
   const selvageStraight = (xEdge: number, outward: 1 | -1) => {
-    /*
-      下へ折り込んだときは、この帯は**面の下**にある（依頼者の判断・2026-09-05）。
-      色を下の一枚のものにそろえ、のぞいているところまで引き通す。
-      面の上に見えているのは、下でこの端が終わっていることの印——
-      ここから先は一重、という境目そのもの。つまむ持ち手もこの線に乗っている
-    */
-    const over = allDoubled ? 0 : UNDER_SHIFT
-    const line = (o: number) => {
+    const line = (o: number, y0: number, y1: number) => {
       const x = (xEdge + outward * o).toFixed(1)
-      return `M${x} ${by0.toFixed(1)} L${x} ${(by1 + over).toFixed(1)}`
+      return `M${x} ${y0.toFixed(1)} L${x} ${y1.toFixed(1)}`
     }
-    return selvageMarks(
-      line(SEL_BW / 2), line(SEL_BW), allDoubled ? SELVAGE : SELVAGE_UNDER,
+    if (allDoubled) {
+      return selvageMarks(line(SEL_BW / 2, by0, by1), line(SEL_BW, by0, by1), SELVAGE)
+    }
+    /*
+      下へ折り込んだときは、この端は**面の下**にある（依頼者の指摘・2026-09-05）。
+
+      それでも帯とピン穴をそのまま引くと、みみが面の真ん中にもう1本
+      あるように見える。みみは生地の両端にしかないものなので、これは
+      絵としてそのまま嘘になる（右端の本物のみみと見分けが付かない）。
+
+      そこで、みみとしては描かず、二重がここで終わるといううすい線1本に
+      とどめる。横に折ったときの、折り返した端に引くうすい波と同じ扱い。
+      のぞいているところまで引き通してあるので、線がどこまで下りているかが
+      そのまま「どこまで二重か」になる。つまむ持ち手もこの線に乗っている。
+      この端がみみであることは、断面図（横から見ると）のほうで言っている
+    */
+    return (
+      <path d={line(0, by0, by1 + UNDER_SHIFT)} fill="none"
+        stroke={SELVAGE_UNDER.line} strokeWidth={W * 0.004} opacity={0.45} />
     )
   }
 
