@@ -31,7 +31,10 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { foldSidesOf, isVerticalSide, type EdgeAction, type FoldMode, type Side } from '../lib/fabric'
+import {
+  foldSidesOf, isVerticalSide, SIDE_NAMES,
+  type EdgeAction, type FoldMode, type Side,
+} from '../lib/fabric'
 
 type Props = {
   fold: FoldMode
@@ -40,6 +43,20 @@ type Props = {
   onEdge: (side: Side, action: EdgeAction) => void
   /** 引きずっている最中に、いま何をしているのかを言葉で出すためのもの */
   onHint: (text: string | null) => void
+  /**
+   * この図の1辺を引ききったとき、実物では何 mm 折ることになるか
+   * （依頼者の指示・2026-09-05「任意の辺を任意の幅で折り返させる」）。
+   *
+   * 渡されていない画面では、途中の深さは決められない。
+   * 「折らない」「型紙に合わせる」「半分」の3つだけになり、これまでと同じ動きをする。
+   * 生地の長さがまだ決まっていない（何も置いていない）横わでは、
+   * 引ききった先が何 cm なのかを言えないので、そういう場面もここが 0 になる。
+   */
+  scale?: {
+    spanMm: (side: Side) => number
+    /** 「置いた型紙の幅だけ折る」ときの深さ(mm)。当てた型紙が無ければ 0 */
+    autoMm: (side: Side) => number
+  }
 }
 
 /*
@@ -78,7 +95,20 @@ const MARGIN: Record<Side, number> = {
 
 /** これより浅く引いて離したら、折らなかったことにする */
 const OFF_UNDER = 0.12
-/** きっちり折った先まで、これだけ近づいたら吸い付く */
+/**
+ * 目盛りに吸い付く近さ（図の目盛り＝画面の1px）。
+ *
+ * 生地の幅いっぱいで 50 なので、4 は片側 8% ほど。
+ * 途中の深さを指で決められるようになった以上、
+ * 「半分」や「型紙に合わせる」を**行き過ぎずに拾える**幅は要るが、
+ * 広く取りすぎると、途中で止めたつもりの指が端に持っていかれる。
+ *
+ * 途中の深さが決められない画面（`scale` が無いとき）では、
+ * これまでどおり `SNAP_NEAR` の広い吸い付きのままにする。
+ * そこは3つの目盛りしかないので、行き過ぎて困る先が無い
+ */
+const SNAP_UNITS = 4
+/** 途中の深さを決められないときの、きっちり折った先への吸い付き */
 const SNAP_NEAR = 0.76
 
 const CLOTH = '#fdfcf8'
@@ -112,10 +142,6 @@ const SBW = 3
 const PITCH = 5
 /** 両わできっちり折ったとき、出会う端どうしのすきま */
 const GAP = 2.4
-
-const SIDE_NAMES: Record<Side, string> = {
-  left: '左', right: '右', top: '上', bottom: '下',
-}
 
 /** 辺の両端の点 */
 const ENDS: Record<Side, [number, number, number, number]> = {
@@ -464,7 +490,7 @@ function flipFrames(s: Side, depth: number): FlipFrames {
  */
 const canHalfOn = (_s: Side) => true
 
-export function FoldPicker({ fold, half, onEdge, onHint }: Props) {
+export function FoldPicker({ fold, half, onEdge, onHint, scale }: Props) {
   const sides = foldSidesOf(fold)
   const on = (s: Side) => sides.includes(s)
 
@@ -524,17 +550,51 @@ export function FoldPicker({ fold, half, onEdge, onHint }: Props) {
     const x = (clientX - box.left) * u
     const y = (clientY - box.top) * u
     const raw = { left: x - X0, right: X1 - x, top: y - Y0, bottom: Y1 - y }[s]
-    return Math.max(0, Math.min(spanOf(s), raw))
+    // 折り切った先より深くは折れない。両側から折るなら、そこは真ん中
+    return Math.max(0, Math.min(snugDepth(s), raw))
   }
 
-  /** きっちり折る位置に吸い付いたか。近づいた割合で見る */
-  const snapped = (s: Side, raw: number) =>
-    canHalfOn(s) && raw >= snugDepth(s) * SNAP_NEAR
+  /** 途中の深さまで決められる画面か。実物の寸法が分かっているときだけ */
+  const free = (s: Side) => (scale ? scale.spanMm(s) > 0 : false)
+
+  /** 「置いた型紙の幅だけ折る」が、この図のどこにあたるか。当てた型紙が無ければ null */
+  const autoAt = (s: Side) => {
+    if (!scale) return null
+    const span = scale.spanMm(s)
+    const mm = scale.autoMm(s)
+    if (span <= 0 || mm <= 0) return null
+    return Math.min(snugDepth(s), (mm / span) * spanOf(s))
+  }
+
+  /** きっちり折る位置に吸い付いたか */
+  const snapped = (s: Side, raw: number) => {
+    if (!canHalfOn(s)) return false
+    return free(s)
+      ? raw >= snugDepth(s) - SNAP_UNITS
+      : raw >= snugDepth(s) * SNAP_NEAR
+  }
+
+  /** 「置いた型紙の幅だけ折る」に吸い付いたか */
+  const atAuto = (s: Side, raw: number) => {
+    if (!free(s) || snapped(s, raw)) return false
+    const a = autoAt(s)
+    return a !== null && Math.abs(raw - a) < SNAP_UNITS
+  }
+
+  /** 指で決めた深さ。図の目盛りから実物の mm へ直し、5mm きざみに丸める */
+  const mmAt = (s: Side, raw: number) => {
+    const span = scale ? scale.spanMm(s) : 0
+    const mm = (raw / spanOf(s)) * span
+    return Math.round(mm / 5) * 5
+  }
 
   const hintOf = (s: Side, d: number, snap: boolean) => {
     if (d < spanOf(s) * OFF_UNDER) return `${SIDE_NAMES[s]}は折らない`
     // 言い方は、下のプルダウンと揃えてある
     if (snap) return bothOn(s) ? '両端が出会うまで折る' : '半分に折る'
+    if (atAuto(s, d)) return '置いた型紙の幅だけ折る'
+    // 折り返す幅は、指を離すと図には残らない。引いている今だけ数で言う
+    if (free(s)) return `折り返し ${(mmAt(s, d) / 10).toFixed(1)}cm`
     return '置いた型紙の幅だけ折る'
   }
 
@@ -570,7 +630,8 @@ export function FoldPicker({ fold, half, onEdge, onHint }: Props) {
     const raw = depthAt(d.side, e.clientX, e.clientY)
     if (raw < span * OFF_UNDER) onEdge(d.side, 'off')
     else if (snapped(d.side, raw)) onEdge(d.side, 'half')
-    else onEdge(d.side, 'partial')
+    else if (!free(d.side) || atAuto(d.side, raw)) onEdge(d.side, 'partial')
+    else onEdge(d.side, { depthMm: mmAt(d.side, raw) })
   }
 
   /**
@@ -709,15 +770,28 @@ export function FoldPicker({ fold, half, onEdge, onHint }: Props) {
         「ここまで引けばきっちり」が目で分かるようにする。吸い付く先の目印。
         片わならそれは向かい側の生地端で、両わなら真ん中になる
       */}
+      {/*
+        引きずっている最中に出る、吸い付く先の目盛り。
+        「半分」と「置いた型紙の幅だけ」の2本。近づいている1本だけが濃くなるので、
+        いまどちらに吸い付くのかが、指を離す前に分かる
+      */}
       {live && canHalfOn(live.side) && (() => {
         const s = live.side
-        const at = snugDepth(s)
-        const p = isVerticalSide(s)
-          ? { x1: s === 'left' ? X0 + at : X1 - at, y1: Y0 - 4, x2: s === 'left' ? X0 + at : X1 - at, y2: Y1 + 4 }
-          : { x1: X0 - 4, y1: s === 'top' ? Y0 + at : Y1 - at, x2: X1 + 4, y2: s === 'top' ? Y0 + at : Y1 - at }
+        const lineAt = (at: number, near: boolean, key: string) => {
+          const p = isVerticalSide(s)
+            ? { x1: s === 'left' ? X0 + at : X1 - at, y1: Y0 - 4, x2: s === 'left' ? X0 + at : X1 - at, y2: Y1 + 4 }
+            : { x1: X0 - 4, y1: s === 'top' ? Y0 + at : Y1 - at, x2: X1 + 4, y2: s === 'top' ? Y0 + at : Y1 - at }
+          return (
+            <line key={key} {...p} stroke={CREASE} strokeWidth={near ? 2 : 1}
+              strokeDasharray="3 3" opacity={near ? 0.9 : 0.35} />
+          )
+        }
+        const auto = autoAt(s)
         return (
-          <line {...p} stroke={CREASE} strokeWidth={live.snap ? 2 : 1}
-            strokeDasharray="3 3" opacity={live.snap ? 0.9 : 0.35} />
+          <>
+            {lineAt(snugDepth(s), live.snap, 'snug')}
+            {auto !== null && lineAt(auto, atAuto(s, live.d), 'auto')}
+          </>
         )
       })()}
 

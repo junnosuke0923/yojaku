@@ -16,7 +16,7 @@ import { unionWithMirror } from './openFold'
 import { buildSeam, DEFAULT_SEAM_MM, initialPlan, SEAM_INCLUDED_MM, type SeamPlan } from './seam'
 import {
   foldEdgeSides, foldSidesOf, FOLD_MARK_REF_MM, isVerticalSide,
-  type FoldMark, type FoldMode, type PlacedPart, type Placement, type Section,
+  type FoldMark, type FoldMode, type PlacedPart, type Placement, type Section, type Side,
 } from './fabric'
 
 const KEY = 'yojaku.parts.v1'
@@ -166,13 +166,34 @@ export function save(state: PartsState): void {
  */
 export function applyFoldChange(
   state: PartsState, sectionId: string, fold: FoldMode, halfFold?: boolean,
+  depth?: Partial<Record<Side, number | null>>,
 ): PartsState {
   const to = foldSidesOf(fold)
+  /*
+    指で決めた折り返しの深さ。`depth` は差分で、`null` を入れた辺は「指では決めていない」
+    ——つまり置いた型紙から決まる状態——へ戻る。
+
+    折り山でなくなった辺のぶんは捨てる。残しておくと、もう一度その辺を「わ」にしたとき、
+    覚えのない深さで折られることになる
+  */
+  const nextDepth = (was: Section['foldDepthMm']): Section['foldDepthMm'] => {
+    const out: Partial<Record<Side, number>> = {}
+    for (const sd of to) {
+      const mm = depth && depth[sd] !== undefined ? depth[sd] : was?.[sd]
+      if (typeof mm === 'number' && mm > 0) out[sd] = mm
+    }
+    return Object.keys(out).length > 0 ? out : undefined
+  }
   return {
     ...state,
     sections: state.sections.map((s) =>
       s.id === sectionId
-        ? { ...s, fold, ...(halfFold === undefined ? {} : { halfFold }) }
+        ? {
+          ...s,
+          fold,
+          ...(halfFold === undefined ? {} : { halfFold }),
+          foldDepthMm: nextDepth(s.foldDepthMm),
+        }
         : s,
     ),
     placements: state.placements.map((pl) => {

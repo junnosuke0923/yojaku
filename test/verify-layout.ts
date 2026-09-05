@@ -217,6 +217,68 @@ console.log('\n■ 生地幅を半分に折る — 見えている面はすべ�
   ok('問題なし', r.problems.length === 0, r.problems.map((x) => x.kind).join(',') || 'なし')
 }
 
+console.log('\n■ 折り返す幅を、指で決める')
+{
+  /*
+    辺を引きずって折り返す幅を決められるようにした（依頼者の指示・2026-09-05）。
+    「深さは結果であって、前提ではない」という決めごとは生きているので、
+    **指で決めていない辺は、これまでどおり**置いた型紙から決まる
+  */
+  const hand = (fold: FoldMode, depth: Partial<Record<Side, number>>): Fabric => ({
+    widthMm: 1100, hasNap: false,
+    sections: [{ id: 's1', fold, foldDepthMm: depth }],
+  })
+
+  {
+    // 何も当てていない生地を、20cm だけ折り返す
+    const r = run(hand('vLeft', { left: 200 }), [], [])
+    near('折り込む深さは、決めたとおり', r.sections[0].foldDepth.left, 200, 0)
+    near('置ける幅は残り', r.sections[0].surfaceWidthMm, 860, 0)
+  }
+  {
+    // 30cm の型紙を折り山に当てたまま、折り返しだけ 40cm に広げる
+    const p = newPlacement('a', 'p1', 's1', { snapTo: 'left' })
+    const r = run(hand('vLeft', { left: 400 }), [p], [part('p1', 300, 400, true)])
+    near('型紙より深く折れる', r.sections[0].foldDepth.left, 400, 0)
+    near('「置いた型紙の幅だけ」も分かる', r.sections[0].snapDepth.left, 300, 0)
+    ok('問題なし', r.problems.length === 0, r.problems.map((x) => x.kind).join(',') || 'なし')
+  }
+  {
+    // 折り返しより型紙のほうが大きいと、開いても向こう半分が取れない
+    const p = newPlacement('a', 'p1', 's1', { snapTo: 'left' })
+    const r = run(hand('vLeft', { left: 200 }), [p], [part('p1', 300, 400, true)])
+    ok('折り返しからはみ出したら知らせる',
+      r.problems.some((x) => x.kind === 'pastFold' && x.placementId === 'a'),
+      r.problems.map((x) => x.kind).join(',') || 'なし')
+  }
+  {
+    // 縦に折れるのは有効幅の半分まで。それ以上はみみがみみを追い越す
+    const r = run(hand('vLeft', { left: 900 }), [], [])
+    near('半分より深くは折らない', r.sections[0].foldDepth.left, 530, 0)
+  }
+  {
+    // 指で決めた辺があるあいだは、「きっちり半分」は効かない
+    const f: Fabric = {
+      widthMm: 1100, hasNap: false,
+      sections: [{ id: 's1', fold: 'vLeft', halfFold: true, foldDepthMm: { left: 200 } }],
+    }
+    near('指のほうが強い', run(f, [], []).sections[0].foldDepth.left, 200, 0)
+  }
+  {
+    // 横わは、折り返したぶんだけ生地が余分に要る
+    const r = run(hand('hBottom', { bottom: 250 }), [], [])
+    near('折り込む深さ', r.sections[0].foldDepth.bottom, 250, 0)
+    near('面の長さも、そこまで伸びる', r.sections[0].surfaceLengthMm, 250, 0)
+    near('要尺は面＋折り込み', r.totalMm, 500, 0)
+  }
+  {
+    // 前に保存した見積り（この欄が無いもの）は、開いても何も変わらない
+    const p = newPlacement('a', 'p1', 's1', { snapTo: 'left' })
+    const was = run(fabric(1100, ['vLeft']), [p], [part('p1', 300, 400, true)])
+    near('決めていなければ、置いた型紙のまま', was.sections[0].foldDepth.left, 300, 0)
+  }
+}
+
 console.log('\n■ 二重の上でも「上の一枚だけ裁つ」を選べば1枚')
 {
   const f = halfFabric(1100)

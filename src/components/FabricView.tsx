@@ -20,8 +20,8 @@
 
 import { useMemo } from 'react'
 import {
-  computeYardage, isHalfFold, isHorizontalFold,
-  type Fabric, type FoldMode,
+  computeYardage, foldScaleOf, isHalfFold, isHorizontalFold,
+  type Fabric, type FoldMode, type Side,
 } from '../lib/fabric'
 import { applyFoldChange, placedPartOf, type PartsState } from '../lib/store'
 import type { PlacedPart } from '../lib/fabric'
@@ -65,8 +65,9 @@ export function FabricView({ state, onChange, onLayout }: Props) {
   const sr = report.sections[0]
   const split = state.sections.length > 1
 
-  const setFold = (fold: FoldMode, halfFold?: boolean) =>
-    onChange(applyFoldChange(state, section.id, fold, halfFold))
+  const setFold = (
+    fold: FoldMode, halfFold?: boolean, depth?: Partial<Record<Side, number | null>>,
+  ) => onChange(applyFoldChange(state, section.id, fold, halfFold, depth))
 
   return (
     <section className="flex flex-col gap-2.5">
@@ -83,6 +84,7 @@ export function FabricView({ state, onChange, onLayout }: Props) {
         prefix={split ? '1 つめ・' : undefined}
         onFold={setFold}
         onHalf={(halfFold) => setFold(section.fold, halfFold)}
+        scale={foldScaleOf(state.fabricWidthMm, sr)}
       />
 
       {/* 平面図に線を引くだけでは、折っていることが伝わらない。横から見た形を添える */}

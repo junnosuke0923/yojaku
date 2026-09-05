@@ -105,6 +105,11 @@ export function foldSidesOf(fold: FoldMode): Side[] {
 
 export const isVerticalSide = (s: Side) => s === 'left' || s === 'right'
 
+/** 生地のどの辺か、を学生に言うときの言葉 */
+export const SIDE_NAMES: Record<Side, string> = {
+  left: '左', right: '右', top: '上', bottom: '下',
+}
+
 /** `foldSidesOf` の逆。折り山にした辺の組から折り方を決める */
 export function foldOfSides(sides: Iterable<Side>): FoldMode {
   const s = new Set(sides)
@@ -139,7 +144,15 @@ export function toggleFoldSide(fold: FoldMode, side: Side): FoldMode {
   return foldOfSides(now)
 }
 
-/** 折り図の辺をさわり終えたときに起きること */
+/**
+ * 折り図の辺をさわり終えたときに起きること。
+ *
+ * 「折らない」「型紙に合わせる」「半分」の3つは、深さという1本の物差しの上に
+ * 並んでいる目盛りであって、別々の設定ではない。だから引きずる操作は
+ * この3つに吸い付きながら、途中の好きなところでも止められる
+ * （依頼者の指示・2026-09-05「みみや裁ち端を長押ししてそのまま指を動かすと
+ * 折り返し幅を伸ばしたり縮めたりする」）。
+ */
 export type EdgeAction =
   /** 押した。「わ」が付いていなければ付け、付いていれば外す */
   | 'toggle'
@@ -149,25 +162,34 @@ export type EdgeAction =
   | 'partial'
   /** 引きずって、半分まで折った＝きっちり折る */
   | 'half'
+  /** 引きずって、途中で止めた＝折る深さを指で決めた */
+  | { depthMm: number }
 
 /**
  * 辺をさわった結果、折り方がどうなるか。
  *
  * 小さい折り図は「生地」の画面と「並べる」の画面の両方に出る（依頼者の指示・2026-09-01）。
  * どちらでさわっても同じことが起きるように、決め方はここに1つだけ置いてある。
+ *
+ * `depthMm` は、指で決めた折り返しの深さ。`null` は「指では決めていない状態へ戻す」
+ * ＝また置いた型紙から決まるようになる、という意味である。
  */
 export function foldFromEdge(
   fold: FoldMode, side: Side, action: EdgeAction,
-): { fold: FoldMode; halfFold?: boolean } {
-  if (action === 'toggle') return { fold: toggleFoldSide(fold, side) }
+): { fold: FoldMode; halfFold?: boolean; depthMm?: number | null } {
+  if (action === 'toggle') return { fold: toggleFoldSide(fold, side), depthMm: null }
   if (action === 'off') {
     const left = new Set(foldSidesOf(fold))
     left.delete(side)
-    return { fold: foldOfSides(left) }
+    return { fold: foldOfSides(left), depthMm: null }
   }
   // まだ「わ」でなければ付ける。縦と横は両立しないので、通し方は押したときと同じ
   const next = foldSidesOf(fold).includes(side) ? fold : toggleFoldSide(fold, side)
-  return { fold: next, halfFold: action === 'half' }
+  if (typeof action === 'object') {
+    // 指で決めた深さと「きっちり半分」は、同じ物差しの上の別の場所。同時には立たない
+    return { fold: next, halfFold: false, depthMm: action.depthMm }
+  }
+  return { fold: next, halfFold: action === 'half', depthMm: null }
 }
 
 export type Fabric = {
@@ -204,14 +226,43 @@ export type Section = {
    * false なら従来どおり、折り山に当てた型紙の大きさから深さが決まる（判断7）。
    */
   halfFold?: boolean
+  /**
+   * 指で決めた折り返しの深さ(mm)。辺の札を押したまま引きずって決める
+   * （依頼者の指示・2026-09-05）。
+   *
+   * 入っていない辺は**従来どおり**、折り山に当てた型紙の大きさから決まる。
+   * 前に保存した見積りにはこの欄が無いので、開いても何も変わらない。
+   *
+   * 「深さは結果であって、前提ではない」（2026-08-30）という決めごとは
+   * そのまま生きている。ここに数が入るのは、学生が自分の指でそう決めたときだけで、
+   * そのときは指のほうが型紙より強い。ただし型紙がその深さからはみ出したら、
+   * 折り返しの中に収まっていないので `pastFold` で知らせる。
+   */
+  foldDepthMm?: Partial<Record<Side, number>>
 }
 
 /** きっちり折るやり方がある折り方かどうか */
 export const canHalfFold = (f: FoldMode) => f !== 'none'
 
-/** この区間は、生地幅を半分に折って使うのか */
+/** 指で決めた折り返しがある辺かどうか。あるなら、その深さ(mm) */
+export function handDepthOf(section: Section, side: Side): number | null {
+  if (!foldSidesOf(section.fold).includes(side)) return null
+  const mm = section.foldDepthMm?.[side]
+  return typeof mm === 'number' && mm > 0 ? mm : null
+}
+
+/** この区間に、指で決めた折り返しが1つでもあるか */
+export const hasHandDepth = (section: Section) =>
+  foldSidesOf(section.fold).some((sd) => handDepthOf(section, sd) !== null)
+
+/**
+ * この区間は、生地幅を半分に折って使うのか。
+ *
+ * 指で深さを決めた辺があれば、そちらが優先される。「きっちり半分」も
+ * 深さという1本の物差しの上の一点なので、両方が同時に立つことはない
+ */
 export const isHalfFold = (section: Section) =>
-  section.halfFold === true && canHalfFold(section.fold)
+  section.halfFold === true && canHalfFold(section.fold) && !hasHandDepth(section)
 
 export type Placement = {
   id: string
@@ -335,6 +386,26 @@ export type PlacedPart = {
 
 export const usableWidthMm = (fabric: Fabric) => Math.max(0, fabric.widthMm - SELVAGE_MM * 2)
 
+/**
+ * 折り図の辺を**引ききった**とき、実物では何 mm 折ることになるか
+ * （＝その辺で折り切ったときの深さ）と、
+ * 「置いた型紙の幅だけ折る」がその物差しのどこにあたるか。
+ *
+ * 縦は、みみからみみへ折るので有効幅の半分。
+ * 横は、裁ち端が向かい側の裁ち端に重なるので面の長さ。
+ * 面の長さは置いたパーツで決まるので、まだ何も置いていなければ 0 になり、
+ * そのときは途中の深さを指で決められない（何 cm なのかを言えないため）。
+ *
+ * 小さい折り図と大きい裁ち合わせ図で同じ物差しを使うために、ここに1つだけ置く
+ */
+export function foldScaleOf(fabricWidthMm: number, sr: SectionReport) {
+  const usable = Math.max(0, fabricWidthMm - SELVAGE_MM * 2)
+  return {
+    spanMm: (side: Side) => (isVerticalSide(side) ? usable / 2 : sr.surfaceLengthMm),
+    autoMm: (side: Side) => sr.snapDepth[side],
+  }
+}
+
 export const newPlacement = (
   id: string, partId: string, sectionId: string,
   over: Partial<Placement> = {},
@@ -438,7 +509,10 @@ export function foldEdgeSides(part: PlacedPart, p: Placement): Side[] {
 }
 
 export type Problem = {
-  kind: 'tooWide' | 'tooDeep' | 'overlap' | 'offFold' | 'noSuchFold' | 'napLocked' | 'acrossMeet'
+  kind:
+    | 'tooWide' | 'tooDeep' | 'overlap' | 'offFold' | 'noSuchFold' | 'napLocked' | 'acrossMeet'
+    /** 指で決めた折り返しより、折り山に当てた型紙のほうが大きい */
+    | 'pastFold'
   message: string
   placementId?: string
   /**
@@ -460,8 +534,14 @@ export type SectionReport = {
   surfaceWidthMm: number
   /** 描く面の長さ(mm)。置いたパーツのいちばん下で決まる */
   surfaceLengthMm: number
-  /** 折り込む深さ(mm)。折り山に当てたパーツのうち、いちばん深いものから決まる */
+  /** 折り込む深さ(mm)。指で決めていれば その値、決めていなければ `snapDepth` */
   foldDepth: Record<Side, number>
+  /**
+   * 折り山に当てたパーツのうち、いちばん深いものの大きさ(mm)。
+   * 「置いた型紙の幅だけ折る」を選んだときの深さでもある。
+   * 辺を引きずるときに、ここへ吸い付かせるために要る
+   */
+  snapDepth: Record<Side, number>
   /** この区間が使う生地の長さ(mm)。横わのときは折り込んだぶんが足される */
   yardageMm: number
   /**
@@ -620,7 +700,23 @@ export function computeYardage(
       else if (section.fold === 'hBottom') depth.bottom = surfaceLength
       else depth.top = surfaceLength
     } else {
-      for (const sd of sides) depth[sd] = snapped[sd]
+      /*
+        指で決めた深さがあれば、その辺はそれで折る。無い辺は従来どおり、
+        折り山に当てた型紙の大きさで折る（依頼者の指示・2026-09-05）。
+
+        縦に折れるのは有効幅の半分まで。それ以上はみみがみみを追い越すので、
+        実物では起こらない。ここで頭打ちにする。
+        横は上限が無い（深く折り返せば、そのぶん長い生地が要るだけ）
+      */
+      for (const sd of sides) {
+        const hand = handDepthOf(section, sd)
+        if (hand === null) depth[sd] = snapped[sd]
+        else depth[sd] = isVerticalSide(sd) ? Math.min(hand, usable / 2) : hand
+      }
+      // 折り返しは面の中に収まっていないといけない。指で深く折ったなら、面も伸びる
+      surfaceLength = sides.includes('top') && sides.includes('bottom')
+        ? Math.max(surfaceLength, depth.top + depth.bottom)
+        : Math.max(surfaceLength, depth.top, depth.bottom)
     }
 
     const surfaceWidth = usable - depth.left - depth.right
@@ -760,6 +856,29 @@ export function computeYardage(
         })
       }
 
+      /*
+        指で決めた折り返しより、当てた型紙のほうが大きいとき。
+
+        折り山に当てた型紙は、折り返してきた一枚の**中に丸ごと収まって**いないと、
+        開いたときの向こう半分が存在しない。実物では、折り足りないまま裁つと
+        片側だけが短い布が出てくる。深さを指で決められるようにした以上、
+        足りない決め方もできてしまうので、その場でそう言う
+      */
+      const snapSide = snapOf(p)
+      if (snapSide && handDepthOf(section, snapSide) !== null) {
+        const need = isVerticalSide(snapSide) ? box.w : box.h
+        if (need > depth[snapSide] + 0.5) {
+          problems.push({
+            kind: 'pastFold',
+            placementId: p.id,
+            message: `折り返し ${fmtCm(depth[snapSide])}cm では足りません`
+              + `（このパーツは ${fmtCm(need)}cm）。`
+              + '折り返しの中に収まっていないと、開いても向こう半分が取れません。'
+              + '折り返しを深くするか、折り山から外してください。',
+          })
+        }
+      }
+
       // 折り山に当てていれば、開いて左右対称の1枚。
       // 二重の帯に丸ごと入っていれば2枚。またいでいるなら1枚（安全側に倒す）。
       // 端どうしの出会い目をまたいでいるときも、上の一枚が割れるので1枚
@@ -792,6 +911,7 @@ export function computeYardage(
       surfaceWidthMm: surfaceWidth,
       surfaceLengthMm: surfaceLength,
       foldDepth: depth,
+      snapDepth: snapped,
       // 縦に折っても長さは変わらないが、横に折ると折ったぶんだけ余分に使う
       yardageMm: surfaceLength + depth.top + depth.bottom,
       minYardageMm: minYardageOf(

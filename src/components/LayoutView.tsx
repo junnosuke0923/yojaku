@@ -22,12 +22,12 @@ import { cutSizeOf, isReserve, RESERVE_CHOICES, toReserve } from '../lib/store'
 import { cm } from '../lib/format'
 import {
   computeYardage, foldEdgeSides, FOLD_LABELS, FOLD_MARK_REF_MM,
-  foldSidesOf, freeSpotFor, sizeOf as partSizeOf, turnBy, turnOf,
-  isHalfFold, isHorizontalFold, newPlacement, orientedPair,
-  PURCHASE_MARGIN_MM, PURCHASE_ROUND_MM, SELVAGE_MM, SNAP_MM, toggleFoldSide,
+  foldFromEdge, foldScaleOf, foldSidesOf, freeSpotFor, sizeOf as partSizeOf, turnBy, turnOf,
+  isHalfFold, isHorizontalFold, isVerticalSide, newPlacement, orientedPair,
+  PURCHASE_MARGIN_MM, PURCHASE_ROUND_MM, SELVAGE_MM, SNAP_MM,
   packedUp, pulledIn,
-  type Fabric, type FoldMark, type FoldMode, type PlacedPart, type Placement,
-  type Problem, type Section, type Side,
+  type EdgeAction, type Fabric, type FoldMark, type FoldMode, type PlacedPart,
+  type Placement, type Problem, type Section, type Side,
 } from '../lib/fabric'
 import { defaultName, MAX_SAVES, putSave, type Save } from '../lib/saves'
 import { renderLayoutImage, saveImage, type Sheet } from '../lib/exportImage'
@@ -177,6 +177,7 @@ const ALERT_TEXT: Record<Problem['kind'], string> = {
   overlap: '型紙が重なっています',
   acrossMeet: '出会い目をまたいでいます',
   napLocked: '毛並みの向きがそろいません',
+  pastFold: '折り返しからはみ出しています',
 }
 
 /**
@@ -698,7 +699,8 @@ export function LayoutView({
           onSelect={(id) => { setSelectedId(id); setPanelOpen(false) }}
           onOpen={(id) => { setSelectedId(id); setPanelOpen(true) }}
           onMove={patch}
-          onFold={(fold, halfFold) => onChange(applyFoldChange(state, section.id, fold, halfFold))}
+          onFold={(fold, halfFold, depth, group) =>
+            onChange(applyFoldChange(state, section.id, fold, halfFold, depth), group)}
           onHalf={(halfFold) =>
             onChange({
               ...state,
@@ -1300,8 +1302,17 @@ function SectionCanvas({
   /** 動かさずに離した＝押した。細かく決める板を開く */
   onOpen: (id: string) => void
   onMove: (id: string, over: Partial<Placement>, group?: string) => void
-  /** 折り方を変える。「きっちり折るか」も同時に決まるときは、いっしょに渡す */
-  onFold: (fold: FoldMode, halfFold?: boolean) => void
+  /**
+   * 折り方を変える。「きっちり折るか」「折り返しの深さ」も、いっしょに渡す。
+   *
+   * `group` は、ひと続きの操作にまとめるための合図。
+   * 辺を引きずって折り返す幅を決めるあいだは細かく何度も変わるので、
+   * 同じ合図を付けて**戻るを1回で済ませる**
+   */
+  onFold: (
+    fold: FoldMode, halfFold?: boolean, depth?: Partial<Record<Side, number | null>>,
+    group?: string,
+  ) => void
   onHalf: (halfFold: boolean) => void
   onDrop: () => void
   /**
@@ -1349,6 +1360,35 @@ function SectionCanvas({
   const pinch = useRef<{ d0: number; k0: number; ox: number; oy: number } | null>(null)
   /** 型紙ではないところをつかんで、図をずらしているとき */
   const pan = useRef<{ px: number; py: number; zx: number; zy: number } | null>(null)
+  /**
+   * 端の札を押したまま引きずって、折り返す幅を決めているとき
+   * （依頼者の指示・2026-09-05）。
+   *
+   * 引きはじめの深さを覚えておいて、そこからの**動いたぶん**で決める。
+   * 引いた先の座標をそのまま読むと、深さが変わるたびに図の幅も変わるので、
+   * 指が止まっているのに数だけが動き続けることになる
+   */
+  const tagDrag = useRef<{
+    side: Side; cx: number; cy: number; moved: boolean
+    /** 引きはじめの深さ(mm) */
+    startMm: number
+    /** 折り切ったときの深さ(mm)。0 なら、途中の深さは決められない */
+    spanMm: number
+    /** 「置いた型紙の幅だけ折る」ときの深さ(mm) */
+    autoMm: number
+    /** 戻るを1回で済ませるための合図 */
+    group: string
+    /**
+     * 引きはじめの、画面1px あたりの mm。
+     *
+     * 折り込むほど描く面が狭くなり、図の縮尺そのものが動く。
+     * 動く縮尺で読むと、指を同じところに戻しても同じ数に戻らない。
+     * ふり幅は引きはじめに決めて、そのあいだは変えない
+     */
+    perPx: number
+  } | null>(null)
+  /** 引きずっている最中に、いま何をしているのかを図の上に出す */
+  const [tagHint, setTagHint] = useState<{ side: Side; text: string } | null>(null)
 
   if (!report) return null
 
@@ -1521,13 +1561,29 @@ function SectionCanvas({
       role="button"
       tabIndex={0}
       aria-label={foldSidesOf(section.fold).includes(side)
-        ? `${SIDE_LABELS[side]}の端の「わ」をやめる`
-        : `${SIDE_LABELS[side]}の端を「わ」にする`}
+        ? `${SIDE_LABELS[side]}の端の「わ」をやめる。内側へ引きずると折り返す幅も決まります`
+        : `${SIDE_LABELS[side]}の端を「わ」にする。内側へ引きずると折り返す幅も決まります`}
       style={{ cursor: 'pointer' }}
+      /*
+        指を捕まえるのは**この札ではなく、図そのもの**（`svgRef`）。
+
+        引きはじめると、その辺は「みみ」から「わ（折り山）」へ変わる。
+        札そのものが別のものに入れ替わるので、札に指を捕まえさせておくと、
+        入れ替わった瞬間にそれ以上動かせなくなる。
+        図に捕まえさせておけば、札が何に変わっても指はついてくる
+      */
       onPointerDown={(e) => {
         e.stopPropagation()
+        try {
+          svgRef.current?.setPointerCapture(e.pointerId)
+        } catch { /* 捕まえられなくてよい */ }
         onActivate()
-        onFold(toggleFoldSide(section.fold, side))
+        tagDrag.current = {
+          side, cx: e.clientX, cy: e.clientY, moved: false,
+          startMm: foldSidesOf(section.fold).includes(side) ? report.foldDepth[side] : 0,
+          spanMm: spanMmOf(side), autoMm: report.snapDepth[side], perPx: mmPerPx(),
+          group: `fold${(dragSeq += 1)}`,
+        }
       }}
     >
       {/* 押せることが分かるだけの、ごく薄い下地 */}
@@ -1548,6 +1604,55 @@ function SectionCanvas({
   const mmPerPx = () => {
     const box = svgRef.current?.getBoundingClientRect()
     return box && box.width > 0 ? viewW / box.width : 1
+  }
+
+  /* --------------------------------------------- 端の札を引いて、折り返す幅を決める */
+
+  /** その辺で折り切ったときの深さ(mm)。小さい折り図と同じ物差しを使う */
+  const spanMmOf = (side: Side) => foldScaleOf(state.fabricWidthMm, report).spanMm(side)
+
+  /** その辺から内側へ向かう向きの、動いたぶん */
+  const inward = (side: Side, dx: number, dy: number) =>
+    side === 'left' ? dx : side === 'right' ? -dx : side === 'top' ? dy : -dy
+
+  /**
+   * 引いた先が、どの折り方にあたるか。
+   *
+   * 「折らない」「置いた型紙の幅だけ」「折り切る」の3つには吸い付き、
+   * そのあいだは指で決めた幅になる。吸い付く近さは**画面のうえで一定**にしてある。
+   * 寄って見ているときほど細かく決められるほうが、寄った甲斐がある
+   */
+  const tagValue = (d: NonNullable<typeof tagDrag.current>, x: number, y: number) => {
+    const u = d.perPx
+    const moved = inward(d.side, (x - d.cx) * u, (y - d.cy) * u)
+    const at = Math.max(0, d.spanMm > 0
+      ? Math.min(d.spanMm, d.startMm + moved) : d.startMm + moved)
+    const tol = 14 * u
+    const both = foldSidesOf(section.fold)
+      .some((t) => isVerticalSide(t) === isVerticalSide(d.side) && t !== d.side)
+    if (at < tol) {
+      return { action: 'off' as EdgeAction, hint: `${SIDE_LABELS[d.side]}の端は折らない` }
+    }
+    if (d.spanMm > 0 && at > d.spanMm - tol) {
+      return {
+        action: 'half' as EdgeAction,
+        hint: both ? '両端が出会うまで折る' : '半分に折る',
+      }
+    }
+    if (d.spanMm <= 0 || (d.autoMm > 0 && Math.abs(at - d.autoMm) < tol)) {
+      return { action: 'partial' as EdgeAction, hint: '置いた型紙の幅だけ折る' }
+    }
+    const mm = Math.round(at / 5) * 5
+    return {
+      action: { depthMm: mm } as EdgeAction,
+      hint: `折り返し ${(mm / 10).toFixed(1)}cm`,
+    }
+  }
+
+  /** 辺をさわった結果を、そのまま上へ渡す。決め方は小さい折り図と1つの場所で揃えてある */
+  const applyEdge = (side: Side, action: EdgeAction, group?: string) => {
+    const next = foldFromEdge(section.fold, side, action)
+    onFold(next.fold, next.halfFold, { [side]: next.depthMm ?? null }, group)
   }
 
   /* ------------------------------------------------- 二本指でひろげる・つまむ */
@@ -1629,6 +1734,16 @@ function SectionCanvas({
   }
 
   const canvasMove = (e: PointerEvent) => {
+    // 端の札を引いているあいだは、図をずらすのでも型紙を動かすのでもない
+    const t = tagDrag.current
+    if (t) {
+      if (!t.moved && Math.hypot(e.clientX - t.cx, e.clientY - t.cy) < 8) return
+      t.moved = true
+      const r = tagValue(t, e.clientX, e.clientY)
+      setTagHint({ side: t.side, text: r.hint })
+      applyEdge(t.side, r.action, t.group)
+      return
+    }
     if (pointers.current.has(e.pointerId)) {
       pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
     }
@@ -1654,6 +1769,16 @@ function SectionCanvas({
   }
 
   const canvasUp = (e: PointerEvent) => {
+    const t = tagDrag.current
+    if (t) {
+      tagDrag.current = null
+      setTagHint(null)
+      pointers.current.delete(e.pointerId)
+      // 動かさずに離した＝押した。これまでどおり「わ」が付いたり外れたりする
+      if (!t.moved) applyEdge(t.side, 'toggle')
+      else applyEdge(t.side, tagValue(t, e.clientX, e.clientY).action, t.group)
+      return
+    }
     pointers.current.delete(e.pointerId)
     if (pointers.current.size < 2) pinch.current = null
     if (pointers.current.size === 0) pan.current = null
@@ -2485,6 +2610,7 @@ function SectionCanvas({
           onFold={onFold}
           onHalf={onHalf}
           onActivate={onActivate}
+          scale={foldScaleOf(state.fabricWidthMm, report)}
         />
       )}
 
@@ -3259,6 +3385,39 @@ function SectionCanvas({
               </g>
             )
           })}
+
+          {/*
+            端の札を引きずっている最中の、いま何をしているのかの言葉
+            （依頼者の指示・2026-09-05）。
+
+            折り返す幅は、指を離すと図の上には数として残らない。
+            引いている**今だけ**、その辺のそばに出す。
+            図を画像に書き出すときに数を図の中へ入れない決まりとは別の話で、
+            これは指が触れているあいだしか出ない案内である
+          */}
+          {tagHint && (() => {
+            /*
+              札は生地の**外**にあるので、そこへ字を出すと図の枠から
+              はみ出して切れてしまう。引いている辺のすぐ内側へ寄せて置く
+            */
+            const fs = lbl(W * 0.046)
+            const pad = lbl(W * 0.05)
+            const mid = (L + OPEN) * 0.5
+            const at = {
+              left: { x: pad, y: mid, anchor: 'start' as const },
+              right: { x: W + OPENX - pad, y: mid, anchor: 'end' as const },
+              top: { x: bxMid, y: pad, anchor: 'middle' as const },
+              bottom: { x: bxMid, y: L + OPEN - pad, anchor: 'middle' as const },
+            }[tagHint.side]
+            return (
+              <text
+                x={at.x} y={at.y} fontSize={fs} fontWeight={700} fill={CREASE}
+                textAnchor={at.anchor} dominantBaseline="middle"
+                stroke="#ffffff" strokeWidth={fs * 0.42} paintOrder="stroke"
+                style={{ pointerEvents: 'none' }}
+              >{tagHint.text}</text>
+            )
+          })()}
 
           {/* いま使っているところの終わり。ここまでが買う長さに効く */}
           {used > 0 && used < L && (
