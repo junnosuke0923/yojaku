@@ -48,7 +48,7 @@ const TOURS: Record<TourId, Spot[]> = {
     {
       target: 'steps',
       title: 'いまどこにいるか、この帯で分かります',
-      body: '撮る → 測る → 縫い代 → 生地 → 並べる の順に進みます。色が付いているところが、いまの場所です。',
+      body: '撮る → 測る → 縫い代 → 並べる の順に進みます。色が付いているところが、いまの場所です。',
     },
     {
       target: 'photo-hint',
@@ -62,16 +62,6 @@ const TOURS: Record<TourId, Spot[]> = {
     },
   ],
   parts: [
-    {
-      target: 'fabric-width',
-      title: 'まず、使う生地の幅を選びます',
-      body: '両端のみみは使えないので、そのぶんを引いた幅で並べます。一覧にない幅は、右の欄に数字で入れてください。',
-    },
-    {
-      target: 'fabric-nap',
-      title: '上下の向きは、いちばん最初に決めます',
-      body: '「向きなし」なら、パーツを 180 度回して差し込めるので、そのぶん生地が短くて済みます。あとから変えると並べ直しになります。',
-    },
     {
       target: 'part-row',
       title: '取り込んだ型紙。名前と枚数をここで',
@@ -106,6 +96,11 @@ const TOURS: Record<TourId, Spot[]> = {
     },
   ],
   layout: [
+    {
+      target: 'fabric-width',
+      title: 'まず、使う生地の幅を選びます',
+      body: '両端のみみは使えないので、そのぶんを引いた幅で並べます。一覧にない幅は、右の欄に数字で入れてください。',
+    },
     {
       target: 'fabric',
       title: 'これが生地です',

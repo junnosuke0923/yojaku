@@ -31,6 +31,7 @@ import {
 } from '../lib/fabric'
 import { defaultName, MAX_SAVES, putSave, type Save } from '../lib/saves'
 import { renderLayoutImage, saveImage, type Sheet } from '../lib/exportImage'
+import { FabricSetup } from './FabricSetup'
 import { FoldSetup } from './FoldSetup'
 import { applyFoldChange, placedPartOf, type PartsState, type StoredPart } from '../lib/store'
 import { FoldDiagram } from './FoldDiagram'
@@ -47,7 +48,6 @@ type Props = {
    * 同じ合図が続くあいだ、1つ戻るの控えは1回ぶんにまとめられる
    */
   onChange: (state: PartsState, group?: string) => void
-  onBack: () => void
   /** しまうときの名前。開いたものを直したときは、その名前が入っている */
   saveName: string
   onSaveName: (name: string) => void
@@ -192,7 +192,7 @@ const SELVAGE = { line: '#8d8a78', band: 0.1, dot: 0.55 }
 const SELVAGE_UNDER = { line: '#6b6857', band: 0.14, dot: 0.62 }
 
 export function LayoutView({
-  state, onChange, onBack, saveName, onSaveName, onSaved, onUndo,
+  state, onChange, saveName, onSaveName, onSaved, onUndo,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   /**
@@ -658,19 +658,26 @@ export function LayoutView({
       }`}
     >
       <Tour id="layout" />
-      <button
-        type="button"
-        onClick={onBack}
-        className="flex items-center gap-1.5 self-start text-sm font-bold text-mat-700"
-      >
-        <Icon name="back" className="h-4 w-4 shrink-0" />
-        {/*
-          行き先は生地の設定（学生の点検・2026-09-02）。
-          もとは「パーツの一覧へ」と書いてあったが、生地の画面を分けたときから
-          1つ戻る先は生地になっていて、名前だけが古いまま残っていた
-        */}
-        生地の設定へ
-      </button>
+      {/*
+        生地幅は、この画面のいちばん上（依頼者の指示・2026-09-05
+        「並べるのセクションと統合し、上部に生地幅設定部分だけ設ければ
+        それですませることも出来るのではないか」）。
+
+        もとは「生地」という段階が別にあって、幅と折り方をそこで決めていた。
+        折り方は下の大きな図の端の札で決められるようになったので、
+        あの画面に残っていたのは幅ひとつだけだった。段階をひとつ通すためだけに
+        画面を1枚はさむのはつり合わないので、こちらへ畳み込んだ。
+
+        並べ終えたあとで幅を狭められるようになるが、止めはしない。
+        はみ出したものには「生地の横幅からはみ出しています」と出る
+        （`warn-instead-of-forbid`）
+      */}
+      <FabricSetup
+        widthMm={state.fabricWidthMm}
+        hasNap={state.hasNap}
+        onWidth={(fabricWidthMm) => onChange({ ...state, fabricWidthMm })}
+        onNap={(hasNap) => onChange({ ...state, hasNap })}
+      />
 
       {dropped && (
         <Note icon="check" tone="good">

@@ -1,14 +1,23 @@
 /**
  * 生地の設定（判断9）。
  *
- * **差し込みの可否は、いちばん最初に決める。**
- * あとから聞くと、すでに差し込んで並べ終えたものを崩すことになるうえ、
- * そもそも買う長さそのものが変わってしまうので、後出しにはできない。
- * だから生地幅と同じ画面に置いてある。
+ * 置き場所は「並べる」の画面のいちばん上（依頼者の指示・2026-09-05）。
+ * もとは「生地」という独立した段階があったが、そこで決めることは
+ * 生地幅ひとつに絞れたので、段階ごと「並べる」に畳み込んだ。
+ * 折り方は大きな裁ち合わせ図の端の札で決める。
  *
  * 1画面に収めたいので、説明は畳んである（依頼者の指示・2026-08-27）。
- * ただし**選ぶところは畳まない**。いちばん最初に決めるものを隠すと、
- * 決めないまま先へ進んでしまう。
+ * ただし**幅を選ぶところは畳まない**。この画面でいちばん先に効く数なので、
+ * 隠すと 110cm のまま並べ終えてしまう。
+ *
+ * 上下の向きだけは畳んである（依頼者の指示・2026-09-05
+ * 「向きがあることをオプションとして付けることが出来る程度にして
+ * 小さく収納してしまおうか」）。買う長さには**いっさい効かない**——
+ * 効くのは、型紙の地の目線が両矢印か下向き一本かということと、
+ * 180度回して置いたときに「向きがそろわない」と知らせるかどうかの2つだけ。
+ * ふだんは「向きなし」のままでよいので、畳んだ1行に current の値だけ出す。
+ * 消してしまわないのは、ベロアやコーデュロイ、一方向の柄で差し込みをしても
+ * 何も言われなくなるため。裁ってからでないと気づけない失敗である。
  */
 
 import { useState } from 'react'
@@ -46,6 +55,8 @@ export function FabricSetup({ widthMm, hasNap, onWidth, onNap }: Props) {
     範囲から外れているあいだは、そう書いて出す
   */
   const [typing, setTyping] = useState<string | null>(null)
+  /** 上下の向きの中身を開いているか。ふだんは畳んだまま */
+  const [napOpen, setNapOpen] = useState(false)
   /** 打っている数が、幅として受け取れる範囲から外れているか */
   const outOfRange = typing !== null && typing.trim() !== '' && !(
     Number.isFinite(Number(typing))
@@ -133,19 +144,52 @@ export function FabricSetup({ widthMm, hasNap, onWidth, onNap }: Props) {
         <T id="fabric.width.body" />
       </Hint>
 
-      <div className="border-t border-ink-100 pt-2.5">
-        {/* 「何の向きか」が分からなかった（学生の点検・2026-09-02）。生地幅と同じ形で見出しを立てる */}
-        <div className="flex items-center gap-2 pb-1">
-          <Icon name="nap" className="h-4 w-4 shrink-0 text-mat-600" />
+      <div className="border-t border-ink-100 pt-2">
+        {/*
+          畳んだままでも、いまどちらなのかは見えるようにしてある。
+          畳んで隠れるのは選び直す手段であって、いまの状態ではない。
+          左の絵も、両矢印（向きなし）と下向き一本（向きあり）で入れ替わる。
+          型紙の地の目線に出るものと同じ形なので、絵だけでも読める
+        */}
+        <button
+          type="button"
+          onClick={() => setNapOpen((v) => !v)}
+          aria-expanded={napOpen}
+          className="flex w-full items-center gap-2 py-0.5 text-left"
+        >
+          <Icon
+            name={hasNap ? 'nap' : 'napNone'}
+            className="h-4 w-4 shrink-0 text-mat-600"
+          />
+          {/* 「何の向きか」が分からなかった（学生の点検・2026-09-02）。生地幅と同じ形で見出しを立てる */}
           <span className="text-sm font-bold text-ink-700"><T id="fabric.nap.label" /></span>
-        </div>
+          <span className="ml-auto flex shrink-0 items-center gap-1.5 text-xs">
+            <span className={hasNap ? 'font-bold text-mat-700' : 'text-ink-500'}>
+              {hasNap ? '向きあり' : '向きなし'}
+            </span>
+            <span
+              className={`flex h-6 w-6 items-center justify-center rounded-full border ${
+                napOpen ? 'border-mat-500 bg-mat-50 text-mat-700' : 'border-ink-100 text-ink-300'
+              }`}
+            >
+              <Icon
+                name="chevron"
+                className={`h-3.5 w-3.5 shrink-0 transition-transform ${napOpen ? '-rotate-90' : 'rotate-90'}`}
+              />
+            </span>
+          </span>
+          <span className="sr-only">{napOpen ? '閉じる' : '変える'}</span>
+        </button>
+
+        {napOpen && (
+        <div className="flex flex-col gap-1 pt-1">
         <Hint
           icon="nap"
           summary={<T id="fabric.nap.summary" />}
         >
           <T id="fabric.nap.body" />
         </Hint>
-        <div data-tour="fabric-nap" className="grid grid-cols-2 gap-2 pt-1">
+        <div data-tour="fabric-nap" className="grid grid-cols-2 gap-2">
           <button
             type="button"
             onClick={() => onNap(false)}
@@ -191,6 +235,8 @@ export function FabricSetup({ widthMm, hasNap, onWidth, onNap }: Props) {
         <Note icon={hasNap ? 'nap' : 'nest'} tone={hasNap ? 'warn' : 'plain'}>
           <T id={hasNap ? 'fabric.nap.on' : 'fabric.nap.off'} strong="font-bold" />
         </Note>
+        </div>
+        )}
       </div>
     </section>
   )

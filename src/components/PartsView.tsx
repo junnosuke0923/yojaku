@@ -170,8 +170,8 @@ export function PartsView({ state, onChange, onAddMore, onLayout }: Props) {
             onClick={onLayout}
             className="flex items-center justify-center gap-2 rounded-xl bg-mat-500 px-4 py-2.5 text-base font-bold text-white active:bg-mat-600"
           >
-            <Icon name="cloth" className="h-5 w-5 shrink-0" />
-            生地を決める →
+            <Icon name="layout" className="h-5 w-5 shrink-0" />
+            生地の上に並べる →
           </button>
         </>
       )}
@@ -739,7 +739,7 @@ function PartNav({ index, total, onGo, onNext }: {
   index: number
   total: number
   onGo: (i: number) => void
-  /** 最後のパーツから先。次の段階（生地を決める）へ */
+  /** 最後のパーツから先。次の段階（生地に並べる）へ */
   onNext: () => void
 }) {
   const side = 'flex min-w-0 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border px-3 py-2.5 text-sm font-bold'
@@ -763,7 +763,7 @@ function PartNav({ index, total, onGo, onNext }: {
       <span className="tnum shrink-0 text-xs font-bold text-ink-300">{index + 1} / {total}</span>
       {last ? (
         <button type="button" onClick={onNext} className={`${side} ${go}`}>
-          生地を決める
+          生地に並べる
           <Icon name="chevron" className="h-4 w-4 shrink-0" />
         </button>
       ) : (

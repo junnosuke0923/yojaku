@@ -13,7 +13,6 @@ import { CornerPicker, rectifyQuad } from './components/CornerPicker'
 import { Heading, Hint, Icon, Note, type IconName } from './components/Icon'
 import { LayoutView } from './components/LayoutView'
 import { GreenTuner } from './components/GreenTuner'
-import { FabricView } from './components/FabricView'
 import { PartsView } from './components/PartsView'
 import { ResultView } from './components/ResultView'
 import { RulerToggle } from './components/RulerToggle'
@@ -39,7 +38,7 @@ import { useListOpen } from './lib/textStore'
   もとは生地幅と差し込みが「縫い代」の中に、折り方が「並べる」の上にあった。
   生地についての判断だけを1画面に集めてある
 */
-type Step = 'photo' | 'ruler' | 'parts' | 'fabric' | 'layout'
+type Step = 'photo' | 'ruler' | 'parts' | 'layout'
 
 const RULER_KEY = 'yojaku.ruler'
 
@@ -686,7 +685,6 @@ export function App() {
       case 'photo': return true
       case 'ruler': return !!(image && quad)
       case 'parts': return parts.parts.length > 0
-      case 'fabric': return parts.parts.length > 0
       case 'layout': return parts.parts.length > 0
       default: return false
     }
@@ -723,12 +721,10 @@ export function App() {
           */}
           <span className="text-xs text-ink-300">
             {step === 'layout'
-              ? '型紙を生地の上に並べる'
-              : step === 'fabric'
-                ? '生地の幅と折り方を決める'
-                : step === 'parts'
-                  ? seamIncluded ? 'わの辺を決める' : '縫い代を付ける'
-                  : '実寸をつかむ'}
+              ? '生地の幅を決めて、型紙を並べる'
+              : step === 'parts'
+                ? seamIncluded ? 'わの辺を決める' : '縫い代を付ける'
+                : '実寸をつかむ'}
           </span>
         </div>
         {/*
@@ -1535,22 +1531,18 @@ export function App() {
             </div>
           </section>
         )}
-        {step === 'fabric' && (
-          <FabricView state={parts} onChange={updateParts} onLayout={() => setStep('layout')} />
-        )}
         {step === 'parts' && (
           <PartsView
             state={parts}
             onChange={updateParts}
             onAddMore={restart}
-            onLayout={() => setStep('fabric')}
+            onLayout={() => setStep('layout')}
           />
         )}
         {step === 'layout' && (
           <LayoutView
             state={parts}
             onChange={updateParts}
-            onBack={() => setStep('fabric')}
             saveName={saveName}
             onSaveName={setSaveName}
             onSaved={setSaves}
@@ -1630,7 +1622,6 @@ const STEPS: Array<{ id: Step; label: string; icon: IconName }> = [
   { id: 'photo', label: '撮る', icon: 'camera' },
   { id: 'ruler', label: '測る', icon: 'ruler' },
   { id: 'parts', label: '縫い代', icon: 'seam' },
-  { id: 'fabric', label: '生地', icon: 'cloth' },
   { id: 'layout', label: '並べる', icon: 'layout' },
 ]
 
