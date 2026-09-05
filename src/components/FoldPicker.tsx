@@ -18,7 +18,7 @@
  *
  * さわり方は2通りある。**押す**と「わ」が付いたり外れたりする。
  * **辺をつまんで内側へ引きずる**と、引いた深さで折り方まで決まる
- * （浅ければ「型紙に合わせて」、きっちり折り切る位置まで引けばそこに吸い付く）。
+ * （きっちり折り切る位置まで引けば、そこに吸い付く）。
  * 片側だけ折るなら折り切る位置は向かい側の生地端で、両側から折るなら真ん中になる。
  * 引きずるほうは、押すことの上位互換ではなく、
  * 「半分に折る」の選択をひとつの動作にまとめるためのもの。
@@ -48,14 +48,12 @@ type Props = {
    * （依頼者の指示・2026-09-05「任意の辺を任意の幅で折り返させる」）。
    *
    * 渡されていない画面では、途中の深さは決められない。
-   * 「折らない」「型紙に合わせる」「半分」の3つだけになり、これまでと同じ動きをする。
+   * 「折らない」と「半分」の2つだけになる。
    * 生地の長さがまだ決まっていない（何も置いていない）横わでは、
    * 引ききった先が何 cm なのかを言えないので、そういう場面もここが 0 になる。
    */
   scale?: {
     spanMm: (side: Side) => number
-    /** 「置いた型紙の幅だけ折る」ときの深さ(mm)。当てた型紙が無ければ 0 */
-    autoMm: (side: Side) => number
   }
 }
 
@@ -100,12 +98,12 @@ const OFF_UNDER = 0.12
  *
  * 生地の幅いっぱいで 50 なので、4 は片側 8% ほど。
  * 途中の深さを指で決められるようになった以上、
- * 「半分」や「型紙に合わせる」を**行き過ぎずに拾える**幅は要るが、
+ * 「半分」を**行き過ぎずに拾える**幅は要るが、
  * 広く取りすぎると、途中で止めたつもりの指が端に持っていかれる。
  *
  * 途中の深さが決められない画面（`scale` が無いとき）では、
  * これまでどおり `SNAP_NEAR` の広い吸い付きのままにする。
- * そこは3つの目盛りしかないので、行き過ぎて困る先が無い
+ * そこは「折らない」と「半分」しかないので、行き過ぎて困る先が無い
  */
 const SNAP_UNITS = 4
 /** 途中の深さを決められないときの、きっちり折った先への吸い付き */
@@ -557,28 +555,12 @@ export function FoldPicker({ fold, half, onEdge, onHint, scale }: Props) {
   /** 途中の深さまで決められる画面か。実物の寸法が分かっているときだけ */
   const free = (s: Side) => (scale ? scale.spanMm(s) > 0 : false)
 
-  /** 「置いた型紙の幅だけ折る」が、この図のどこにあたるか。当てた型紙が無ければ null */
-  const autoAt = (s: Side) => {
-    if (!scale) return null
-    const span = scale.spanMm(s)
-    const mm = scale.autoMm(s)
-    if (span <= 0 || mm <= 0) return null
-    return Math.min(snugDepth(s), (mm / span) * spanOf(s))
-  }
-
   /** きっちり折る位置に吸い付いたか */
   const snapped = (s: Side, raw: number) => {
     if (!canHalfOn(s)) return false
     return free(s)
       ? raw >= snugDepth(s) - SNAP_UNITS
       : raw >= snugDepth(s) * SNAP_NEAR
-  }
-
-  /** 「置いた型紙の幅だけ折る」に吸い付いたか */
-  const atAuto = (s: Side, raw: number) => {
-    if (!free(s) || snapped(s, raw)) return false
-    const a = autoAt(s)
-    return a !== null && Math.abs(raw - a) < SNAP_UNITS
   }
 
   /** 指で決めた深さ。図の目盛りから実物の mm へ直し、5mm きざみに丸める */
@@ -592,10 +574,10 @@ export function FoldPicker({ fold, half, onEdge, onHint, scale }: Props) {
     if (d < spanOf(s) * OFF_UNDER) return `${SIDE_NAMES[s]}は折らない`
     // 言い方は、下のプルダウンと揃えてある
     if (snap) return bothOn(s) ? '両端が出会うまで折る' : '半分に折る'
-    if (atAuto(s, d)) return '置いた型紙の幅だけ折る'
     // 折り返す幅は、指を離すと図には残らない。引いている今だけ数で言う
     if (free(s)) return `折り返し ${(mmAt(s, d) / 10).toFixed(1)}cm`
-    return '置いた型紙の幅だけ折る'
+    // 実寸が分からない図（まだ何も置いていない横わ）では、何 cm かを言えない
+    return `${SIDE_NAMES[s]}はまだ折らない`
   }
 
   const start = (s: Side) => (e: React.PointerEvent) => {
@@ -630,7 +612,8 @@ export function FoldPicker({ fold, half, onEdge, onHint, scale }: Props) {
     const raw = depthAt(d.side, e.clientX, e.clientY)
     if (raw < span * OFF_UNDER) onEdge(d.side, 'off')
     else if (snapped(d.side, raw)) onEdge(d.side, 'half')
-    else if (!free(d.side) || atAuto(d.side, raw)) onEdge(d.side, 'partial')
+    // 実寸が分からない辺は、折り切ったのでなければ、まだ折っていない状態にする
+    else if (!free(d.side)) onEdge(d.side, { depthMm: 0 })
     else onEdge(d.side, { depthMm: mmAt(d.side, raw) })
   }
 
@@ -771,9 +754,8 @@ export function FoldPicker({ fold, half, onEdge, onHint, scale }: Props) {
         片わならそれは向かい側の生地端で、両わなら真ん中になる
       */}
       {/*
-        引きずっている最中に出る、吸い付く先の目盛り。
-        「半分」と「置いた型紙の幅だけ」の2本。近づいている1本だけが濃くなるので、
-        いまどちらに吸い付くのかが、指を離す前に分かる
+        引きずっている最中に出る、吸い付く先の目盛り。いまは「半分」の1本だけ。
+        吸い付いているあいだは濃くなるので、指を離す前にそれと分かる
       */}
       {live && canHalfOn(live.side) && (() => {
         const s = live.side
@@ -786,13 +768,7 @@ export function FoldPicker({ fold, half, onEdge, onHint, scale }: Props) {
               strokeDasharray="3 3" opacity={near ? 0.9 : 0.35} />
           )
         }
-        const auto = autoAt(s)
-        return (
-          <>
-            {lineAt(snugDepth(s), live.snap, 'snug')}
-            {auto !== null && lineAt(auto, atAuto(s, live.d), 'auto')}
-          </>
-        )
+        return lineAt(snugDepth(s), live.snap, 'snug')
       })()}
 
       {/* 「わ」の字と、⊂ の印。大きい図の折り山の札の上2行と同じ */}

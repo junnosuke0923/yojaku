@@ -170,7 +170,11 @@ const run = (f: Fabric, ps: Placement[], list: PlacedPart[]) =>
 
 console.log('\n■ 縦わ — 折っても長さは変わらない')
 {
-  const f = fabric(1100, ['vLeft'])
+  // 「わ」に指定しただけでは折れない。端を 30cm 引いて折る（依頼者の指示・2026-09-05）
+  const f: Fabric = {
+    widthMm: 1100, hasNap: false,
+    sections: [{ id: 's1', fold: 'vLeft', foldDepthMm: { left: 300 } }],
+  }
   const p = newPlacement('a', 'p1', 's1', { snapTo: 'left' })
   const r = run(f, [p], [part('p1', 300, 400, true)])
   near('有効幅', 1100 - 40, 1060, 0)
@@ -181,9 +185,29 @@ console.log('\n■ 縦わ — 折っても長さは変わらない')
   ok('問題なし', r.problems.length === 0, r.problems.map((x) => x.kind).join(',') || 'なし')
 }
 
+console.log('\n■ 「わ」に指定しただけでは、まだ折れていない')
+{
+  /*
+    もとは、折り山に当てた型紙の幅だけひとりでに折り返していた。
+    置いた型紙のほうが生地の形を動かすことになるので、依頼者から
+    「動作的に気持ち悪い」として外した（2026-09-05）。
+    いまは端の札を引くまで、生地は一重のまま
+  */
+  const p = newPlacement('a', 'p1', 's1', { snapTo: 'left' })
+  const r = run(fabric(1100, ['vLeft']), [p], [part('p1', 300, 400, true)])
+  near('折り込む深さは 0 のまま', r.sections[0].foldDepth.left, 0, 0)
+  near('置ける幅も減らない', r.sections[0].surfaceWidthMm, 1060, 0)
+  ok('折り返しに収まっていないと知らせる',
+    r.problems.some((x) => x.kind === 'pastFold' && x.placementId === 'a'),
+    r.problems.map((x) => x.kind).join(',') || 'なし')
+}
+
 console.log('\n■ 横わ — 折ったぶんだけ余分に使う')
 {
-  const f = fabric(1100, ['hBottom'])
+  const f: Fabric = {
+    widthMm: 1100, hasNap: false,
+    sections: [{ id: 's1', fold: 'hBottom', foldDepthMm: { bottom: 300 } }],
+  }
   const p = newPlacement('a', 'p1', 's1', { snapTo: 'bottom' })
   const r = run(f, [p], [part('p1', 500, 300, true)])
   near('折り込む深さ', r.sections[0].foldDepth.bottom, 300, 0)
@@ -194,7 +218,10 @@ console.log('\n■ 横わ — 折ったぶんだけ余分に使う')
 
 console.log('\n■ 二重の帯に丸ごと入れば2枚取れる')
 {
-  const f = fabric(1100, ['vLeft'])
+  const f: Fabric = {
+    widthMm: 1100, hasNap: false,
+    sections: [{ id: 's1', fold: 'vLeft', foldDepthMm: { left: 300 } }],
+  }
   const ps = [
     newPlacement('a', 'p1', 's1', { snapTo: 'left' }),
     newPlacement('b', 'p2', 's1', { xMm: 50, yMm: 450 }),
@@ -221,8 +248,8 @@ console.log('\n■ 折り返す幅を、指で決める')
 {
   /*
     辺を引きずって折り返す幅を決められるようにした（依頼者の指示・2026-09-05）。
-    「深さは結果であって、前提ではない」という決めごとは生きているので、
-    **指で決めていない辺は、これまでどおり**置いた型紙から決まる
+    折る深さを決めるのは、これ**だけ**である。
+    指で決めていない辺は、まだ折れていない
   */
   const hand = (fold: FoldMode, depth: Partial<Record<Side, number>>): Fabric => ({
     widthMm: 1100, hasNap: false,
@@ -240,7 +267,6 @@ console.log('\n■ 折り返す幅を、指で決める')
     const p = newPlacement('a', 'p1', 's1', { snapTo: 'left' })
     const r = run(hand('vLeft', { left: 400 }), [p], [part('p1', 300, 400, true)])
     near('型紙より深く折れる', r.sections[0].foldDepth.left, 400, 0)
-    near('「置いた型紙の幅だけ」も分かる', r.sections[0].snapDepth.left, 300, 0)
     ok('問題なし', r.problems.length === 0, r.problems.map((x) => x.kind).join(',') || 'なし')
   }
   {
@@ -272,10 +298,10 @@ console.log('\n■ 折り返す幅を、指で決める')
     near('要尺は面＋折り込み', r.totalMm, 500, 0)
   }
   {
-    // 前に保存した見積り（この欄が無いもの）は、開いても何も変わらない
+    // 前に保存した見積り（この欄が無いもの）は、折っていない状態から始まる
     const p = newPlacement('a', 'p1', 's1', { snapTo: 'left' })
     const was = run(fabric(1100, ['vLeft']), [p], [part('p1', 300, 400, true)])
-    near('決めていなければ、置いた型紙のまま', was.sections[0].foldDepth.left, 300, 0)
+    near('決めていなければ、まだ折っていない', was.sections[0].foldDepth.left, 0, 0)
   }
 }
 
@@ -569,7 +595,17 @@ console.log('  上パーツ丈 32cm・下パーツ丈 38cm・生地幅 110cm →
 {
   // 区間1：縦わ・両側。前スカート上・後スカート上を、左右の折り山に1枚ずつ
   // 区間2：縦わ・片側。下フレアを縦に2枚
-  const f = fabric(1100, ['vBoth', 'vLeft'])
+  //
+  // 折る深さは、学生が端の札を引いて決める（依頼者の指示・2026-09-05）。
+  // もとは折り山に当てた型紙の幅だけひとりでに折り返していたが、
+  // 置いた型紙が生地の形を動かすのは「動作的に気持ち悪い」として外した
+  const f: Fabric = {
+    widthMm: 1100, hasNap: false,
+    sections: [
+      { id: 's1', fold: 'vBoth', foldDepthMm: { left: 265, right: 265 } },
+      { id: 's2', fold: 'vLeft', foldDepthMm: { left: 400 } },
+    ],
+  }
   const parts = [
     part('upperFront', 265, 400, true),
     part('upperBack', 265, 400, true),

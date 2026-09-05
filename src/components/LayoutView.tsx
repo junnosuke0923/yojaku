@@ -1429,8 +1429,6 @@ function SectionCanvas({
     startMm: number
     /** 折り切ったときの深さ(mm)。0 なら、途中の深さは決められない */
     spanMm: number
-    /** 「置いた型紙の幅だけ折る」ときの深さ(mm) */
-    autoMm: number
     /** 戻るを1回で済ませるための合図 */
     group: string
     /**
@@ -1703,7 +1701,7 @@ function SectionCanvas({
   /**
    * 引いた先が、どの折り方にあたるか。
    *
-   * 「折らない」「置いた型紙の幅だけ」「折り切る」の3つには吸い付き、
+   * 「折らない」と「折り切る」の2つには吸い付き、
    * そのあいだは指で決めた幅になる。吸い付く近さは**画面のうえで一定**にしてある。
    * 寄って見ているときほど細かく決められるほうが、寄った甲斐がある
    */
@@ -1738,8 +1736,12 @@ function SectionCanvas({
         hint: both ? '両端が出会うまで折る' : '半分に折る',
       }
     }
-    if (d.spanMm <= 0 || (d.autoMm > 0 && Math.abs(at - d.autoMm) < tol)) {
-      return { action: 'partial' as EdgeAction, hint: '置いた型紙の幅だけ折る' }
+    // 実寸が分からない辺（まだ何も置いていない横わ）では、何 cm かを言えない
+    if (d.spanMm <= 0) {
+      return {
+        action: { depthMm: 0 } as EdgeAction,
+        hint: `${SIDE_LABELS[d.side]}はまだ折らない`,
+      }
     }
     const mm = Math.round(at / 5) * 5
     return {
@@ -1795,7 +1797,7 @@ function SectionCanvas({
     tagDrag.current = {
       side, cx: e.clientX, cy: e.clientY, moved: false,
       startMm: foldSidesOf(section.fold).includes(side) ? report.foldDepth[side] : 0,
-      spanMm: spanMmOf(side), autoMm: report.snapDepth[side], perPx: mmPerPx(),
+      spanMm: spanMmOf(side), perPx: mmPerPx(),
       group,
     }
   }

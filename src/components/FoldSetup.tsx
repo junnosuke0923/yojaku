@@ -19,7 +19,7 @@
  *
  * 折る深さは、辺を引きずって決める（依頼者の指示・2026-09-05）。
  * 下のプルダウンはその**行き先を名前で言い直したもの**であって、別の設定ではない。
- * 「折らない」「置いた型紙の幅だけ」「半分」「指で決めた幅」は、
+ * 「折らない」「まだ折っていない」「半分」「指で決めた幅」は、
  * どれも深さという1本の物差しの上に並んでいる。
  */
 
@@ -49,7 +49,6 @@ type Props = {
   /** 折り図の1辺を引ききったときの実寸。`FoldPicker` の同名の props をそのまま渡す */
   scale?: {
     spanMm: (side: Side) => number
-    autoMm: (side: Side) => number
   }
 }
 
@@ -99,7 +98,7 @@ export function FoldSetup({
         </span>
         {canHalfFold(section.fold) && (
           <select
-            value={byHand ? 'hand' : half ? 'half' : 'partial'}
+            value={byHand ? 'hand' : half ? 'half' : 'none'}
             onChange={(e) => {
               const v = e.target.value
               // 指で決めた深さは、名前のほうを選び直した時点で消える。
@@ -114,8 +113,11 @@ export function FoldSetup({
               {section.fold === 'vBoth' || section.fold === 'hBoth'
                 ? '両端が出会うまで折る' : '半分に折る'}
             </option>
-            {/* 「後者がどういう折り方なのか、絵を見ても分かりませんでした」（学生の点検・2026-09-02） */}
-            <option value="partial">置いた型紙の幅だけ折る</option>
+            {/*
+              「わ」に指定しただけで、まだ折る深さを決めていない状態。
+              選び直せば、いつでもここへ戻せる
+            */}
+            <option value="none">まだ折っていない（端を引いて決める）</option>
             {/*
               辺を引きずって決めたときだけ出る。指で決めた深さは図には残らないので、
               いくつになっているのかを言えるところが、ここしかない
