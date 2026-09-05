@@ -15,7 +15,7 @@ import { turnPoly } from './marks'
 import { unionWithMirror } from './openFold'
 import { buildSeam, DEFAULT_SEAM_MM, initialPlan, SEAM_INCLUDED_MM, type SeamPlan } from './seam'
 import {
-  foldEdgeSides, foldSidesOf, FOLD_MARK_REF_MM, isVerticalSide,
+  foldEdgeSides, foldSidesOf, FOLD_MARK_REF_MM, isVerticalSide, SELVAGE_MM,
   type FoldMark, type FoldMode, type PlacedPart, type Placement, type Section, type Side,
 } from './fabric'
 
@@ -181,6 +181,33 @@ export function applyFoldChange(
     for (const sd of to) {
       const mm = depth && depth[sd] !== undefined ? depth[sd] : was?.[sd]
       if (typeof mm === 'number' && mm > 0) out[sd] = mm
+    }
+    /*
+      縦に両側から折るとき、片側を深く折ったら**反対側は引っ込む**
+      （依頼者の指示・2026-09-05「左側を深く折ろうとしたときに、ぶつかってきたら
+      右側がどんどん引っ込んでいくような感じ」）。
+
+      左右の折り返しは、あわせて有効幅の半分までで出会う。それ以上は、
+      折り返した一枚がもう一方に乗り上がることになり、実物では起こらない。
+      止めてしまうのではなく**出会うところが動く**ようにするのは、
+      布を手で折っているときにそうなるから——左を深く折れば、
+      右はそのぶん開いていく。
+
+      立てるのは、いま引きずっている辺（`depth` に入っている辺）のほう
+    */
+    const both = to.includes('left') && to.includes('right')
+    const held: Side | null = !both || !depth ? null
+      : depth.left !== undefined ? 'left'
+        : depth.right !== undefined ? 'right' : null
+    if (held) {
+      const other: Side = held === 'left' ? 'right' : 'left'
+      const room = Math.max(0, state.fabricWidthMm - SELVAGE_MM * 2) / 2
+      const mine = Math.min(out[held] ?? 0, room)
+      const his = Math.min(out[other] ?? 0, Math.max(0, room - mine))
+      for (const [sd, v] of [[held, mine], [other, his]] as Array<[Side, number]>) {
+        if (v > 0) out[sd] = v
+        else delete out[sd]
+      }
     }
     return Object.keys(out).length > 0 ? out : undefined
   }

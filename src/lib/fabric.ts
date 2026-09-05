@@ -713,6 +713,30 @@ export function computeYardage(
         if (hand === null) depth[sd] = snapped[sd]
         else depth[sd] = isVerticalSide(sd) ? Math.min(hand, usable / 2) : hand
       }
+      /*
+        縦に両側から折るときは、**左右あわせて**有効幅の半分までしか折れない
+        （依頼者の指示・2026-09-05「折り幅を引っ張ってきたときに、反対側が
+        そこよりも被っちゃうような状態は絶対ありえない」）。
+
+        ちょうど半分のところで左右の折り返しが出会う。それを超えると、
+        折り返した一枚がもう一方の折り返しに乗り上がる——実物では起こらない。
+        `isHalfFold` のときに配り分けている総量（`share` に渡す `usable / 2`）と
+        同じ量なので、どちらの決め方をしても折り上がりは同じ幅になる。
+
+        引っ込むのは、**手で決めていないほう**。手で決めた深さは
+        その人が今いじっているものなので、そちらを立てる。
+        どちらも手で決めてあるときは、`applyFoldChange` が
+        引きずっている側を立てたうえで反対側を減らしてから来る
+      */
+      if (sides.includes('left') && sides.includes('right')) {
+        const room = usable / 2
+        const byHand = (sd: Side) => handDepthOf(section, sd) !== null
+        const first: Side = byHand('left') && !byHand('right') ? 'left'
+          : byHand('right') && !byHand('left') ? 'right' : 'left'
+        const second: Side = first === 'left' ? 'right' : 'left'
+        depth[first] = Math.min(depth[first], room)
+        depth[second] = Math.min(depth[second], Math.max(0, room - depth[first]))
+      }
       // 折り返しは面の中に収まっていないといけない。指で深く折ったなら、面も伸びる
       surfaceLength = sides.includes('top') && sides.includes('bottom')
         ? Math.max(surfaceLength, depth.top + depth.bottom)

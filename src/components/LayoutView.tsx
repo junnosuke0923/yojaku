@@ -1719,6 +1719,20 @@ function SectionCanvas({
       return { action: 'off' as EdgeAction, hint: `${SIDE_LABELS[d.side]}の端は折らない` }
     }
     if (d.spanMm > 0 && at > d.spanMm - tol) {
+      /*
+        縦に両側から折るときは、片側を折り込むと反対側が引っ込む
+        （`applyFoldChange` を見よ）。引き切ったところは
+        「この辺だけで折り切って、反対側は開いている」という形になる。
+        ここで「両端が出会うまで折る」に吸い付かせると、いま押し込んだ
+        折り山が中央へ跳ね返って見えるので、深さそのものとして決める。
+        左右を同じだけ折った形は、「生地」の画面の切り替えから選べる
+      */
+      if (both && isVerticalSide(d.side)) {
+        return {
+          action: { depthMm: d.spanMm } as EdgeAction,
+          hint: '反対の折り山まで折り切る',
+        }
+      }
       return {
         action: 'half' as EdgeAction,
         hint: both ? '両端が出会うまで折る' : '半分に折る',
