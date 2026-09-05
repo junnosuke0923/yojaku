@@ -34,7 +34,7 @@ import { renderLayoutImage, saveImage, type Sheet } from '../lib/exportImage'
 import { FoldSetup } from './FoldSetup'
 import { applyFoldChange, placedPartOf, type PartsState, type StoredPart } from '../lib/store'
 import { FoldDiagram } from './FoldDiagram'
-import { Heading, Hint, Icon, Note } from './Icon'
+import { Hint, Icon, Note } from './Icon'
 import { PatternMarks } from './PatternMarks'
 import { T } from './TextTools'
 import { Tour } from './Tour'
@@ -217,6 +217,18 @@ export function LayoutView({
    * （依頼者の要望・2026-09-05）。帯を上へ引いて決める
    */
   const [dockRows, setDockRows] = useState(1)
+  /**
+   * 「あとで裁つぶん」の用紙を開いているか（依頼者の指示・2026-09-05）。
+   *
+   * もとは本文に見出しと一覧を出していたが、生地の絵の**下**にあるので、
+   * 生地が長いほど下へ遠ざかった。型紙の一覧を下端の棚へ移した
+   * （2026-09-04）ときとまったく同じ問題が、こちらに残っていた。
+   *
+   * 棚の札の列の最後に「＋ あとで裁つぶん」の札を置き、
+   * 押すと、この用紙が棚と入れ替わって下から出る
+   * （型紙を押したときに操作板が出るのと同じ入れ替わり方）
+   */
+  const [reserveOpen, setReserveOpen] = useState(false)
   /**
    * いま出したばかりの型紙。少しのあいだ光らせる。
    *
@@ -616,6 +628,22 @@ export function LayoutView({
   /** 要る数より多く置いている型紙。間違いではないので、赤くはしない */
   const overPlaced = state.parts.filter((p) => !isReserve(p) && takenOf(p.id) > p.needed)
 
+  /*
+    余白は足した時点で生地に置かれている（学生の点検・2026-09-02・2巡目）。
+    だから棚に札を出すのは、**生地から外したものだけ**。
+    置きなおす口として並べる——これは文字どおり「まだ置いていないもの」なので、
+    棚の意味とも食い違わない
+  */
+  const looseReserves = state.parts.filter((p) => isReserve(p) && takenOf(p.id) === 0)
+  /*
+    本物の型紙と、あとで裁つ用の場所を、同じ名前で両方置いている
+    （学生の点検・2026-09-02）。仮縫いのあとで寸法が変わるものは
+    わざと両方置くこともあるので**止めない**。二重に数えていないか、と聞くだけ
+  */
+  const dupReserves = state.parts.filter(
+    (r) => isReserve(r) && state.parts.some((p) => !isReserve(p) && p.name === r.name),
+  )
+
   return (
     <section
       ref={rootRef}
@@ -624,7 +652,9 @@ export function LayoutView({
         本文の下に場所を空ける。たたんでいるときは帯のぶんだけでよい
       */
       className={`flex flex-col gap-3.5 ${
-        selected && panelOpen ? 'pb-40' : dockRows > 0 ? 'pb-36' : 'pb-20'
+        reserveOpen ? 'pb-64'
+          : selected && panelOpen ? 'pb-40'
+            : dockRows > 0 ? 'pb-36' : 'pb-20'
       }`}
     >
       <Tour id="layout" />
@@ -700,7 +730,8 @@ export function LayoutView({
           topOnlyOf={(id) => twoLayerOf(id) && countOf(id) === 1}
           onActivate={() => setActiveSection(section.id)}
           onSelect={(id) => { setSelectedId(id); setPanelOpen(false) }}
-          onOpen={(id) => { setSelectedId(id); setPanelOpen(true) }}
+          /* 型紙の板を開くときは、余白の用紙は閉じておく。閉じたあとに出戻らせない */
+          onOpen={(id) => { setSelectedId(id); setPanelOpen(true); setReserveOpen(false) }}
           onMove={patch}
           onFold={(fold, halfFold, depth, group) =>
             onChange(applyFoldChange(state, section.id, fold, halfFold, depth), group)}
@@ -769,14 +800,6 @@ export function LayoutView({
         </div>
       )}
 
-      <ReserveTray
-        state={state}
-        takenOf={takenOf}
-        onPlace={place}
-        onAddReserve={addReserve}
-        onDropPart={dropPart}
-      />
-
       {/*
         枚数についての注意書き。
         型紙の一覧を下端の手元へ移したので（依頼者の指示・2026-09-04）、
@@ -793,6 +816,20 @@ export function LayoutView({
           <T id="layout.count.over.body" />
         </Hint>
       )}
+      {/*
+        同じ名前で型紙と余白を両方置いている、という知らせ。
+        「あとで裁つぶん」の一覧は下端の棚へ移した（依頼者の指示・2026-09-05）ので、
+        この一行も枚数の注意と同じ**結果のすぐ手前**へ動かした。
+        「二重に数えたまま出た長さです」と読める場所になる
+      */}
+      {dupReserves.map((r) => (
+        <p key={r.id} className="flex gap-2 text-xs leading-relaxed text-ink-500">
+          <Icon name="warn" className="mt-[0.15em] h-[1.15em] w-[1.15em] shrink-0 text-seam" />
+          <span className="min-w-0 flex-1">
+            <T id="layout.reserve.dup" vars={{ name: r.name }} />
+          </span>
+        </p>
+      ))}
 
       {/*
         買ってくる長さは、この画面の**結び**として下に置く（依頼者の指示・2026-08-27）。
@@ -832,15 +869,17 @@ export function LayoutView({
 
       {/*
         画面の下端は、いつも「いま押せるもの」だけにする。
-        ふだんは手元（まだ置いていない型紙の棚）、
+        ふだんは手元（生地に置くものの棚）、
         型紙を押して細かく決めているあいだは、その操作板に入れ替わる。
+        「あとで裁つぶん」を足すあいだは、その用紙に入れ替わる。
         2つ重ねると、下の棚が板に隠れて押せなくなる
       */}
-      {!(selected && panelOpen) && (
+      {!(selected && panelOpen) && !reserveOpen && (
         <Dock
           state={state}
           partMap={partMap}
           takenOf={takenOf}
+          reserves={looseReserves}
           rows={dockRows}
           onRows={setDockRows}
           /*
@@ -849,6 +888,15 @@ export function LayoutView({
           */
           onPlace={(id) => { place(id); if (dockRows > 1) setDockRows(1) }}
           onPlaceAll={placeAll}
+          onDropPart={dropPart}
+          onAddReserve={() => setReserveOpen(true)}
+        />
+      )}
+
+      {!(selected && panelOpen) && reserveOpen && (
+        <ReservePanel
+          onAdd={(name, w, h) => { addReserve(name, w, h); setReserveOpen(false) }}
+          onClose={() => setReserveOpen(false)}
         />
       )}
 
@@ -3753,16 +3801,21 @@ const LIST_GAP = 8
 const LIST_PAD = 8
 
 function Dock({
-  state, partMap, takenOf, rows, onRows, onPlace, onPlaceAll,
+  state, partMap, takenOf, reserves, rows, onRows,
+  onPlace, onPlaceAll, onDropPart, onAddReserve,
 }: {
   state: PartsState
   partMap: Map<string, PlacedPart>
   takenOf: (partId: string) => number
+  /** 生地から外してある「あとで裁つぶん」。置きなおす口として札を出す */
+  reserves: StoredPart[]
   /** 棚の高さ。0＝たたむ、1＝横一列、2以上＝札を折り返して何段ぶん見せるか */
   rows: number
   onRows: (rows: number) => void
   onPlace: (partId: string) => void
   onPlaceAll: () => void
+  onDropPart: (partId: string) => void
+  onAddReserve: () => void
 }) {
   const listRef = useRef<HTMLUListElement>(null)
   /**
@@ -3815,7 +3868,7 @@ function Dock({
       const over = ul.scrollWidth > ul.clientWidth + 1
       setSpill((was) => (was === over ? was : over))
     }
-  }, [rows, rowH, order.length, left])
+  }, [rows, rowH, order.length, reserves.length, left])
 
   if (patterns.length === 0) return null
 
@@ -3825,7 +3878,7 @@ function Dock({
   ))
 
   return (
-    <div className="safe-b fixed inset-x-0 bottom-0 z-10 border-t-2 border-mat-500 bg-mat-50 px-3 pt-1.5 shadow-[0_-12px_32px_rgba(43,51,45,0.22)]">
+    <div data-tour="tray" className="safe-b fixed inset-x-0 bottom-0 z-10 border-t-2 border-mat-500 bg-mat-50 px-3 pt-1.5 shadow-[0_-12px_32px_rgba(43,51,45,0.22)]">
       <div className="mx-auto flex max-w-md flex-col gap-1.5">
         {/*
           たたむための帯（依頼者の要望・2026-09-04）。
@@ -3960,6 +4013,65 @@ function Dock({
                 </button>
               </li>
             ))}
+
+            {/*
+              「あとで裁つぶん」も、生地に置くものなので同じ棚から出す
+              （依頼者の指示・2026-09-05）。もとは生地の絵の下に見出しと
+              一覧を出していたが、絵が長いほど遠ざかっていた。
+
+              並ぶのは**生地から外したものだけ**。生地に乗っているあいだは、
+              絵の上でその余白を押せば「あとで裁つぶん」の板が出るので、
+              ここに控えを並べる必要がない
+            */}
+            {reserves.map((p) => (
+              <li key={p.id} className="shrink-0">
+                <div className="flex h-full items-center gap-1 rounded-xl border border-dashed border-hold-400 bg-hold-50 py-1.5 pl-2.5 pr-1.5">
+                  <button
+                    type="button"
+                    onClick={() => onPlace(p.id)}
+                    aria-label={`${p.name}の余白を、生地に置きなおす`}
+                    className="flex items-center gap-2"
+                  >
+                    <Icon name="hold" className="h-4 w-4 shrink-0 text-hold-600" />
+                    <span className="flex flex-col items-start leading-tight">
+                      <span className="max-w-[7.5rem] truncate text-xs font-bold text-ink-900">
+                        {p.name}
+                      </span>
+                      <span className="tnum text-[11px] font-bold text-hold-600">
+                        {(p.widthMm / 10).toFixed(0)} × {(p.heightMm / 10).toFixed(0)} cm
+                      </span>
+                    </span>
+                  </button>
+                  {/* 消すのはここだけ。生地に乗っているあいだは、まず外してもらう */}
+                  <button
+                    type="button"
+                    onClick={() => onDropPart(p.id)}
+                    aria-label={`${p.name}の余白を消す`}
+                    className="tap shrink-0 rounded-lg p-1 text-ink-300"
+                  >
+                    <Icon name="trash" className="h-4 w-4" />
+                  </button>
+                </div>
+              </li>
+            ))}
+
+            {/*
+              足す口。列のいちばん後ろに置くのは、余白の出番が
+              「ひととおり並べたあと」だから（依頼者の指示・2026-09-04
+              『主役の道具のあいだに割り込ませない』）。
+              札の字が、見出しの言葉をそのまま引き受けている
+            */}
+            <li className="shrink-0">
+              <button
+                type="button"
+                onClick={onAddReserve}
+                className="flex h-full items-center gap-1.5 rounded-xl border border-dashed border-hold-400 bg-hold-50 px-3 py-1.5 text-xs font-bold text-hold-700 active:bg-hold-100"
+              >
+                <Icon name="plus" className="h-4 w-4 shrink-0" />
+                <Icon name="hold" className="h-4 w-4 shrink-0" />
+                あとで裁つぶん
+              </button>
+            </li>
           </ul>
         )}
 
@@ -3993,91 +4105,7 @@ function Dock({
   )
 }
 
-/* ------------------------------------------------------- あとで裁つぶんの棚 */
-
-/**
- * 型紙のほうの一覧は、下端の手元（`Dock`）へ移した（依頼者の指示・2026-09-04）。
- * ここに残すのは「あとで裁つぶん」だけ。
- *
- * これは型紙ではなく**寸法を打ち込む用紙**なので、横一列の札には収まらない。
- * 出番も、置きはじめではなく「ひととおり並べたあと」なので、本文に置いたままでよい
- */
-function ReserveTray({
-  state, takenOf, onPlace, onAddReserve, onDropPart,
-}: {
-  state: PartsState
-  takenOf: (partId: string) => number
-  onPlace: (partId: string) => void
-  onAddReserve: (name: string, widthMm: number, heightMm: number) => void
-  onDropPart: (partId: string) => void
-}) {
-  const patterns = state.parts.filter((p) => !isReserve(p))
-  const reserves = state.parts.filter(isReserve)
-  /*
-    本物の型紙と、あとで裁つ用の場所を、同じ名前で両方置いている
-    （学生の点検・2026-09-02）。仮縫いのあとで寸法が変わるものは
-    わざと両方置くこともあるので**止めない**。二重に数えていないか、と聞くだけ
-  */
-  const dup = reserves.filter((r) => patterns.some((p) => p.name === r.name))
-
-  return (
-    <div data-tour="tray" className="flex flex-col gap-2">
-      {/* 見出しだけでは何のことか分からなかった（学生の点検・2026-09-02） */}
-      <Heading icon="hold">あとで裁つぶん（場所だけ空けておく）</Heading>
-      {reserves.length > 0 && (
-        <ul className="flex flex-col gap-2">
-          {reserves.map((p) => (
-            <li
-              key={p.id}
-              className="flex items-center gap-3 rounded-xl border border-dashed border-hold-400 bg-hold-50 px-3 py-2"
-            >
-              <Icon name="hold" className="h-4 w-4 shrink-0 text-hold-600" />
-              <span className="min-w-0 flex-1 truncate text-sm font-bold text-ink-900">
-                {p.name}
-                <span className="ml-1.5 tnum text-xs font-normal text-hold-600">
-                  {(p.widthMm / 10).toFixed(0)} × {(p.heightMm / 10).toFixed(0)} cm
-                </span>
-              </span>
-              <button
-                type="button"
-                onClick={() => onDropPart(p.id)}
-                aria-label={`${p.name}の余白を消す`}
-                className="rounded-lg border border-ink-100 bg-white p-1.5 text-ink-500"
-              >
-                <Icon name="trash" className="h-4 w-4" />
-              </button>
-              {/*
-                余白は足した時点で生地に置かれている（学生の点検・2026-09-02・2巡目）。
-                そこへ一覧からも「置く」が出ていたので、押すと同じ余白が2つ並んだ。
-                生地から外したときだけ、置きなおす口として戻す
-              */}
-              {takenOf(p.id) === 0 && (
-                <button
-                  type="button"
-                  onClick={() => onPlace(p.id)}
-                  className="rounded-lg bg-mat-500 px-3 py-1.5 text-sm font-bold text-white active:bg-mat-600"
-                >
-                  置く
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-      {dup.map((r) => (
-        <p key={r.id} className="flex gap-2 text-xs leading-relaxed text-ink-500">
-          <Icon name="warn" className="mt-[0.15em] h-[1.15em] w-[1.15em] shrink-0 text-seam" />
-          <span className="min-w-0 flex-1">
-            <T id="layout.reserve.dup" vars={{ name: r.name }} />
-          </span>
-        </p>
-      ))}
-      <ReserveAdder onAdd={onAddReserve} />
-    </div>
-  )
-}
-
-/* ------------------------------------------------- 後で裁つぶんの余白を足す */
+/* --------------------------------------------------------- あとで裁つぶん */
 
 /**
  * ベルトや見返しのように、仮縫いのあとに裁つものの場所を空けておく（依頼者の指示）。
@@ -4085,13 +4113,23 @@ function ReserveTray({
  * 型紙をきちんと置く必要はない。
  * 「このくらいの長方形を空けたまま、ほかを裁つ」ができればよい。
  * だから形は取らず、裁ち切りの寸法だけを入れてもらう。
+ *
+ * もとは本文に「あとで裁つぶん」という見出しと一覧を出していたが、
+ * 生地の絵の**下**にあるので、生地が長いほど下へ遠ざかった
+ * （型紙の一覧を下端の棚へ移した 2026-09-04 と、まったく同じ問題）。
+ * 見出しごと下端の棚へ移し、棚の札から呼び出す用紙にした
+ * （依頼者の指示・2026-09-05）。
+ *
+ * 一覧そのものは要らなくなった。足した余白はその場で生地に置かれるので、
+ * 直したり外したりは**絵の上のその余白を押せばできる**。
+ * 外したものだけが、置きなおす口として棚の札に戻る
  */
-function ReserveAdder({
-  onAdd,
+function ReservePanel({
+  onAdd, onClose,
 }: {
   onAdd: (name: string, widthMm: number, heightMm: number) => void
+  onClose: () => void
 }) {
-  const [open, setOpen] = useState(false)
   const [name, setName] = useState(RESERVE_CHOICES[0])
   const [widthCm, setWidthCm] = useState('9')
   const [heightCm, setHeightCm] = useState('72')
@@ -4100,83 +4138,75 @@ function ReserveAdder({
   const h = Number(heightCm)
   const ok = Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0
 
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="flex items-center gap-1.5 self-start rounded-lg border border-dashed border-hold-400 bg-hold-50 px-4 py-2 text-sm font-bold text-hold-700"
-      >
-        <Icon name="plus" className="h-4 w-4 shrink-0" />
-        <Icon name="hold" className="h-4 w-4 shrink-0" />
-        余白を空けておく
-      </button>
-    )
-  }
-
+  // 板の作りは、型紙を選んだときの操作板とそろえてある（下から出る・つまみの横棒・閉じる）
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-dashed border-hold-400 bg-hold-50 px-4 py-3">
-      <Hint icon="hold" summary={<T id="layout.reserve.summary" />}>
-        <T id="layout.reserve.body" />
-      </Hint>
-
-      <div className="flex flex-wrap gap-1.5">
-        {RESERVE_CHOICES.map((c) => (
+    <div className="safe-b fixed inset-x-0 bottom-0 z-10 border-t-2 border-mat-500 bg-mat-50 px-4 pt-2 shadow-[0_-12px_32px_rgba(43,51,45,0.22)] panel-up">
+      <div className="mx-auto flex max-w-md flex-col gap-2 pb-2">
+        <div className="mx-auto h-1 w-10 rounded-full bg-mat-300" />
+        <div className="flex items-center gap-2">
+          <Icon name="hold" className="h-4 w-4 shrink-0 text-hold-600" />
+          {/* 見出しだけでは何のことか分からなかった（学生の点検・2026-09-02） */}
+          <span className="min-w-0 flex-1 truncate text-sm font-bold text-ink-900">
+            あとで裁つぶん（場所だけ空けておく）
+          </span>
           <button
-            key={c}
             type="button"
-            onClick={() => setName(c)}
-            className={`rounded-lg px-3 py-1.5 text-sm font-bold ${
-              name === c
-                ? 'bg-hold-600 text-white'
-                : 'border border-hold-400 bg-white text-hold-700'
-            }`}
+            onClick={onClose}
+            className="tap shrink-0 whitespace-nowrap px-1 text-xs text-ink-300"
           >
-            {c}
+            閉じる
           </button>
-        ))}
-      </div>
+        </div>
 
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="flex flex-col gap-1 text-xs font-bold text-ink-500">
-          幅（cm）
-          <input
-            type="number" inputMode="decimal" min="1" step="0.5"
-            value={widthCm}
-            onChange={(e) => setWidthCm(e.target.value)}
-            className="tnum w-24 rounded-lg border border-ink-100 bg-white px-3 py-2 text-base font-bold text-ink-900"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-xs font-bold text-ink-500">
-          丈（cm）
-          <input
-            type="number" inputMode="decimal" min="1" step="0.5"
-            value={heightCm}
-            onChange={(e) => setHeightCm(e.target.value)}
-            className="tnum w-24 rounded-lg border border-ink-100 bg-white px-3 py-2 text-base font-bold text-ink-900"
-          />
-        </label>
-      </div>
+        <Hint icon="hold" summary={<T id="layout.reserve.summary" />}>
+          <T id="layout.reserve.body" />
+        </Hint>
 
-      <div className="flex gap-2">
-        <button
-          type="button"
-          disabled={!ok}
-          onClick={() => {
-            onAdd(name, Math.round(w * 10), Math.round(h * 10))
-            setOpen(false)
-          }}
-          className="rounded-lg bg-hold-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-40"
-        >
-          生地に置く
-        </button>
-        <button
-          type="button"
-          onClick={() => setOpen(false)}
-          className="rounded-lg border border-ink-100 bg-white px-4 py-2 text-sm font-bold text-ink-500"
-        >
-          やめる
-        </button>
+        <div className="flex flex-wrap gap-1.5">
+          {RESERVE_CHOICES.map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => setName(c)}
+              className={`rounded-lg px-3 py-1.5 text-sm font-bold ${
+                name === c
+                  ? 'bg-hold-600 text-white'
+                  : 'border border-hold-400 bg-white text-hold-700'
+              }`}
+            >
+              {c}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1 text-xs font-bold text-ink-500">
+            幅（cm）
+            <input
+              type="number" inputMode="decimal" min="1" step="0.5"
+              value={widthCm}
+              onChange={(e) => setWidthCm(e.target.value)}
+              className="tnum w-24 rounded-lg border border-ink-100 bg-white px-3 py-2 text-base font-bold text-ink-900"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs font-bold text-ink-500">
+            丈（cm）
+            <input
+              type="number" inputMode="decimal" min="1" step="0.5"
+              value={heightCm}
+              onChange={(e) => setHeightCm(e.target.value)}
+              className="tnum w-24 rounded-lg border border-ink-100 bg-white px-3 py-2 text-base font-bold text-ink-900"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={!ok}
+            onClick={() => onAdd(name, Math.round(w * 10), Math.round(h * 10))}
+            className="ml-auto rounded-lg bg-hold-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-40"
+          >
+            生地に置く
+          </button>
+        </div>
       </div>
     </div>
   )
