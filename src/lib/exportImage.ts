@@ -57,6 +57,11 @@ function loadSheet(sheet: Sheet, width: number, height: number): Promise<HTMLIma
   clone.setAttribute('width', String(Math.round(width)))
   clone.setAttribute('height', String(Math.round(height)))
   clone.setAttribute('font-family', FONT)
+  /*
+    画面でだけ使う持ち手（折り返す幅を変えるつまみと、その指の的）は取り除く。
+    裁ち合わせ図として見せる絵に、操作のための矢が入っていてはいけない
+  */
+  for (const el of [...clone.querySelectorAll('[data-ui]')]) el.remove()
 
   const text = new XMLSerializer().serializeToString(clone)
   const url = URL.createObjectURL(new Blob([text], { type: 'image/svg+xml;charset=utf-8' }))

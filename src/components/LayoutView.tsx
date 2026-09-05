@@ -1555,46 +1555,46 @@ function SectionCanvas({
    */
   const edgeTag = (
     side: Side, cx: number, cy: number, w: number, h: number, body: ReactNode,
-  ) => (
-    <g
-      key={`tag-${side}`}
-      role="button"
-      tabIndex={0}
-      aria-label={foldSidesOf(section.fold).includes(side)
-        ? `${SIDE_LABELS[side]}の端の「わ」をやめる。内側へ引きずると折り返す幅も決まります`
-        : `${SIDE_LABELS[side]}の端を「わ」にする。内側へ引きずると折り返す幅も決まります`}
-      style={{ cursor: 'pointer' }}
-      /*
-        指を捕まえるのは**この札ではなく、図そのもの**（`svgRef`）。
+  ) => {
+    /*
+      折り山になっている辺の札（「わ（折り山）」）は、**押すだけ**（依頼者の指示・2026-09-05）。
 
-        引きはじめると、その辺は「みみ」から「わ（折り山）」へ変わる。
-        札そのものが別のものに入れ替わるので、札に指を捕まえさせておくと、
-        入れ替わった瞬間にそれ以上動かせなくなる。
-        図に捕まえさせておけば、札が何に変わっても指はついてくる
-      */
-      onPointerDown={(e) => {
-        e.stopPropagation()
-        try {
-          svgRef.current?.setPointerCapture(e.pointerId)
-        } catch { /* 捕まえられなくてよい */ }
-        onActivate()
-        tagDrag.current = {
-          side, cx: e.clientX, cy: e.clientY, moved: false,
-          startMm: foldSidesOf(section.fold).includes(side) ? report.foldDepth[side] : 0,
-          spanMm: spanMmOf(side), autoMm: report.snapDepth[side], perPx: mmPerPx(),
-          group: `fold${(dragSeq += 1)}`,
-        }
-      }}
-    >
-      {/* 押せることが分かるだけの、ごく薄い下地 */}
-      <rect
-        x={cx - w / 2} y={cy - h / 2} width={w} height={h} rx={W * 0.02}
-        fill="#ffffff" fillOpacity={0.5}
-        stroke={CREASE} strokeOpacity={0.16} strokeWidth={W * 0.004}
-      />
-      {body}
-    </g>
-  )
+      折り山の線は、折る深さを変えても図の上ではまったく動かない。
+      わ＝生地の端そのものなので、深く折っても浅く折っても同じ場所に貼りついている。
+      動かないものを引きずらせると、手つきと絵が食い違う。
+      引いて深さを決める持ち手は、**折る深さで実際に位置が動く線**——
+      面の中へ入ってきた折り返しの端——のほうに置いてある
+    */
+    const folded = foldSidesOf(section.fold).includes(side)
+    return (
+      <g
+        key={`tag-${side}`}
+        role="button"
+        tabIndex={0}
+        aria-label={folded
+          ? `${SIDE_LABELS[side]}の端の「わ」をやめる`
+          : `${SIDE_LABELS[side]}の端を「わ」にする。内側へ引きずると折り返す幅も決まります`}
+        style={{ cursor: 'pointer' }}
+        onPointerDown={(e) => {
+          if (folded) {
+            e.stopPropagation()
+            onActivate()
+            applyEdge(side, 'toggle')
+            return
+          }
+          startFoldDrag(side, e, `fold${(dragSeq += 1)}`)
+        }}
+      >
+        {/* 押せることが分かるだけの、ごく薄い下地 */}
+        <rect
+          x={cx - w / 2} y={cy - h / 2} width={w} height={h} rx={W * 0.02}
+          fill="#ffffff" fillOpacity={0.5}
+          stroke={CREASE} strokeOpacity={0.16} strokeWidth={W * 0.004}
+        />
+        {body}
+      </g>
+    )
+  }
 
   const gid = `fold-${section.id}`
   const vbW = bodyW + PAD * 2
@@ -1653,6 +1653,52 @@ function SectionCanvas({
   const applyEdge = (side: Side, action: EdgeAction, group?: string) => {
     const next = foldFromEdge(section.fold, side, action)
     onFold(next.fold, next.halfFold, { [side]: next.depthMm ?? null }, group)
+  }
+
+  /**
+   * 折り返した一枚の、**面の中へ入ってきた端**の位置。
+   *
+   * 折る深さを変えたときに図の上で動くのは、この線だけである。
+   * 縦に折ったときはもとの「みみ」が入ってきたもの、
+   * 横に折ったときは「裁ち端」が入ってきたもので、どちらも実物なら
+   * 手でつまんで内へ入れたり外へ出したりしているところ。
+   *
+   * 値は生地を描いている式（`topPath`）とそろえてある。
+   * 帯や余白のぶんだけ外へ出して描いてあるので、線もそこに見えている
+   */
+  const flapEdgeAt = (sd: Side) =>
+    sd === 'left' ? depth.left + SEL_BW
+      : sd === 'right' ? W + OPENX - depth.right - SEL_BW
+        : sd === 'top' ? depth.top + EDGE_GAP
+          : L + OPEN - depth.bottom - EDGE_GAP
+
+  /**
+   * 折り返す幅を、指で決めはじめる（依頼者の指示・2026-09-05）。
+   *
+   * つかむのは**折る深さで位置が動くもの**だけ。折っていない辺では生地の端の札
+   * （「みみ」「裁ち端」）、折ってある辺では上の `flapEdgeAt` の線。
+   * どちらも「みみ（や裁ち端）をつまんで、内へ入れたり外へ出したりする」という
+   * 同じ動作で、実物でしている手つきと一致する
+   * （依頼者の指摘・2026-09-05「耳の部分を掴んで引っ込めたり伸ばしたりというのが、
+   * 布を現実で触っている動作としては近しい」）。
+   *
+   * 指を捕まえるのは**この持ち手ではなく、図そのもの**（`svgRef`）。
+   * 持ち手そのものが指について動くうえ、折り方が変わった拍子に
+   * 別のもの（みみの札→折り返しの端）へ入れ替わる。
+   * 図に捕まえさせておけば、何に入れ替わっても指はついてくる
+   */
+  const startFoldDrag = (side: Side, e: PointerEvent, group: string) => {
+    e.stopPropagation()
+    try {
+      svgRef.current?.setPointerCapture(e.pointerId)
+    } catch { /* 捕まえられなくてよい */ }
+    onActivate()
+    tagDrag.current = {
+      side, cx: e.clientX, cy: e.clientY, moved: false,
+      startMm: foldSidesOf(section.fold).includes(side) ? report.foldDepth[side] : 0,
+      spanMm: spanMmOf(side), autoMm: report.snapDepth[side], perPx: mmPerPx(),
+      group,
+    }
   }
 
   /* ------------------------------------------------- 二本指でひろげる・つまむ */
@@ -1715,6 +1761,15 @@ function SectionCanvas({
   }
 
   const canvasDown = (e: PointerEvent) => {
+    /*
+      折り返しの持ち手は生地の面の上にあるので、二本指でひろげるつもりの
+      一本目がそこに乗ってしまうことがある。二本目が触れたら持ち手は放して、
+      つまむほうへ譲る。押しただけの扱いにもしない（折るつもりではなかったので）
+    */
+    if (tagDrag.current) {
+      tagDrag.current = null
+      setTagHint(null)
+    }
     onActivate()
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
     if (pointers.current.size === 2) {
@@ -2912,6 +2967,34 @@ function SectionCanvas({
             )
           })}
 
+          {/*
+            折り返した端をつまむところ（依頼者の指示・2026-09-05）。
+
+            線そのものは細いので、その両側に見えない帯を敷いて指の的をひろげる。
+            型紙より**先に**描いてあるので、型紙が乗っているところでは型紙が勝つ。
+            生地の空いているところでだけ、折り返しをつまめる。
+            型紙の上からでもつまめる小さなつまみは、型紙のあとに別に描いてある
+          */}
+          {flaps.map((f) => {
+            const horiz = f.side === 'left' || f.side === 'right'
+            const at = flapEdgeAt(f.side)
+            const band = W * 0.055
+            return (
+              <rect
+                key={`grab-${f.side}`}
+                data-ui="fold-grab"
+                x={horiz ? at - band / 2 : bx0}
+                y={horiz ? by0 : at - band / 2}
+                width={horiz ? band : bodyW}
+                height={horiz ? by1 - by0 : band}
+                fill="none"
+                pointerEvents="all"
+                style={{ cursor: horiz ? 'ew-resize' : 'ns-resize' }}
+                onPointerDown={(e) => startFoldDrag(f.side, e, `fold${(dragSeq += 1)}`)}
+              />
+            )
+          })}
+
           {report.boxes.map((box) => {
             const p = state.placements.find((q) => q.id === box.placementId)
             const part = p ? partMap.get(p.partId) : null
@@ -3264,6 +3347,58 @@ function SectionCanvas({
               </g>
             )
           })()}
+
+          {/*
+            折り返した端の、つまみ（依頼者の指示・2026-09-05）。
+
+            型紙の**あと**に描く。先に描くと型紙の下に隠れてしまい、
+            そこがつまめること自体が見えなくなる。
+            矢の向きが、内へ入れる・外へ出すという動きそのものを言っている。
+
+            線に沿った置きどころは、はじまり側を空けておく。
+            そこには「生地が二重」の札が出るので、重ねると両方読めなくなる。
+            左（上）と右（下）でずらしてあるのは、両側から折って端どうしが
+            出会ったとき、2つのつまみが同じところに重なるのを避けるため
+          */}
+          {flaps.map((f) => {
+            const horiz = f.side === 'left' || f.side === 'right'
+            const at = flapEdgeAt(f.side)
+            const near = f.side === 'left' || f.side === 'top'
+            const along = horiz
+              ? by0 + (by1 - by0) * (near ? 0.72 : 0.87)
+              : bx0 + bodyW * (near ? 0.72 : 0.87)
+            const cx = horiz ? at : along
+            const cy = horiz ? along : at
+            const dw = W * (horiz ? 0.115 : 0.06)
+            const dh = W * (horiz ? 0.06 : 0.115)
+            const a = W * 0.036
+            const b = W * 0.015
+            const arrow = horiz
+              ? `M ${cx - a + b} ${cy - b} L ${cx - a} ${cy} L ${cx - a + b} ${cy + b}`
+                + ` M ${cx + a - b} ${cy - b} L ${cx + a} ${cy} L ${cx + a - b} ${cy + b}`
+              : `M ${cx - b} ${cy - a + b} L ${cx} ${cy - a} L ${cx + b} ${cy - a + b}`
+                + ` M ${cx - b} ${cy + a - b} L ${cx} ${cy + a} L ${cx + b} ${cy + a - b}`
+            return (
+              <g
+                key={`grip-${f.side}`}
+                data-ui="fold-grip"
+                role="button"
+                tabIndex={0}
+                aria-label={`${SIDE_LABELS[f.side]}の折り返す幅を変える`}
+                style={{ cursor: horiz ? 'ew-resize' : 'ns-resize' }}
+                onPointerDown={(e) => startFoldDrag(f.side, e, `fold${(dragSeq += 1)}`)}
+              >
+                <rect
+                  x={cx - dw / 2} y={cy - dh / 2} width={dw} height={dh}
+                  rx={Math.min(dw, dh) / 2}
+                  fill="#ffffff" fillOpacity={0.82}
+                  stroke={CREASE} strokeOpacity={0.3} strokeWidth={W * 0.004}
+                />
+                <path d={arrow} fill="none" stroke="#6f766e" strokeWidth={W * 0.008}
+                  strokeLinecap="round" strokeLinejoin="round" />
+              </g>
+            )
+          })}
 
           {/*
             みみの名前。回転させた横書きは読みづらいので縦書きにし、
