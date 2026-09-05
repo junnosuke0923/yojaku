@@ -655,7 +655,7 @@ export function LayoutView({
         （依頼者の指示・2026-09-05「その分デフォルトの帯の幅を調整して下さい」）。
         pb-36（144px）→ pb-32（128px）
       */
-      className={`flex flex-col gap-3.5 ${
+      className={`flex flex-col gap-3 ${
         reserveOpen ? 'pb-64'
           : selected && panelOpen ? 'pb-40'
             : dockRows > 0 ? 'pb-32' : 'pb-20'
@@ -849,7 +849,7 @@ export function LayoutView({
         並べているあいだ変わっていく数字は、絵の中の「並べたぶん」で見える。
         ここは、そこから渡された結びの数字
       */}
-      <Totals report={report} widthMm={state.fabricWidthMm} />
+      <Totals report={report} />
 
       {/*
         出た見積もりを、名前を付けてしまっておく（依頼者の指示・2026-08-28）。
@@ -956,12 +956,7 @@ function grainShiftOf(
 
 /* ------------------------------------------------------------------ 合計 */
 
-function Totals({
-  report, widthMm,
-}: {
-  report: ReturnType<typeof computeYardage>
-  widthMm: number
-}) {
+function Totals({ report }: { report: ReturnType<typeof computeYardage> }) {
   /*
     ありえない置き方は「重なり」だけではない（学生の点検・2026-09-02・2巡目）。
     幅からはみ出しているときにも同じ注意が要るのに、
@@ -971,9 +966,9 @@ function Totals({
   const overlapping = report.problems.some((pb) => pb.kind === 'overlap')
   const tooWide = report.problems.some((pb) => pb.kind === 'tooWide')
   return (
-    <div data-tour="totals" className="flex gap-3 rounded-xl border border-ink-100 bg-white px-4 py-4">
+    <div data-tour="totals" className="flex gap-3 rounded-xl border border-ink-100 bg-white px-4 py-3">
       {/* 買う長さは、生地の「丈」を測っている数字。絵でもそう見せる */}
-      <Icon name="yardage" className="mt-1 h-9 w-9 shrink-0 text-mat-500" />
+      <Icon name="yardage" className="mt-0.5 h-8 w-8 shrink-0 text-mat-500" />
       <div className="min-w-0 flex-1">
       <p className="text-xs text-ink-500">買ってくる長さ</p>
       <p className="tnum text-4xl font-bold leading-tight text-mat-600">
@@ -1015,12 +1010,17 @@ function Totals({
                 {/*
                   ここだけ小数第1位まで出す（学生の点検・2026-09-02）。
                   もとは整数に丸めていたので「130 ＋ 20 → 切り上げ」と書いてあるのに
-                  出ている数字が 160 になり、式のとおりに計算しても合わなかった
+                  出ている数字が 160 になり、式のとおりに計算しても合わなかった。
+
+                  単位は書かない（依頼者の指示・2026-09-05
+                  「余白が多かったり文字が多かったりする印象です」）。
+                  数ごとに cm を付けていたので 375px で2行に折れていた。
+                  すぐ上の大きな数字に cm と出ているので、式の中では省いてよい
                 */}
-                並べたぶん {(report.totalMm / 10).toFixed(1)} cm
-                <span className="px-1 text-ink-300">＋</span>
-                ゆとり {PURCHASE_MARGIN_MM / 10} cm
-                <span className="px-1 text-ink-300">→ 切り上げ</span>
+                並べたぶん {(report.totalMm / 10).toFixed(1)}
+                <span className="px-0.5 text-ink-300">＋</span>
+                ゆとり {PURCHASE_MARGIN_MM / 10}
+                <span className="px-0.5 text-ink-300">→ 切り上げ</span>
               </span>
             }
           >
@@ -1050,15 +1050,15 @@ function Totals({
       ) : (
         <p className="pt-1 text-xs text-ink-500"><T id="layout.empty.note" /></p>
       )}
-      <p className="tnum flex items-center gap-1.5 pt-2 text-xs text-ink-300">
-        <Icon name="clothWidth" className="h-3.5 w-3.5 shrink-0" />
-        {/*
-          ここで「置けるのは 106cm」と言ってしまうと、半分に折ったときの
-          パネル（53cm）と食い違って見える。耳を除いた幅までにとどめ、
-          実際に置ける幅は、折り方が決まっている区間のほうに出す
-        */}
-        生地幅 {widthMm / 10} cm ／ みみを除くと {(widthMm - SELVAGE_MM * 2) / 10} cm
-      </p>
+      {/*
+        ここには「生地幅 110 cm ／ みみを除くと 106 cm」の一行があった
+        （依頼者の指示・2026-09-05で削除）。
+
+        「生地」が別の段階だったころは、いま何 cm で計算しているのかを
+        結果のそばで確かめられる意味があった。生地幅を「並べる」の
+        いちばん上へ畳み込んだ（2026-09-05）ので、同じ画面の中に同じ数が
+        2つ出ている状態になり、確かめる先としての役目が終わった
+      */}
       </div>
     </div>
   )
@@ -1122,7 +1122,7 @@ function SaveBox({
   }
 
   return (
-    <div className="flex flex-col gap-2 rounded-xl border border-ink-100 bg-white px-4 py-3">
+    <div className="flex flex-col gap-1.5 rounded-xl border border-ink-100 bg-white px-4 py-2.5">
       <div className="flex items-center gap-2">
         <Icon name="save" className="h-4 w-4 shrink-0 text-mat-600" />
         <span className="shrink-0 text-sm font-bold text-ink-700">しまっておく</span>
@@ -1269,7 +1269,7 @@ function ImageBox({
   }
 
   return (
-    <div className="flex flex-col gap-2 rounded-xl border border-ink-100 bg-white px-4 py-3">
+    <div className="flex flex-col gap-1.5 rounded-xl border border-ink-100 bg-white px-4 py-2.5">
       <div className="flex items-center gap-2">
         <Icon name="photo" className="h-4 w-4 shrink-0 text-mat-600" />
         <span className="shrink-0 text-sm font-bold text-ink-700">資料に持ち出す</span>

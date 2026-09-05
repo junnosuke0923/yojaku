@@ -525,7 +525,7 @@ export const TEXTS = define({
   'layout.used.summary': {
     screen: '並べる',
     label: '長さの数えかた（ひと言）',
-    value: '長さ *{cm} cm* ＝ いちばん下の型紙の、下の端まで（型紙の丈ではありません）',
+    value: '長さ *{cm} cm* ＝ いちばん下の型紙の、下の端まで',
   },
   'layout.used.body': {
     screen: '並べる',
