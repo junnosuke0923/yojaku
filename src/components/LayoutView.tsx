@@ -852,28 +852,18 @@ export function LayoutView({
       <Totals report={report} />
 
       {/*
-        出た見積もりを、名前を付けてしまっておく（依頼者の指示・2026-08-28）。
-        結果のすぐ下に置く。数字を見たその場でしまえないと、
-        わざわざ探しに行くことになって、結局しまわなくなる
+        出た見積もりを残す口は、ひとつの枠にまとめてある
+        （依頼者の指示・2026-09-06「ここも保存関連のものとしてまとまっても良い」）。
+        結果のすぐ下に置く。数字を見たその場で残せないと、
+        わざわざ探しに行くことになって、結局残さなくなる
       */}
-      <SaveBox
+      <KeepBox
+        rootRef={rootRef}
         report={report}
         state={state}
         name={saveName}
         onName={onSaveName}
         onSaved={onSaved}
-      />
-
-      {/*
-        出来た配置図を、画像にして端末へ出す（依頼者の指示・2026-09-01）。
-        「しまっておく」の下に置く。どちらも出来あがったものの持ち出し方だが、
-        しまうのはアプリの中、画像はアプリの外へ、という順にしてある
-      */}
-      <ImageBox
-        rootRef={rootRef}
-        report={report}
-        widthMm={state.fabricWidthMm}
-        sections={state.sections}
         summaryText={summaryText}
         onBeforeDraw={() => { setSelectedId(null); setPanelOpen(false) }}
       />
@@ -1064,122 +1054,60 @@ function Totals({ report }: { report: ReturnType<typeof computeYardage> }) {
   )
 }
 
-/* --------------------------------------------------------- しまっておく */
+/* ----------------------------------------------------------- とっておく */
 
 /**
- * 出した見積もりに名前を付けて、この端末の中にしまう（依頼者の指示・2026-08-28）。
+ * 出来あがった見積もりを残す口を、ひとつの枠にまとめたもの
+ * （依頼者の指示・2026-09-06「ここも保存関連のものとしてまとまっても良い」）。
  *
- * 同じ名前でしまうと書きかわる。「新しくしまう」「上書きする」を
- * 別のボタンに分けるより、**同じ名前＝同じもの**と読めるほうが迷わない。
- * 開いたものを直してもう一度しまうと、名前がそのまま入っているので上書きになる。
+ * 中は2組ある。上は**アプリの中**へしまう——名前を付けて置いておくと、
+ * 次に開いたとき最初の画面から呼び出せる。同じ名前でしまうと書きかわる。
+ * 「新しくしまう」「上書きする」を別のボタンに分けるより、
+ * **同じ名前＝同じもの**と読めるほうが迷わない。
+ * 下は**アプリの外**へ出す——画像にして端末に置くか、字にして写し取るか。
  *
- * 何も並べていないうちは出さない。しまう中身がまだ無いため。
+ * もとは「しまっておく」「資料に持ち出す」の2枚に分けてあった。
+ * 中と外という違いは残しておきたいが、そのために枠の縁と見出しを
+ * 2組ぶん使うと、そのぶん裁ち合わせ図が押し出される
+ * （依頼者の指示・2026-09-05「配置図の部分を出来るだけ見せたい」）。
+ * いまは線を1本引いて分けてある。
+ *
+ * 知らせは**押したボタンのすぐ下**に出す。中身はいちどにひとつしか
+ * 持たないが、上の組で起きたことを下の組の下に出すと、
+ * どれに対する返事なのか分からなくなる。
+ *
+ * 画像の使い道は2つと聞いている——スマホに残して裁つときに見る、
+ * パソコンに保存して授業資料に貼る。だから
+ * **指で使う端末では共有の口、パソコンではそのまま取り込み**に分けてある
+ * （lib/exportImage.ts の saveImage）。
+ * 生地幅と買う長さは、図にかからないよう下端の帯にまとめてある。
+ * 資料に貼るとき数字が要らないことがある、と言われているので、
+ * 帯ごと切り落とせる形にした。
+ *
+ * 何も並べていないうちは出さない。残す中身がまだ無いため。
  */
-function SaveBox({
-  report, state, name, onName, onSaved,
+function KeepBox({
+  rootRef, report, state, name, onName, onSaved, summaryText, onBeforeDraw,
 }: {
+  rootRef: RefObject<HTMLElement | null>
   report: ReturnType<typeof computeYardage>
   state: PartsState
   name: string
   onName: (name: string) => void
   onSaved: (saves: Save[]) => void
-}) {
-  const [note, setNote] = useState<string | null>(null)
-  const [bad, setBad] = useState(false)
-
-  if (report.purchaseMm <= 0) return null
-
-  const doSave = () => {
-    const label = name.trim() || defaultName()
-    const r = putSave(
-      label,
-      {
-        purchaseMm: report.purchaseMm,
-        totalMm: report.totalMm,
-        fabricWidthMm: state.fabricWidthMm,
-        partCount: state.parts.length,
-        placementCount: state.placements.length,
-      },
-      state,
-    )
-    if (!r.ok) {
-      setBad(true)
-      setNote(
-        r.reason === 'full'
-          ? `しまえるのは ${MAX_SAVES} 件までです。最初の画面で、いらないものを消してください`
-          : '端末の置き場所がいっぱいです。最初の画面で、いらないものを消してください',
-      )
-      return
-    }
-    setBad(false)
-    onName(label)
-    onSaved(r.saves)
-    setNote(
-      r.overwrote
-        ? `「${label}」を書きかえました`
-        : `「${label}」にしまいました。次に開いたとき、最初の画面から呼び出せます`,
-    )
-  }
-
-  return (
-    <div className="flex flex-col gap-1.5 rounded-xl border border-ink-100 bg-white px-4 py-2.5">
-      <div className="flex items-center gap-2">
-        <Icon name="save" className="h-4 w-4 shrink-0 text-mat-600" />
-        <span className="shrink-0 text-sm font-bold text-ink-700">しまっておく</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => { onName(e.target.value); setNote(null) }}
-          placeholder={defaultName()}
-          aria-label="しまう名前"
-          className="min-w-0 flex-1 rounded-lg border border-ink-100 px-3 py-2 text-base"
-        />
-        <button
-          type="button"
-          onClick={doSave}
-          className="shrink-0 rounded-lg bg-mat-500 px-4 py-2 text-sm font-bold text-white active:bg-mat-600"
-        >
-          しまう
-        </button>
-      </div>
-      {note && <Note icon={bad ? 'warn' : 'check'} tone={bad ? 'warn' : 'good'}>{note}</Note>}
-    </div>
-  )
-}
-
-/* --------------------------------------------------- 画像にして持ち出す */
-
-/**
- * 出来あがった裁ち合わせ図を、1枚の画像にして端末へ出す（依頼者の指示・2026-09-01）。
- *
- * 使い道は2つと聞いている——スマホに残して裁つときに見る、
- * パソコンに保存して授業資料に貼る。だから
- * **指で使う端末では共有の口、パソコンではそのまま取り込み**に分けてある
- * （lib/exportImage.ts の saveImage）。
- *
- * 生地幅と買う長さは、図にかからないよう下端の帯にまとめてある。
- * 資料に貼るとき数字が要らないことがある、と言われているので、
- * 帯ごと切り落とせる形にした。
- *
- * 何も並べていないうちは出さない。書き出す中身がまだ無いため。
- */
-function ImageBox({
-  rootRef, report, widthMm, sections, summaryText, onBeforeDraw,
-}: {
-  rootRef: RefObject<HTMLElement | null>
-  report: ReturnType<typeof computeYardage>
-  widthMm: number
-  sections: Section[]
   /** 同じ中身を、資料に貼れる字にしたもの */
   summaryText: () => string
   /** 書き出す前にやっておくこと（選んである型紙の囲みを消す） */
   onBeforeDraw: () => void
 }) {
+  /**
+   * 押したことへの返事。`at` は、上の組（しまう）と下の組（外へ出す）の
+   * どちらの下に出すか
+   */
+  const [msg, setMsg] = useState<
+    { text: string, bad?: boolean, at: 'save' | 'out' } | null
+  >(null)
   const [busy, setBusy] = useState(false)
-  const [note, setNote] = useState<string | null>(null)
-  const [bad, setBad] = useState(false)
   /**
    * コピーできなかったときに、字そのものを出す先。
    *
@@ -1202,11 +1130,45 @@ function ImageBox({
    */
   const runId = useRef(0)
 
+  const doSave = () => {
+    const label = name.trim() || defaultName()
+    const r = putSave(
+      label,
+      {
+        purchaseMm: report.purchaseMm,
+        totalMm: report.totalMm,
+        fabricWidthMm: state.fabricWidthMm,
+        partCount: state.parts.length,
+        placementCount: state.placements.length,
+      },
+      state,
+    )
+    if (!r.ok) {
+      setShown(null)
+      setMsg({
+        at: 'save',
+        bad: true,
+        text: r.reason === 'full'
+          ? `しまえるのは ${MAX_SAVES} 件までです。最初の画面で、いらないものを消してください`
+          : '端末の置き場所がいっぱいです。最初の画面で、いらないものを消してください',
+      })
+      return
+    }
+    setShown(null)
+    onName(label)
+    onSaved(r.saves)
+    setMsg({
+      at: 'save',
+      text: r.overwrote
+        ? `「${label}」を書きかえました`
+        : `「${label}」にしまいました。次に開いたとき、最初の画面から呼び出せます`,
+    })
+  }
+
   const stop = () => {
     runId.current += 1
     setBusy(false)
-    setBad(false)
-    setNote('画像づくりをやめました')
+    setMsg({ at: 'out', text: '画像づくりをやめました' })
   }
 
   const copy = async () => {
@@ -1214,27 +1176,29 @@ function ImageBox({
     setShown(null)
     try {
       await navigator.clipboard.writeText(text)
-      setBad(false)
-      setNote('一覧をコピーしました。資料にそのまま貼れます')
+      setMsg({ at: 'out', text: '一覧をコピーしました。資料にそのまま貼れます' })
     } catch {
-      setBad(true)
-      setNote('コピーできませんでした。下の枠の字を選んで、手でコピーしてください')
+      setMsg({
+        at: 'out',
+        bad: true,
+        text: 'コピーできませんでした。下の枠の字を選んで、手でコピーしてください',
+      })
       setShown(text)
     }
   }
 
-  if (report.purchaseMm <= 0) return null
-
   const run = async () => {
     const my = ++runId.current
     setBusy(true)
-    setNote(null)
+    setMsg(null)
+    setShown(null)
     try {
       // 選んである型紙には緑の囲みが出ている。画像には残さない
       onBeforeDraw()
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
 
       const found = rootRef.current?.querySelectorAll<SVGSVGElement>('svg[data-sheet]')
+      const sections = state.sections
       const sheets: Sheet[] = [...(found ?? [])].map((svg, i) => ({
         svg,
         viewBox: svg.dataset.viewbox ?? svg.getAttribute('viewBox') ?? '0 0 100 100',
@@ -1245,7 +1209,8 @@ function ImageBox({
       if (sheets.length === 0) throw new Error('empty')
 
       const caption =
-        `生地幅 ${widthMm / 10} cm ／ 買ってくる長さ ${(report.purchaseMm / 10).toFixed(0)} cm`
+        `生地幅 ${state.fabricWidthMm / 10} cm`
+        + ` ／ 買ってくる長さ ${(report.purchaseMm / 10).toFixed(0)} cm`
       const blob = await Promise.race([
         renderLayoutImage(sheets, caption),
         new Promise<never>((_, no) =>
@@ -1253,78 +1218,117 @@ function ImageBox({
       ])
       const how = await saveImage(blob, `裁ち合わせ図-${today()}.png`)
       if (runId.current !== my) return
-      setBad(false)
-      if (how === 'downloaded') setNote('画像を保存しました')
-      else if (how === 'shared') setNote('画像を渡しました')
+      if (how === 'downloaded') setMsg({ at: 'out', text: '画像を保存しました' })
+      else if (how === 'shared') setMsg({ at: 'out', text: '画像を渡しました' })
     } catch (e) {
       if (runId.current !== my) return
-      setBad(true)
-      setNote(e instanceof Error && e.message === 'slow'
-        ? `${DRAW_LIMIT_MS / 1000} 秒たっても画像ができませんでした。`
-          + '図を小さくするか、読み込み直してから、もう一度お試しください'
-        : '画像にできませんでした。読み込み直してから、もう一度試してください')
+      setMsg({
+        at: 'out',
+        bad: true,
+        text: e instanceof Error && e.message === 'slow'
+          ? `${DRAW_LIMIT_MS / 1000} 秒たっても画像ができませんでした。`
+            + '図を小さくするか、読み込み直してから、もう一度お試しください'
+          : '画像にできませんでした。読み込み直してから、もう一度試してください',
+      })
     } finally {
       if (runId.current === my) setBusy(false)
     }
   }
 
+  if (report.purchaseMm <= 0) return null
+
   return (
     <div className="flex flex-col gap-1.5 rounded-xl border border-ink-100 bg-white px-4 py-2.5">
       <div className="flex items-center gap-2">
-        <Icon name="photo" className="h-4 w-4 shrink-0 text-mat-600" />
-        <span className="shrink-0 text-sm font-bold text-ink-700">資料に持ち出す</span>
+        <Icon name="save" className="h-4 w-4 shrink-0 text-mat-600" />
+        <span className="shrink-0 text-sm font-bold text-ink-700">とっておく</span>
       </div>
-      <div className="flex gap-2">
+
+      {/* 上の組 …… アプリの中にしまう。次に開いたとき最初の画面から呼び出せる */}
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => { onName(e.target.value); setMsg(null) }}
+          placeholder={defaultName()}
+          aria-label="しまう名前"
+          className="min-w-0 flex-1 rounded-lg border border-ink-100 px-3 py-2 text-base"
+        />
         <button
           type="button"
-          onClick={run}
-          disabled={busy}
-          className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg bg-mat-500 px-4 py-2.5 text-sm font-bold text-white active:bg-mat-600 disabled:opacity-50"
+          onClick={doSave}
+          className="shrink-0 rounded-lg bg-mat-500 px-4 py-2 text-sm font-bold text-white active:bg-mat-600"
         >
-          <Icon name="photo" className="h-4 w-4 shrink-0" />
-          {/* 「書き出す」は聞き慣れない言い方だった（学生の点検・2巡目） */}
-          {busy ? '画像を作っています…' : '配置図を画像にして保存'}
+          しまう
         </button>
-        {busy && (
+      </div>
+      {msg?.at === 'save' && (
+        <Note icon={msg.bad ? 'warn' : 'check'} tone={msg.bad ? 'warn' : 'good'}>
+          {msg.text}
+        </Note>
+      )}
+
+      {/*
+        下の組 …… アプリの外へ出す。上とは線1本で分ける。
+        中と外はやることが違うので、続きに見えてはいけない
+      */}
+      <div className="flex flex-col gap-1.5 border-t border-ink-100 pt-2">
+        <div className="flex gap-2">
           <button
             type="button"
-            onClick={stop}
-            className="shrink-0 rounded-lg border border-ink-100 bg-white px-4 py-2.5 text-sm font-bold text-ink-500 active:bg-table"
+            onClick={run}
+            disabled={busy}
+            className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg bg-mat-500 px-4 py-2.5 text-sm font-bold text-white active:bg-mat-600 disabled:opacity-50"
           >
-            やめる
+            <Icon name="photo" className="h-4 w-4 shrink-0" />
+            {/* 「書き出す」は聞き慣れない言い方だった（学生の点検・2巡目） */}
+            {busy ? '画像を作っています…' : '配置図を画像にして保存'}
           </button>
+          {busy && (
+            <button
+              type="button"
+              onClick={stop}
+              className="shrink-0 rounded-lg border border-ink-100 bg-white px-4 py-2.5 text-sm font-bold text-ink-500 active:bg-table"
+            >
+              やめる
+            </button>
+          )}
+        </div>
+        <Hint
+          icon="photo"
+          summary={<T id="layout.band.summary" />}
+        >
+          <T id="layout.band.body" />
+        </Hint>
+        {/*
+          同じ中身を字でも出す（依頼者の案・2026-09-02）。
+          画像は見せるためのもので、報告書に数字として載せるには打ち直しが要る。
+          画像のすぐ下に置いて、どちらも同じものの持ち出し方だと分かるようにしてある
+        */}
+        <button
+          type="button"
+          onClick={() => void copy()}
+          className="flex items-center justify-center gap-2 rounded-lg border border-mat-300 bg-white px-4 py-2.5 text-sm font-bold text-mat-700 active:bg-mat-50"
+        >
+          <Icon name="list" className="h-4 w-4 shrink-0" />
+          一覧を文字でコピー
+        </button>
+        {shown !== null && (
+          <textarea
+            readOnly
+            value={shown}
+            rows={10}
+            aria-label="持ち出す一覧"
+            className="w-full rounded-lg border border-ink-100 p-2 text-xs leading-relaxed"
+            onFocus={(e) => e.currentTarget.select()}
+          />
+        )}
+        {msg?.at === 'out' && (
+          <Note icon={msg.bad ? 'warn' : 'check'} tone={msg.bad ? 'warn' : 'good'}>
+            {msg.text}
+          </Note>
         )}
       </div>
-      <Hint
-        icon="photo"
-        summary={<T id="layout.band.summary" />}
-      >
-        <T id="layout.band.body" />
-      </Hint>
-      {/*
-        同じ中身を字でも出す（依頼者の案・2026-09-02）。
-        画像は見せるためのもので、報告書に数字として載せるには打ち直しが要る。
-        画像のすぐ下に置いて、どちらも同じものの持ち出し方だと分かるようにしてある
-      */}
-      <button
-        type="button"
-        onClick={() => void copy()}
-        className="flex items-center justify-center gap-2 rounded-lg border border-mat-300 bg-white px-4 py-2.5 text-sm font-bold text-mat-700 active:bg-mat-50"
-      >
-        <Icon name="list" className="h-4 w-4 shrink-0" />
-        一覧を文字でコピー
-      </button>
-      {shown !== null && (
-        <textarea
-          readOnly
-          value={shown}
-          rows={10}
-          aria-label="持ち出す一覧"
-          className="w-full rounded-lg border border-ink-100 p-2 text-xs leading-relaxed"
-          onFocus={(e) => e.currentTarget.select()}
-        />
-      )}
-      {note && <Note icon={bad ? 'warn' : 'check'} tone={bad ? 'warn' : 'good'}>{note}</Note>}
     </div>
   )
 }
