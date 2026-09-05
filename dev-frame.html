@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>要尺シミュレーター — スマホで試す</title>
+<!--
+  開発中に、スマホの枠に入れたアプリをその場で触るための台。
+
+  このファイルは **開発用サーバーのときだけ** 出てくる。
+  vite の build が拾うのは index.html だけなので、
+  公開するもの（dist）には入らない。だから GitHub Pages 側には現れない。
+
+  中身は `<iframe>` ひとつ。同じ localhost から出しているので、
+  枠の側からアプリの記録（localStorage）にも手が届く。
+  「記録を消してはじめから」がそれを使っている。
+-->
+<style>
+  :root {
+    --ground: #14161a;
+    --ground-2: #1c1f25;
+    --edge: #2c313a;
+    --ink: #e6e8ec;
+    --ink-dim: #8b929e;
+    --accent: #7fb8a0;
+    --bezel: #0a0b0d;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(120% 80% at 50% 0%, #21252c 0%, var(--ground) 70%);
+    color: var(--ink);
+    font: 13px/1.5 "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo",
+      system-ui, -apple-system, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow: hidden;
+  }
+
+  /* ---------------------------------------------------- 上の細い道具帯 */
+  .bar {
+    flex: 0 0 auto;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 12px;
+    background: var(--ground-2);
+    border-bottom: 1px solid var(--edge);
+  }
+  .bar .name {
+    font-weight: 700;
+    letter-spacing: .02em;
+    white-space: nowrap;
+  }
+  .bar .url {
+    color: var(--ink-dim);
+    font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  .seg {
+    display: flex;
+    border: 1px solid var(--edge);
+    border-radius: 8px;
+    overflow: hidden;
+    flex: 0 0 auto;
+  }
+  .seg button {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--ink-dim);
+    font: inherit;
+    font-size: 11px;
+    padding: 4px 9px;
+    cursor: pointer;
+  }
+  .seg button + button { border-left: 1px solid var(--edge); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: #10221b; font-weight: 700; }
+  .act {
+    appearance: none;
+    border: 1px solid var(--edge);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--ink);
+    font: inherit;
+    font-size: 11px;
+    padding: 4px 10px;
+    cursor: pointer;
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .act:hover { border-color: var(--accent); color: var(--accent); }
+  .act.warn:hover { border-color: #d98a8a; color: #d98a8a; }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---------------------------------------------------- 台とスマホ */
+  .stage {
+    flex: 1 1 auto;
+    width: 100%;
+    display: grid;
+    place-items: center;
+    min-height: 0;
+    padding: 10px;
+  }
+  .phone {
+    transform-origin: center center;
+    position: relative;
+    border-radius: 54px;
+    padding: 11px;
+    background: linear-gradient(160deg, #3a3f48 0%, var(--bezel) 22%, #050607 78%, #33383f 100%);
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,.06),
+      0 26px 60px rgba(0,0,0,.55);
+  }
+  .screen {
+    position: relative;
+    overflow: hidden;
+    border-radius: 44px;
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+  }
+  iframe {
+    border: 0;
+    display: block;
+    background: #fff;
+    flex: 1 1 auto;
+    width: 100%;
+  }
+
+  /* ---------------------------------------------------- 実機ふうの上下 */
+  .status {
+    flex: 0 0 auto;
+    height: 44px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    padding: 0 26px 7px;
+    background: #f6f7f5;
+    color: #111;
+    font-size: 13.5px;
+    font-weight: 700;
+    letter-spacing: .01em;
+    position: relative;
+    z-index: 2;
+  }
+  .island {
+    position: absolute;
+    top: 8px; left: 50%;
+    transform: translateX(-50%);
+    width: 104px; height: 27px;
+    background: #000;
+    border-radius: 16px;
+  }
+  .status .right { display: flex; align-items: center; gap: 5px; }
+  .bat {
+    width: 23px; height: 11.5px;
+    border: 1.4px solid #111; border-radius: 3.4px;
+    position: relative; opacity: .95;
+  }
+  .bat::after {
+    content: ""; position: absolute; right: -3.2px; top: 3.4px;
+    width: 2px; height: 4.4px; background: #111; border-radius: 0 1px 1px 0;
+  }
+  .bat i { position: absolute; inset: 1.4px; width: 72%; background: #111; border-radius: 1.6px; }
+  .home {
+    flex: 0 0 auto;
+    height: 20px;
+    background: #f6f7f5;
+    display: grid; place-items: center;
+    position: relative; z-index: 2;
+  }
+  .home span { width: 134px; height: 5px; border-radius: 3px; background: #111; opacity: .82; }
+
+  .note {
+    flex: 0 0 auto;
+    color: var(--ink-dim);
+    font-size: 11px;
+    padding: 0 12px 9px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <span class="name">要尺シミュレーター</span>
+  <span class="url" id="url"></span>
+  <span class="seg" id="sizes"></span>
+  <button class="act" id="reload">読み込み直す</button>
+  <button class="act warn" id="wipe">記録を消してはじめから</button>
+</div>
+
+<div class="stage">
+  <div class="phone" id="phone">
+    <div class="screen" id="screen">
+      <div class="status">
+        <span id="clock">9:41</span>
+        <div class="island"></div>
+        <span class="right">
+          <svg width="17" height="11" viewBox="0 0 17 11" aria-hidden="true">
+            <g fill="#111">
+              <rect x="0" y="7.5" width="3" height="3.5" rx="1"/>
+              <rect x="4.6" y="5.2" width="3" height="5.8" rx="1"/>
+              <rect x="9.2" y="2.6" width="3" height="8.4" rx="1"/>
+              <rect x="13.8" y="0" width="3" height="11" rx="1"/>
+            </g>
+          </svg>
+          <svg width="15" height="11" viewBox="0 0 15 11" aria-hidden="true">
+            <path d="M7.5 9.9 5.6 7.8a2.8 2.8 0 0 1 3.8 0zM7.5 5.2a5.2 5.2 0 0 0-3.7 1.5L2.3 5.2a7.3 7.3 0 0 1 10.4 0l-1.5 1.5a5.2 5.2 0 0 0-3.7-1.5zM7.5 1.6a8.8 8.8 0 0 0-6.2 2.5L0 2.7a10.9 10.9 0 0 1 15 0l-1.3 1.4a8.8 8.8 0 0 0-6.2-2.5z" fill="#111"/>
+          </svg>
+          <span class="bat"><i></i></span>
+        </span>
+      </div>
+      <iframe id="app" title="要尺シミュレーター（開発モード）"
+        allow="camera; clipboard-read; clipboard-write"></iframe>
+      <div class="home"><span></span></div>
+    </div>
+  </div>
+</div>
+
+<p class="note">
+  開発用サーバー（<code>npm run dev</code>）につないでいます。
+  コードを直すと、この中の画面もひとりでに入れ替わります。
+</p>
+
+<script>
+  // アプリの入口。?dev=1 が付いていると、開発用の入口が出る
+  var SRC = '/?dev=1'
+  document.getElementById('url').textContent = location.origin + SRC
+  document.getElementById('app').src = SRC
+
+  // ---------------------------------------------------------- 画面の大きさ
+  var SIZES = [
+    { id: 'se',  label: 'SE',      w: 375, h: 667, round: 34, island: false },
+    { id: '15',  label: 'iPhone',  w: 393, h: 852, round: 44, island: true  },
+    { id: 'px',  label: 'Android', w: 412, h: 915, round: 34, island: false },
+  ]
+  var pick = SIZES[1]
+
+  var segs = document.getElementById('sizes')
+  SIZES.forEach(function (s) {
+    var b = document.createElement('button')
+    b.type = 'button'
+    b.textContent = s.label
+    b.title = s.w + ' × ' + s.h
+    b.onclick = function () { pick = s; apply(); }
+    b.dataset.id = s.id
+    segs.appendChild(b)
+  })
+
+  var phone = document.getElementById('phone')
+  var screen = document.getElementById('screen')
+  var island = document.querySelector('.island')
+
+  function apply() {
+    screen.style.width = pick.w + 'px'
+    screen.style.height = pick.h + 'px'
+    screen.style.borderRadius = pick.round + 'px'
+    phone.style.borderRadius = (pick.round + 10) + 'px'
+    island.style.display = pick.island ? '' : 'none'
+    Array.prototype.forEach.call(segs.children, function (b) {
+      b.setAttribute('aria-pressed', b.dataset.id === pick.id ? 'true' : 'false')
+    })
+    fit()
+  }
+
+  /* 枠ごと縮めて、この窓に収める。中の1px はスマホの1px のまま */
+  function fit() {
+    var stage = document.querySelector('.stage')
+    var availW = stage.clientWidth - 16
+    var availH = stage.clientHeight - 16
+    var boxW = pick.w + 22
+    var boxH = pick.h + 22
+    var k = Math.min(availW / boxW, availH / boxH, 1)
+    phone.style.transform = 'scale(' + k.toFixed(4) + ')'
+    // 縮めたぶん、まわりの余りが広がらないように場所を詰める
+    phone.style.margin = (-(boxH * (1 - k)) / 2) + 'px ' + (-(boxW * (1 - k)) / 2) + 'px'
+  }
+  window.addEventListener('resize', fit)
+
+  // ---------------------------------------------------------- 時計
+  function tick() {
+    var d = new Date()
+    document.getElementById('clock').textContent =
+      d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0')
+  }
+  tick()
+  setInterval(tick, 15000)
+
+  // ---------------------------------------------------------- 道具
+  document.getElementById('reload').onclick = function () {
+    document.getElementById('app').contentWindow.location.reload()
+  }
+  document.getElementById('wipe').onclick = function () {
+    if (!confirm('この端末に残っている作業の記録（パーツ・生地・並べ方）を消します。よろしいですか。')) return
+    try {
+      var w = document.getElementById('app').contentWindow
+      Object.keys(w.localStorage)
+        .filter(function (k) { return k.indexOf('yojaku.') === 0 })
+        .forEach(function (k) { w.localStorage.removeItem(k) })
+      w.location.href = SRC
+    } catch (e) {
+      alert('消せませんでした：' + e.message)
+    }
+  }
+
+  apply()
+</script>
+</body>
+</html>
