@@ -211,9 +211,12 @@ export function LayoutView({
    *
    * たためるようにしてある（依頼者の要望・2026-09-04）。
    * 生地の下のほうへ型紙を置くときは、棚がその場所にかぶさるため。
-   * たたんでも細い帯は残す——消えてしまうと、戻し方が分からなくなる
+   * たたんでも細い帯は残す——消えてしまうと、戻し方が分からなくなる。
+   *
+   * 0＝たたむ、1＝横一列、2以上＝札を折り返して何段ぶん見せるか
+   * （依頼者の要望・2026-09-05）。帯を上へ引いて決める
    */
-  const [dockOpen, setDockOpen] = useState(true)
+  const [dockRows, setDockRows] = useState(1)
   /**
    * いま出したばかりの型紙。少しのあいだ光らせる。
    *
@@ -621,7 +624,7 @@ export function LayoutView({
         本文の下に場所を空ける。たたんでいるときは帯のぶんだけでよい
       */
       className={`flex flex-col gap-3.5 ${
-        selected && panelOpen ? 'pb-40' : dockOpen ? 'pb-36' : 'pb-20'
+        selected && panelOpen ? 'pb-40' : dockRows > 0 ? 'pb-36' : 'pb-20'
       }`}
     >
       <Tour id="layout" />
@@ -838,9 +841,13 @@ export function LayoutView({
           state={state}
           partMap={partMap}
           takenOf={takenOf}
-          open={dockOpen}
-          onToggle={() => setDockOpen((v) => !v)}
-          onPlace={place}
+          rows={dockRows}
+          onRows={setDockRows}
+          /*
+            置いたら1段ぶんに戻す。棚を高くしているあいだは生地の絵が隠れているので、
+            そのままでは置いた先を確かめられない
+          */
+          onPlace={(id) => { place(id); if (dockRows > 1) setDockRows(1) }}
           onPlaceAll={placeAll}
         />
       )}
@@ -3741,25 +3748,81 @@ function Silhouette({ part }: { part: PlacedPart | undefined }) {
  * まだ置いていないものを先に、そろったものを後ろに並べる。
  * いつでも左端を押せばよい形にしておくと、目で探さなくて済む
  */
+/** 札と札のすき間（`gap-2`）と、一覧の下の余白（`pb-2`）。段数を数えるのに使う */
+const LIST_GAP = 8
+const LIST_PAD = 8
+
 function Dock({
-  state, partMap, takenOf, open, onToggle, onPlace, onPlaceAll,
+  state, partMap, takenOf, rows, onRows, onPlace, onPlaceAll,
 }: {
   state: PartsState
   partMap: Map<string, PlacedPart>
   takenOf: (partId: string) => number
-  open: boolean
-  onToggle: () => void
+  /** 棚の高さ。0＝たたむ、1＝横一列、2以上＝札を折り返して何段ぶん見せるか */
+  rows: number
+  onRows: (rows: number) => void
   onPlace: (partId: string) => void
   onPlaceAll: () => void
 }) {
+  const listRef = useRef<HTMLUListElement>(null)
+  /**
+   * 札1枚ぶんの高さ（すき間こみ）。実物を測る——札の中身が変わっても付いてくる。
+   * 一覧の高さをこれで決めるので、`ref` ではなく描き直しの効く値にしておく
+   */
+  const [rowH, setRowH] = useState(52)
+  /** 折り返して並べたときの段数。引き上げられる上限になる */
+  const [fullRows, setFullRows] = useState(6)
+  /** 横一列のとき、画面からはみ出した札があるか */
+  const [spill, setSpill] = useState(false)
+  /** 引きずっている最中の記録。描き直しに関わらないので ref に置く */
+  const grab = useRef<{ y: number; rows: number; moved: boolean } | null>(null)
+
   const patterns = state.parts.filter((p) => !isReserve(p))
-  if (patterns.length === 0) return null
   const restOf = (p: StoredPart) => p.needed - takenOf(p.id)
   const left = patterns.reduce((sum, p) => sum + Math.max(0, restOf(p)), 0)
   // まだ足りないものが先。同じなら、もとの並び順のまま
   const order = patterns
     .map((p, i) => ({ p, i, rest: restOf(p) }))
     .sort((a, b) => (b.rest > 0 ? 1 : 0) - (a.rest > 0 ? 1 : 0) || a.i - b.i)
+
+  /*
+    札の実物を測る（依頼者の要望・2026-09-05「必要に応じて上側に指で
+    引き延ばせるようにするのはどうですか」）。
+
+    引き上げられる上限は、**札がぜんぶ並ぶ段数**まで。
+    それ以上に伸ばせてしまうと、空白だけが増えて生地の絵を覆う。
+    段数は札の幅と名前の長さで変わるので、決め打ちにはできず、
+    折り返して並べているあいだ（`rows >= 2`）に実物から数える。
+    横一列のあいだは測れないので、そのときは前に数えた値をそのまま使う
+  */
+  useEffect(() => {
+    const ul = listRef.current
+    if (!ul) return
+    const li = ul.firstElementChild as HTMLElement | null
+    const h = li && li.offsetHeight > 0 ? li.offsetHeight + LIST_GAP : rowH
+    setRowH((was) => (was === h ? was : h))
+    /*
+      折り返して並べているあいだは、実物の高さから段数がそのまま分かる。
+      横一列のあいだは、**横にはみ出した長さ**を枠の幅で割って見当をつける。
+      どちらの数え方でも、札がぜんぶ収まっているときは 1 になるので、
+      伸ばしても空白が増えるだけ、という高さまでは引き上げられない
+    */
+    const n = rows >= 2
+      ? Math.ceil((ul.scrollHeight - LIST_PAD) / h)
+      : Math.ceil(ul.scrollWidth / Math.max(1, ul.clientWidth))
+    setFullRows((was) => (was === Math.max(1, n) ? was : Math.max(1, n)))
+    if (rows === 1) {
+      const over = ul.scrollWidth > ul.clientWidth + 1
+      setSpill((was) => (was === over ? was : over))
+    }
+  }, [rows, rowH, order.length, left])
+
+  if (patterns.length === 0) return null
+
+  /** 画面の半分より高くはしない。棚は生地の絵の代わりではない */
+  const capRows = () => Math.max(1, Math.min(
+    fullRows, Math.floor((window.innerHeight * 0.45) / rowH),
+  ))
 
   return (
     <div className="safe-b fixed inset-x-0 bottom-0 z-10 border-t-2 border-mat-500 bg-mat-50 px-3 pt-1.5 shadow-[0_-12px_32px_rgba(43,51,45,0.22)]">
@@ -3768,24 +3831,69 @@ function Dock({
           たたむための帯（依頼者の要望・2026-09-04）。
           生地の下のほうへ型紙を置くときは、棚がその場所にかぶさるため。
           たたんでも帯は残す——まるごと消すと、戻し方が画面から消える。
-          帯そのものが押す場所なので、指の当たる幅を目いっぱい取ってある
+          帯そのものが押す場所なので、指の当たる幅を目いっぱい取ってある。
+
+          この帯は、**押しても引いてもよい**（依頼者の要望・2026-09-05）。
+          上へ引けば棚が伸びて札が折り返して並び、下へ引けば縮む。
+          押しただけなら、これまでどおり開いたり閉じたり。
+
+          持ち手がこの帯なのは、棚の高さを変えたときに画面の上で
+          実際に位置が動くのが、この帯そのものだからである
+          （折り返す幅のつまみと同じ考え方）
         */}
-        <div className="flex items-center gap-2">
+        <div
+          className="flex items-center gap-2"
+          style={{ touchAction: 'none' }}
+          onPointerDown={(e) => { grab.current = { y: e.clientY, rows, moved: false } }}
+          onPointerMove={(e) => {
+            const g = grab.current
+            if (!g) return
+            if (!g.moved && Math.abs(e.clientY - g.y) < 8) return
+            if (!g.moved) {
+              g.moved = true
+              /*
+                指を捕まえるのは、**動きはじめてから**。
+                押した時点で捕まえてしまうと、そのあとの click が
+                この枠へ届いてしまい、中の（たたむ）ボタンが押せなくなる
+              */
+              try {
+                (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+              } catch { /* 捕まえられなくてよい */ }
+            }
+            const n = Math.max(0, Math.min(
+              capRows(), Math.round(g.rows + (g.y - e.clientY) / rowH),
+            ))
+            if (n !== rows) onRows(n)
+          }}
+          onPointerUp={() => { setTimeout(() => { grab.current = null }, 0) }}
+          onPointerCancel={() => { grab.current = null }}
+        >
           <button
             type="button"
-            onClick={onToggle}
-            aria-expanded={open}
-            className="tap flex min-w-0 flex-1 items-center gap-1.5 py-0.5 text-left"
+            /*
+              引きずったあとにも click は飛んでくるので、動かしたときは何もしない。
+              指で高さを決めたのに、離したとたん畳まれてしまわないように
+            */
+            onClick={() => { if (!grab.current?.moved) onRows(rows > 0 ? 0 : 1) }}
+            aria-expanded={rows > 0}
+            aria-label={rows > 0
+              ? '型紙の棚をたたむ。上へ引きずると、札がぜんぶ並ぶまで広がります'
+              : '型紙の棚をひらく。上へ引きずると、札がぜんぶ並ぶまで広がります'}
+            className="tap flex min-w-0 flex-1 flex-col items-stretch gap-0.5 py-0.5 text-left"
           >
-            <Icon
-              name="chevron"
-              className={`h-4 w-4 shrink-0 text-mat-600 ${open ? 'rotate-90' : '-rotate-90'}`}
-            />
-            <span className="truncate text-xs font-bold text-mat-700">
-              {left > 0 ? `まだ置いていない型紙 ${left} 枚` : 'ぜんぶ置きました'}
+            {/* つまんで動かせることの印。下から出る棚では見慣れた形 */}
+            <span className="mx-auto h-1 w-9 shrink-0 rounded-full bg-mat-300" />
+            <span className="flex min-w-0 items-center gap-1.5">
+              <Icon
+                name="chevron"
+                className={`h-4 w-4 shrink-0 text-mat-600 ${rows > 0 ? 'rotate-90' : '-rotate-90'}`}
+              />
+              <span className="truncate text-xs font-bold text-mat-700">
+                {left > 0 ? `まだ置いていない型紙 ${left} 枚` : 'ぜんぶ置きました'}
+              </span>
             </span>
           </button>
-          {open && left > 0 && (
+          {rows > 0 && left > 0 && (
             <button
               type="button"
               onClick={onPlaceAll}
@@ -3796,8 +3904,20 @@ function Dock({
           )}
         </div>
 
-        {open && (
-          <ul className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-2">
+        {/*
+          1段のあいだは、これまでどおり横一列で流す。
+          2段以上に引き上げたときだけ折り返して並べる——
+          高くしても横一列のままなら、空いたぶんが空白になるだけで、
+          「ぜんぶ見えるようにする」という用が足りない
+        */}
+        {rows > 0 && (
+          <ul
+            ref={listRef}
+            className={`-mx-1 flex gap-2 px-1 pb-2 ${
+              rows === 1 ? 'overflow-x-auto' : 'flex-wrap overflow-y-auto'
+            }`}
+            style={rows === 1 ? undefined : { maxHeight: rows * rowH + LIST_PAD }}
+          >
             {order.map(({ p, rest }) => (
               <li key={p.id} className="shrink-0">
                 <button
@@ -3851,7 +3971,19 @@ function Dock({
           直しに行く先まで書く。ここで枚数は変えられないので、
           「増やせない」とだけ言われても手が止まる
         */}
-        {open && order.some(({ rest }) => rest <= 0) && (
+        {/*
+          横一列に収まりきらないときだけ、引き上げられることを言う
+          （依頼者の指示・2026-09-05「どこかに明記しないと気づかれない」）。
+          つまみは「動かせそうだ」までしか伝えないので、
+          何が起きるかは文字にしておく。ぜんぶ見えているときは黙っている
+        */}
+        {rows === 1 && spill && (
+          <p className="pb-2 text-[11px] leading-tight text-ink-300">
+            <T id="layout.dock.pull" />
+          </p>
+        )}
+
+        {rows > 0 && order.some(({ rest }) => rest <= 0) && (
           <p className="pb-2 text-[11px] leading-tight text-ink-300">
             置けるのは、「縫い代」で決めた枚数までです
           </p>
