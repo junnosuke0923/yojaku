@@ -1490,6 +1490,20 @@ function SectionCanvas({
     if (section.fold === 'hBottom') return { ...d, bottom: L }
     return { ...d, top: L }
   })()
+  /**
+   * **ほんとうに折れている辺。**
+   *
+   * 辺を「わ」に指定しても、その辺に「わ」の型紙を当てるまで生地は折れない。
+   * それまでは一重のまま——折り山も、みみが内側へ回り込む形も、まだ無い。
+   * ところが指定しただけで折り山として描いていたので、
+   * 「わと言いつつ輪になっていない」図になっていた
+   * （依頼者の指摘・2026-09-05）。
+   *
+   * **生地の形にかかわることは、すべてこちらの辺で決める。**
+   * `foldSides`（指定した辺）のほうは、札や吸い付きなど
+   * 「これからどうするか」に使う
+   */
+  const foldedSides = foldSides.filter((sd) => depth[sd] > 0)
   /** 折り返した端に落とす影の幅。生地幅に対する割合で決める */
   const shade = W * 0.025
   /** 下になっている一枚が、耳の側からのぞく量 */
@@ -1554,7 +1568,17 @@ function SectionCanvas({
   const openAtX = (x: number) => (OPENX > 0 && x >= meetX - 0.5 ? OPENX : 0)
 
   /** 折り山ではない縦の端＝耳。二重なら耳も2枚ぶんある */
-  const selvages: Side[] = (['left', 'right'] as Side[]).filter((s) => !foldSides.includes(s))
+  const selvages: Side[] = (['left', 'right'] as Side[])
+    .filter((s) => !foldedSides.includes(s))
+  /**
+   * 端の札は「どう指定してあるか」で決める。**描き方（`selvages`）とは別。**
+   *
+   * 「わ」に指定した辺は、折れるまでのあいだ、生地としてはまだみみ・裁ち端の
+   * ままだが、そこに「みみ」「裁ち端」の札まで出すと、同じ辺に札が2枚重なり、
+   * しかも押すと指定が食い違う。指定してあるほうの札だけを出す
+   */
+  const selvageTags: Side[] = (['left', 'right'] as Side[])
+    .filter((s) => !foldSides.includes(s))
   /**
    * 生地の外形の左右。**型紙を置ける面 `[0, W]` の外側に、みみのぶんを足す**
    * （依頼者の指示・2026-08-30「耳は裁断の時に使わないので、
@@ -2144,8 +2168,8 @@ function SectionCanvas({
    * 図に描く生地の上端・下端。折り山の側は面のまま、裁ち端の側だけ外へ出す。
    * 下の折り山は、出会い目を開いたぶん（`OPEN`）だけ下へ下がる
    */
-  const by0 = foldSides.includes('top') ? 0 : -EDGE_GAP
-  const by1 = foldSides.includes('bottom') ? L + OPEN : L + EDGE_GAP
+  const by0 = foldedSides.includes('top') ? 0 : -EDGE_GAP
+  const by1 = foldedSides.includes('bottom') ? L + OPEN : L + EDGE_GAP
   /**
    * 面を丸ごと覆っているときの、下の一枚の箱。
    * 半端な折り返しのときは、下に来るのが**折り返した一枚のほう**なので、
@@ -2156,13 +2180,13 @@ function SectionCanvas({
     if (foldVertical) {
       under.y0 += UNDER_SHIFT
       under.y1 += UNDER_SHIFT
-      if (foldSides.includes('left') && !foldSides.includes('right')) under.x1 += RIM
-      if (foldSides.includes('right') && !foldSides.includes('left')) under.x0 -= RIM
+      if (foldedSides.includes('left') && !foldedSides.includes('right')) under.x1 += RIM
+      if (foldedSides.includes('right') && !foldedSides.includes('left')) under.x0 -= RIM
     } else {
       under.x0 += UNDER_SHIFT
       under.x1 += UNDER_SHIFT
-      if (foldSides.includes('top') && !foldSides.includes('bottom')) under.y1 += RIM
-      if (foldSides.includes('bottom') && !foldSides.includes('top')) under.y0 -= RIM
+      if (foldedSides.includes('top') && !foldedSides.includes('bottom')) under.y1 += RIM
+      if (foldedSides.includes('bottom') && !foldedSides.includes('top')) under.y0 -= RIM
     }
   }
 
@@ -2285,7 +2309,7 @@ function SectionCanvas({
   const sheet = (
     x0: number, y0: number, x1: number, y1: number,
     cutTop = false, cutBottom = false, leadApex?: number,
-    sides: Side[] = foldSides,
+    sides: Side[] = foldedSides,
   ) => {
     const fL = sides.includes('left')
     const fR = sides.includes('right')
@@ -2350,7 +2374,7 @@ function SectionCanvas({
    * 生地の**内側**へ向かって、縁で翳り→白く光り→生地の色へ、と流す。
    * 上の一枚と下の一枚で切り抜きを変えて2回重ねるので、ここで一度だけ組み立てておく
    */
-  const crestBands = () => foldSides.map((s) => {
+  const crestBands = () => foldedSides.map((s) => {
     const horiz = s === 'left' || s === 'right'
     const x = s === 'left' ? 0 : W + OPENX - CR
     const y = s === 'top' ? 0 : L + OPEN - CR
@@ -2368,10 +2392,11 @@ function SectionCanvas({
   })
 
   /** 上下の端が、はさみで切った裁ち端かどうか（横わでそちらを折るときだけ違う） */
-  const cutTop = !foldSides.includes('top')
+  const cutTop = !foldedSides.includes('top')
   /** はさみで裁つ端＝折り山でもみみでもない辺。ここも押せば折り山になる */
-  const cutSides: Side[] = (['top', 'bottom'] as Side[]).filter((sd) => !foldSides.includes(sd))
-  const cutBottom = !foldSides.includes('bottom')
+  const cutSides: Side[] = (['top', 'bottom'] as Side[])
+    .filter((sd) => !foldSides.includes(sd))
+  const cutBottom = !foldedSides.includes('bottom')
 
   /**
    * ずれた側の折り山の端で、上の一枚と下の一枚の裁ち端が集まる頂点。
@@ -2558,8 +2583,8 @@ function SectionCanvas({
     const n = (v: number) => v.toFixed(1)
     const left = side === 'left'
     const x = left ? b.x0 + o : b.x1 - o
-    const fT = foldSides.includes('top')
-    const fB = foldSides.includes('bottom')
+    const fT = foldedSides.includes('top')
+    const fB = foldedSides.includes('bottom')
     // 縦わ・折らないときは回り込みが無い。長めに引いて、一枚の形で切り抜く
     if (!fT && !fB) return `M${n(x)} ${n(SEL_FROM)} L${n(x)} ${n(SEL_TO)}`
     // 回り込みの頂点。ずれる向き（右）の端が leadApex、反対の端は身頃より TIP 先
@@ -2686,11 +2711,31 @@ function SectionCanvas({
   /* ---- ピクトグラム。断面図と同じ「横から見た布」の言葉で統一する ---- */
 
   /** 折り山：ヘアピン形。断面図の折り返しをそのまま小さくしたもの */
-  const iconFold = (cx: number, cy: number, sz: number, side: Side, color: string) => {
+  const iconFold = (
+    cx: number, cy: number, sz: number, side: Side, color: string, pending = false,
+  ) => {
     const r = sz * 0.3
     const d = `M${cx + sz * 0.5} ${cy - r} H${cx - sz * 0.5 + r}`
       + ` A${r} ${r} 0 0 0 ${cx - sz * 0.5 + r} ${cy + r} H${cx + sz * 0.5}`
     const rot = { left: 0, right: 180, top: 90, bottom: 270 }[side]
+    if (pending) {
+      /*
+        まだ折っていないときは、ヘアピンを描かない。
+        折れていないのに折れた形の印を出すと、そこが「わ」だと言いながら
+        輪になっていない、という食い違いになる（依頼者の指摘・2026-09-05）。
+        断面図（横から見ると）の「まだ折っていません」と同じ描き方——
+        まっすぐな一枚と、ここがわになるという破線の印——にそろえる
+      */
+      return (
+        <g transform={rot ? `rotate(${rot} ${cx} ${cy})` : undefined}>
+          <path d={`M${cx + sz * 0.5} ${cy} H${cx - sz * 0.5}`} fill="none"
+            stroke={color} strokeWidth={sz * 0.18} strokeLinecap="round" opacity={0.45} />
+          <path d={`M${cx - sz * 0.5} ${cy - sz * 0.4} V${cy + sz * 0.4}`}
+            fill="none" stroke={color} strokeWidth={sz * 0.13} strokeLinecap="round"
+            strokeDasharray={`${sz * 0.16} ${sz * 0.13}`} />
+        </g>
+      )
+    }
     return (
       <path d={d} fill="none" stroke={color} strokeWidth={sz * 0.18} strokeLinecap="round"
         transform={rot ? `rotate(${rot} ${cx} ${cy})` : undefined} />
@@ -3607,7 +3652,7 @@ function SectionCanvas({
             ここは面の重なりの印（`iconLayers`）ではなく、
             みみ専用の印（`iconSelvageLayers`）を使う。理由はその関数のところに書いた
           */}
-          {selvages.map((s) => {
+          {selvageTags.map((s) => {
             // 下の一枚がいちばん外へ出ているところより、さらに外に書く。
             // 横わでは回り込んだぶん右へ出ているので、それも数に入れる
             const x = s === 'left'
@@ -3645,12 +3690,26 @@ function SectionCanvas({
               折り山の線。ずれた側の端は、2枚の裁ち端が集まる頂点まで伸ばす。
               そこから先は半円で回り込むので、線がそこで終わっていて途切れて見えない
             */
-            const apex = {
-              left: [0, TIP, 0, leadApex],
-              right: [W + OPENX, TIP, W + OPENX, leadApex],
-              top: [bx0 + TIP, 0, leadApex, 0],
-              bottom: [bx0 + TIP, L + OPEN, leadApex, L + OPEN],
-            }[side]
+            /*
+              まだ何も当てていない辺は、折れていない（`foldedSides` を見よ）。
+              折り山の線は実線で引かず、「ここがわになる」という破線にする。
+              生地の端は一重のまま（みみ・裁ち端）描いてあるので、
+              この破線だけが、そこをこれから折るという印になる
+            */
+            const pending = !foldedSides.includes(side)
+            const apex = pending
+              ? {
+                left: [0, by0, 0, by1],
+                right: [W + OPENX, by0, W + OPENX, by1],
+                top: [bx0, 0, bx1, 0],
+                bottom: [bx0, L + OPEN, bx1, L + OPEN],
+              }[side]
+              : {
+                left: [0, TIP, 0, leadApex],
+                right: [W + OPENX, TIP, W + OPENX, leadApex],
+                top: [bx0 + TIP, 0, leadApex, 0],
+                bottom: [bx0 + TIP, L + OPEN, leadApex, L + OPEN],
+              }[side]
             /*
               横わ（上下が折り山）の札は、ヘアピンの印と「わ（折り山）」の文字を
               横に並べる。印と文字が重なっていたので、間を取り直した
@@ -3665,11 +3724,13 @@ function SectionCanvas({
             return (
               <g key={side}>
                 <line x1={apex[0]} y1={apex[1]} x2={apex[2]} y2={apex[3]}
-                  stroke={CREASE} strokeWidth={W * 0.007} strokeLinecap="round" />
+                  stroke={CREASE} strokeWidth={pending ? W * 0.005 : W * 0.007}
+                  strokeLinecap="round" opacity={pending ? 0.7 : 1}
+                  strokeDasharray={pending ? `${W * 0.026} ${W * 0.02}` : undefined} />
                 {/* 押すと「わ」が外れる。折り山の札そのものが、その口になっている */}
                 {edgeTag(side, lx, ly, tag.w, tag.h, horiz ? (
                   <>
-                    {iconFold(lx, ly - W * 0.105, W * 0.056, side, CREASE)}
+                    {iconFold(lx, ly - W * 0.105, W * 0.056, side, CREASE, pending)}
                     <text x={lx} y={ly - W * 0.032} fontSize={W * 0.052} fontWeight={700}
                       fill={CREASE} textAnchor="middle" dominantBaseline="middle">わ</text>
                     <text x={lx} y={ly + W * 0.038} fontSize={W * 0.029} fill={CREASE}
@@ -3681,7 +3742,7 @@ function SectionCanvas({
                   </>
                 ) : (
                   <>
-                    {iconFold(lx - W * 0.132, ly, W * 0.056, side, CREASE)}
+                    {iconFold(lx - W * 0.132, ly, W * 0.056, side, CREASE, pending)}
                     <text x={lx + W * 0.042} y={ly} fontSize={W * 0.04} fontWeight={700}
                       fill={CREASE} textAnchor="middle" dominantBaseline="middle">
                       わ（折り山）
