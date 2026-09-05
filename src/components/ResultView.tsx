@@ -349,6 +349,15 @@ function PhotoOverlay({ bitmap, result, excluded }: {
  * 実物の線がほんとうに波打っているときだけ。
  * ただし**いま何が効いているか**は畳んだままでも見えるようにしてある。
  * 畳んで隠れるのは選び直す手段であって、いまの状態ではない。
+ *
+ * 畳んでいるあいだは、**白いカードではなく1行の見出しだけ**にしてある
+ * （依頼者の指示・2026-09-05「『線のなめらかさ』もコンパクトには
+ * 出来ないでしょうか？…もしくは簡易的にして下さい」）。
+ * この画面のいちばんの仕事は「拾えた型紙を確かめること」で、
+ * なめらかさはその脇の道具である。畳んでいるのに枠と余白で
+ * カード1枚ぶんの場所を取っていると、主役の写真とカードを押し下げてしまう。
+ * 同じ画面のほかの「？」の行と見た目をそろえてあるので、
+ * 「押せば開く補足」の仲間だと形から分かる。
  */
 function SmoothPicker({ value, onChange }: {
   value: SmoothLevel
@@ -357,13 +366,13 @@ function SmoothPicker({ value, onChange }: {
   const [open, setOpen] = useState(false)
   const current = SMOOTH_LEVELS.find((lv) => lv.key === value)
   return (
-    <div className="flex flex-col gap-2.5 rounded-xl border border-ink-100 bg-white px-4 py-3.5">
+    <div className="flex flex-col gap-2">
       {/* 行そのものを押せるようにする。小さな矢じりだけを的にすると指では狙いにくい */}
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex w-full items-center gap-2 text-left text-sm font-bold text-ink-700"
+        className="flex w-full items-center gap-2 py-1 text-left text-sm font-bold text-ink-700"
       >
         <Icon name="smooth" className="h-4 w-4 shrink-0 text-mat-600" />
         線のなめらかさ
@@ -384,7 +393,7 @@ function SmoothPicker({ value, onChange }: {
       </button>
 
       {open && (
-        <>
+        <div className="flex flex-col gap-2 rounded-lg bg-chalk px-3 py-2.5">
           <div className="grid grid-cols-4 gap-2">
             {SMOOTH_LEVELS.map((lv) => (
               <button
@@ -393,7 +402,7 @@ function SmoothPicker({ value, onChange }: {
                 onClick={() => onChange(lv.key)}
                 aria-pressed={value === lv.key}
                 className={`rounded-lg px-2 py-2 text-sm font-bold ${
-                  value === lv.key ? 'bg-mat-500 text-white' : 'border border-ink-100 text-ink-700'
+                  value === lv.key ? 'bg-mat-500 text-white' : 'border border-ink-100 bg-white text-ink-700'
                 }`}
               >
                 {lv.label}
@@ -406,14 +415,14 @@ function SmoothPicker({ value, onChange }: {
             （学生の点検・2026-09-02）。安心する一文は「？」の中ではなく、
             選ぶところの隣に出す
           */}
-          <span className="text-xs text-ink-300"><T id="ruler.smooth.safe" /></span>
+          <span className="text-xs text-ink-500"><T id="ruler.smooth.safe" /></span>
           <Hint
             icon="smooth"
             summary={<T id="ruler.smooth.summary" />}
           >
             <T id="ruler.smooth.body" />
           </Hint>
-        </>
+        </div>
       )}
     </div>
   )
@@ -447,17 +456,24 @@ export function ResultView({ bitmap, result, excluded, onToggle, smooth, onSmoot
   const wholePhoto = result.parts.some((p) => fillsWholePhoto(p, bitmap.width, bitmap.height))
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex gap-2.5 rounded-xl border-2 border-mat-500 bg-mat-50 px-4 py-3">
-        <Icon name="measure" className="mt-[0.15em] h-5 w-5 shrink-0 text-mat-600" />
+      {/*
+        枠の高さを詰めてある（依頼者の指示・2026-09-05
+        「ここの緑の枠の内容を整理して縦幅を少しでも縮めておきたいです」）。
+        いちばん効くのは**折り返しをなくすこと**で、行が1本増えるだけで
+        枠は 20px 高くなる。そこで下の一文を細い画面でも1行に収まる長さにし、
+        そのうえで行送りと上下の余白を詰めた
+      */}
+      <div className="flex gap-2.5 rounded-xl border-2 border-mat-500 bg-mat-50 px-4 py-2.5">
+        <Icon name="measure" className="mt-[0.1em] h-5 w-5 shrink-0 text-mat-600" />
         <div className="min-w-0 flex-1">
-          <p className="text-sm leading-relaxed text-mat-700">
+          <p className="text-sm leading-snug text-mat-700">
             <T id="ruler.check.main" strong="font-bold" />
           </p>
           {/*
             直し方は、頼みごとより一段小さく置く（依頼者の指示・2026-09-04）。
             同じ大きさで2文並べると、この緑の枠だけで画面をふさいでしまう
           */}
-          <p className="mt-1 text-xs leading-relaxed text-mat-600">
+          <p className="mt-0.5 text-xs leading-snug text-mat-600">
             <T id="ruler.check.how" />
           </p>
           {/*
@@ -507,8 +523,8 @@ export function ResultView({ bitmap, result, excluded, onToggle, smooth, onSmoot
           <SmoothPicker value={smooth} onChange={onSmooth} />
 
           {result.parts.length > 1 && (
-            <p className="flex items-start gap-2 text-xs leading-relaxed text-ink-500">
-              <Icon name="hint" className="mt-[0.2em] h-[1.15em] w-[1.15em] shrink-0 text-mat-600" />
+            <p className="flex items-start gap-2 text-xs leading-snug text-ink-500">
+              <Icon name="hint" className="mt-[0.15em] h-[1.15em] w-[1.15em] shrink-0 text-mat-600" />
               <span className="min-w-0 flex-1">
                 <T id="ruler.exclude.note" />
               </span>
