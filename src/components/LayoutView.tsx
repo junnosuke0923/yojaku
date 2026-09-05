@@ -649,12 +649,16 @@ export function LayoutView({
       ref={rootRef}
       /*
         下端に出るもの（手元の棚、または選んだ型紙の操作板）の高さぶん、
-        本文の下に場所を空ける。たたんでいるときは帯のぶんだけでよい
+        本文の下に場所を空ける。たたんでいるときは帯のぶんだけでよい。
+
+        棚から言い添えの2行を落としたぶん、ここも詰めてある
+        （依頼者の指示・2026-09-05「その分デフォルトの帯の幅を調整して下さい」）。
+        pb-36（144px）→ pb-32（128px）
       */
       className={`flex flex-col gap-3.5 ${
         reserveOpen ? 'pb-64'
           : selected && panelOpen ? 'pb-40'
-            : dockRows > 0 ? 'pb-36' : 'pb-20'
+            : dockRows > 0 ? 'pb-32' : 'pb-20'
       }`}
     >
       <Tour id="layout" />
@@ -4074,8 +4078,6 @@ function Dock({
   const [rowH, setRowH] = useState(52)
   /** 折り返して並べたときの段数。引き上げられる上限になる */
   const [fullRows, setFullRows] = useState(6)
-  /** 横一列のとき、画面からはみ出した札があるか */
-  const [spill, setSpill] = useState(false)
   /** 引きずっている最中の記録。描き直しに関わらないので ref に置く */
   const grab = useRef<{ y: number; rows: number; moved: boolean } | null>(null)
 
@@ -4113,10 +4115,6 @@ function Dock({
       ? Math.ceil((ul.scrollHeight - LIST_PAD) / h)
       : Math.ceil(ul.scrollWidth / Math.max(1, ul.clientWidth))
     setFullRows((was) => (was === Math.max(1, n) ? was : Math.max(1, n)))
-    if (rows === 1) {
-      const over = ul.scrollWidth > ul.clientWidth + 1
-      setSpill((was) => (was === over ? was : over))
-    }
   }, [rows, rowH, order.length, reserves.length, left])
 
   if (patterns.length === 0) return null
@@ -4325,30 +4323,15 @@ function Dock({
         )}
 
         {/*
-          押せなくなった札があるときだけ、その理由を言う
-          （PartsView の「枚数は 12 枚までです」と同じ考え方——
-          上限そのものは黙って効かせず、**届いたときにだけ**理由を出す）。
+          ここには前に2行の言い添えがあった（依頼者の指示・2026-09-05で削除）。
 
-          直しに行く先まで書く。ここで枚数は変えられないので、
-          「増やせない」とだけ言われても手が止まる
-        */}
-        {/*
-          横一列に収まりきらないときだけ、引き上げられることを言う
-          （依頼者の指示・2026-09-05「どこかに明記しないと気づかれない」）。
-          つまみは「動かせそうだ」までしか伝えないので、
-          何が起きるかは文字にしておく。ぜんぶ見えているときは黙っている
-        */}
-        {rows === 1 && spill && (
-          <p className="pb-2 text-[11px] leading-tight text-ink-300">
-            <T id="layout.dock.pull" />
-          </p>
-        )}
+          - 「帯を上へ引くと、札がぜんぶ並びます」
+          - 「置けるのは、『縫い代』で決めた枚数までです」
 
-        {rows > 0 && order.some(({ rest }) => rest <= 0) && (
-          <p className="pb-2 text-[11px] leading-tight text-ink-300">
-            置けるのは、「縫い代」で決めた枚数までです
-          </p>
-        )}
+          どちらも**下帯を高くするだけ**で、その高さぶん生地の絵が隠れていた。
+          引き上げられることは、帯の上のつまみと、押したときに開くことで分かる。
+          枚数の上限は、札そのものが「あと 0」になって押せなくなることで分かる
+        */}
       </div>
     </div>
   )

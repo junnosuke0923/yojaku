@@ -11,7 +11,7 @@
  * （依頼者の指示・2026-09-05「ここはかなりコンパクトにしておきたいです。
  * 理由としては配置図の部分を出来るだけ見せたいからです」）。
  *
- * - 1段目 … 見出しと、みみを除いた幅と、上下の向きの小さな札
+ * - 1段目 … 見出しと、みみを除いた幅と、一方裁ちの小さな札
  * - 2段目 … 幅の札4つと、直に打つ欄
  *
  * 2段目が 375px で1行に収まるように、札の左右の余白と札どうしの間を
@@ -28,17 +28,24 @@
  *   札にシーチング・綿麻・ウール・コート地と書いてあること自体が
  *   その説明になっている
  *
- * 上下の向きは、1段目の右端の小さな札に畳んである（依頼者の指示・2026-09-05
- * 「向きがあることをオプションとして付けることが出来る程度にして
- * 小さく収納してしまおうか」）。買う長さには**いっさい効かない**——
- * 効くのは、型紙の地の目線が両矢印か下向き一本かということと、
- * 180度回して置いたときに「向きがそろわない」と知らせるかどうかの2つだけ。
- * ふだんは「向きなし」のままでよい。畳んでいるあいだは**いまどちらなのかを札に出したまま**で、
- * 隠れるのは選び直す手段だけである。
- * 開いたら札は見出し（「上下の向き」）に変わる。開いた中に
- * 「向きなし／向きあり」の札が出ているので、同じことを頭にも重ねて出さない
- * （`collapse-what-the-open-panel-shows`）。
- * いまどちらなのかは、緑に塗られている札のほうで読める。
+ * 上下の向きは、1段目の右端の小さな札**ひとつ**にしてある
+ * （依頼者の指示・2026-09-05「『向きなし』を『差し込み可』にして、
+ * クリックしたら『一方裁ち↓』で切り替わるようにして、現状クリック時に
+ * 出てくるパネルは出さなくていいです」）。
+ *
+ * 押すたびに、差し込み可 ⇄ 一方裁ち が入れ替わる。開いて選ぶ画面は無い。
+ * 2つしかない状態を2段階で選ばせる（開く → 選ぶ）必要はなく、
+ * 札そのものが持ち手であるほうが早い。
+ *
+ * 言葉は現場の言い方にそろえてある。「向きなし／向きあり」は
+ * 何の向きか分からないと読まれていたが、「差し込み可」「一方裁ち」なら
+ * **何が出来るのか／何をする裁ち方なのか**がそのまま書いてある。
+ * 一方裁ちの側だけ絵の矢が下向き一本になるので、絵だけでも読める
+ * （型紙の地の目線に出るものと同じ形）。
+ *
+ * 買う長さに効くのは、この設定そのものではなく差し込みの可否である——
+ * 型紙の地の目線が両矢印か下向き一本かということと、
+ * 180度回して置いたときに「向きがそろわない」と知らせるかどうかの2つ。
  * 消してしまわないのは、ベロアやコーデュロイ、一方向の柄で差し込みをしても
  * 何も言われなくなるため。裁ってからでないと気づけない失敗である。
  *
@@ -48,7 +55,7 @@
 
 import { useState } from 'react'
 import { COMMON_WIDTHS_MM, WIDTH_FABRICS } from '../lib/fabric'
-import { Hint, Icon, Note } from './Icon'
+import { Icon } from './Icon'
 import { T } from './TextTools'
 
 type Props = {
@@ -81,8 +88,6 @@ export function FabricSetup({ widthMm, hasNap, onWidth, onNap }: Props) {
     範囲から外れているあいだは、そう書いて出す
   */
   const [typing, setTyping] = useState<string | null>(null)
-  /** 上下の向きの中身を開いているか。ふだんは畳んだまま */
-  const [napOpen, setNapOpen] = useState(false)
   /** 打っている数が、幅として受け取れる範囲から外れているか */
   const outOfRange = typing !== null && typing.trim() !== '' && !(
     Number.isFinite(Number(typing))
@@ -108,41 +113,28 @@ export function FabricSetup({ widthMm, hasNap, onWidth, onNap }: Props) {
           <span className="font-bold text-ink-500">{(widthMm - 40) / 10} cm</span>
         </span>
         {/*
-          上下の向きは、この段の右端の札に畳んである。
+          一方裁ちかどうかは、この段の右端の札ひとつで切り替える。
+          押すたびに入れ替わるので、開いて選ぶ画面は無い。
 
-          畳んでいるあいだは、いまどちらなのかを札そのものに出す。
-          絵も、両矢印（向きなし）と下向き一本（向きあり）で入れ替わる。
+          絵は、両矢印（差し込み可）と下向き一本（一方裁ち）。
           型紙の地の目線に出るものと同じ形なので、絵だけでも読める。
-          「向き」という字が札の中にあるので、左の「生地幅」の続きとは読まれない。
-
-          開いたら、札は見出しの「上下の向き」に変わる。開いた中に
-          「向きなし／向きあり」の札が出ているので、同じことを頭にも重ねて
-          出さない（`collapse-what-the-open-panel-shows`）。
-          左の絵も落とす。あれは向きなし・向きありを表す絵なので、
-          残すと開いた中の札と食い違って読める
+          一方裁ちのときだけ緑を敷いて、ふだんと違う状態であることを言う
         */}
         <button
           type="button"
-          onClick={() => setNapOpen((v) => !v)}
-          aria-expanded={napOpen}
-          aria-label={`上下の向き（いま${hasNap ? '向きあり' : '向きなし'}）`}
-          className={`flex shrink-0 items-center gap-1 rounded-full border py-1 pl-2 pr-1.5 text-xs ${
-            napOpen || hasNap ? 'border-mat-500 bg-mat-50' : 'border-ink-100'
+          data-tour="fabric-nap"
+          onClick={() => onNap(!hasNap)}
+          aria-pressed={hasNap}
+          aria-label={`一方裁ち（いま${hasNap ? '一方裁ち' : '差し込み可'}）`}
+          className={`flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-xs ${
+            hasNap ? 'border-mat-500 bg-mat-50 font-bold text-mat-700' : 'border-ink-100 text-ink-500'
           }`}
         >
-          {!napOpen && (
-            <Icon
-              name={hasNap ? 'nap' : 'napNone'}
-              className="h-3.5 w-3.5 shrink-0 text-mat-600"
-            />
-          )}
-          <span className={!napOpen && hasNap ? 'font-bold text-mat-700' : 'text-ink-500'}>
-            {napOpen ? <T id="fabric.nap.label" /> : hasNap ? '向きあり' : '向きなし'}
-          </span>
           <Icon
-            name="chevron"
-            className={`h-3.5 w-3.5 shrink-0 text-ink-300 transition-transform ${napOpen ? '-rotate-90' : 'rotate-90'}`}
+            name={hasNap ? 'nap' : 'napNone'}
+            className="h-3.5 w-3.5 shrink-0 text-mat-600"
           />
+          {hasNap ? '一方裁ち' : '差し込み可'}
         </button>
       </div>
 
@@ -197,66 +189,6 @@ export function FabricSetup({ widthMm, hasNap, onWidth, onNap }: Props) {
         </p>
       )}
 
-      {napOpen && (
-        <div className="flex flex-col gap-1 border-t border-ink-100 pt-2">
-        {/*
-          「何の向きか」が分からなかった（学生の点検・2026-09-02）ので、
-          見出しは必ず出す。開いているあいだは、すぐ上の札がその見出しになる
-        */}
-        <Hint
-          icon="nap"
-          summary={<T id="fabric.nap.summary" />}
-        >
-          <T id="fabric.nap.body" />
-        </Hint>
-        <div data-tour="fabric-nap" className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => onNap(false)}
-            className={`flex items-center justify-center gap-1.5 rounded-lg py-2.5 text-sm font-bold ${
-              hasNap ? 'border border-ink-100 text-ink-700' : 'bg-mat-500 text-white'
-            }`}
-          >
-            <Icon name="napNone" className="h-4 w-4 shrink-0" />
-            <span className="flex flex-col items-start leading-tight">
-              向きなし
-              {/*
-                「何の向きか分からない」と読まれた（学生の点検・2026-09-02・2巡目）。
-                見出しの「上下の向き」だけでは、押す札そのものに届いていなかった。
-                言葉は現場のまま残し、その下に、何が決まるのかを添える
-              */}
-              <span className="text-[11px] font-normal opacity-80">
-                どちらを上にしてもよい
-              </span>
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => onNap(true)}
-            className={`flex items-center justify-center gap-1.5 rounded-lg py-2.5 text-sm font-bold ${
-              hasNap ? 'bg-mat-500 text-white' : 'border border-ink-100 text-ink-700'
-            }`}
-          >
-            <Icon name="nap" className="h-4 w-4 shrink-0" />
-            <span className="flex flex-col items-start leading-tight">
-              向きあり
-              <span className="text-[11px] font-normal opacity-80">
-                上が決まっている
-              </span>
-            </span>
-          </button>
-        </div>
-        {/*
-          押しても画面が何も変わらなかった（学生の点検・2026-09-02・2巡目）。
-          「いちばん最初に決めます」と言っておきながら、
-          決めた結果がどこにも出ないので、決めた実感がない。
-          押した札のほうで、これから何が変わるのかをその場で言う
-        */}
-        <Note icon={hasNap ? 'nap' : 'nest'} tone={hasNap ? 'warn' : 'plain'}>
-          <T id={hasNap ? 'fabric.nap.on' : 'fabric.nap.off'} strong="font-bold" />
-        </Note>
-        </div>
-      )}
     </section>
   )
 }
