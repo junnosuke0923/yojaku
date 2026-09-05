@@ -2500,6 +2500,27 @@ function SectionCanvas({
     ? underBoxes.map((b) => sheet(b.x0, b.y0, b.x1, b.y1, b.ct, b.cb, leadApex, b.sides))
       .join(' ')
     : null
+  /**
+   * 下へ折り込んだ一枚の、**面に隠れているところ**（依頼者の指摘・2026-09-05）。
+   *
+   * 折り返しを下へ折り込むようにしたら、折り返した一枚が面の下にすっかり
+   * 隠れてしまい、裁ち端ぎわに細い帯がのぞくだけになった。
+   * 依頼者いわく「折返し部分の出だしのカーブだけあってそこから先が途切れて
+   * しまっていて、下に回っている生地の描写がありません」。
+   *
+   * 隠れている一枚を、面をとおしてうっすら透かして描く。のぞいている帯と
+   * ひとつながりの形になるので、折り山で回り込んだ生地がどこまで下に
+   * 入っているのかが、そのまま一枚の形として読める。
+   * 色を変えているのではなく、**下に一枚あることを透かして見せている**——
+   * だから濃さは、のぞいている帯（`CLOTH_FOLDED`）より必ずうすくする
+   * （面の上に出ているものと、下に隠れているものが同じ濃さになってはいけない）
+   */
+  const veilPath = hasUnder
+    ? underBoxes.map((b) => sheet(
+      b.x0 - UB_DX, b.y0 - UB_DY, b.x1 - UB_DX, b.y1 - UB_DY,
+      b.ct, b.cb, undefined, b.sides,
+    )).join(' ')
+    : null
 
   /**
    * みみ。実物のみみには、織るときの機械のピン穴が点々と並んでいる。
@@ -3009,6 +3030,12 @@ function SectionCanvas({
           {/* 上に来ている一枚。ここに型紙を並べる */}
           <path d={topPath} fill={CLOTH}
             filter={underPath ? `url(#${gid}-drop)` : `url(#${gid}-drop2)`} />
+          {/* 面の下に入っている一枚を、うっすら透かす（`veilPath` を見よ） */}
+          {veilPath && (
+            <g clipPath={`url(#${gid}-clip)`}>
+              <path d={veilPath} fill={CLOTH_FOLDED} opacity={0.62} />
+            </g>
+          )}
           <path d={topPath} fill={`url(#${gid}-weave)`} />
           {/*
             2枚の輪郭をうすく引く（依頼者のイラレの図・2026-08-31）。
