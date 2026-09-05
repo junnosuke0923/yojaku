@@ -14,10 +14,10 @@
  * - 1段目 … 見出しと、みみを除いた幅と、一方裁ちの小さな札
  * - 2段目 … 幅の札4つと、直に打つ欄
  *
- * 2段目が 375px で1行に収まるように、札の左右の余白と札どうしの間を
- * わずかに詰めてある（309px の枠に対して 294px）。詰めないと打つ欄だけが
- * 3段目へ折り返して、枠が 44px 高くなる。
- * これより細い画面では素直に折り返してよい（`flex-wrap` のまま）
+ * 2段目は「4等分に並べた札 ＋ 直に打つ欄」。札の幅を中身に任せると
+ * 「シーチング」の札だけが広くなって、選ぶものが同じ重さに見えないので、
+ * 4等分の枠で幅をそろえてある。
+ * 375px より細い画面では、打つ欄のほうが次の行へ折り返す（`flex-wrap`）
  *
  * 落としたもの（依頼者の指示・2026-09-05「耳の説明や『数字の下は～～』の
  * 部分は削除でいいです」）:
@@ -101,14 +101,21 @@ export function FabricSetup({ widthMm, hasNap, onWidth, onNap }: Props) {
     >
       <div className="flex items-center gap-2">
         <Icon name="clothWidth" className="h-4 w-4 shrink-0 text-mat-600" />
-        <span className="text-sm font-bold text-ink-700">生地幅</span>
+        <span className="whitespace-nowrap text-sm font-bold text-ink-700">生地幅</span>
         {/*
+          ここから右そろえの組。みみを除いた幅と、一方裁ちの札。
+
           みみを除いた幅は、見出しのすぐ隣。
           この数は選んだ幅から出るものなので、幅の札と同じ段にあるほうが
           どこから来た数かが分かる。ここに置くと、下の段が
-          「札4つ ＋ 直に打つ欄」で1行に収まり、枠が2段で済む
+          「札4つ ＋ 直に打つ欄」で1行に収まり、枠が2段で済む。
+
+          360px より細い画面では、この一言だけ引っ込める。
+          3つを横に並べきれず、「生地幅」が2行に折れて枠が高くなるため。
+          同じ数は、下の「買ってくる長さ」の枠にも書いてある
         */}
-        <span className="tnum ml-auto text-xs text-ink-300">
+        <div className="ml-auto flex items-center gap-2">
+        <span className="tnum hidden whitespace-nowrap text-xs text-ink-300 min-[360px]:inline">
           みみを除くと{' '}
           <span className="font-bold text-ink-500">{(widthMm - 40) / 10} cm</span>
         </span>
@@ -126,7 +133,7 @@ export function FabricSetup({ widthMm, hasNap, onWidth, onNap }: Props) {
           onClick={() => onNap(!hasNap)}
           aria-pressed={hasNap}
           aria-label={`一方裁ち（いま${hasNap ? '一方裁ち' : '差し込み可'}）`}
-          className={`flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-xs ${
+          className={`flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2 py-1 text-xs ${
             hasNap ? 'border-mat-500 bg-mat-50 font-bold text-mat-700' : 'border-ink-100 text-ink-500'
           }`}
         >
@@ -136,20 +143,30 @@ export function FabricSetup({ widthMm, hasNap, onWidth, onNap }: Props) {
           />
           {hasNap ? '一方裁ち' : '差し込み可'}
         </button>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
         {/*
-          数字の下に、その幅でよく見かける生地の名前を小さく添える
-          （依頼者の指示・2026-08-31）。数字だけでは、どれを選ぶのか決められない。
-          あくまで手がかりなので、色は薄く、字も小さくしてある
+          札4つは**同じ幅**にそろえる（依頼者の指示・2026-09-05
+          「生地幅のそれぞれの数字のボタンがその下に書かれている生地名の幅に
+          依存している為に幅が不ぞろいなのでそろえたいです」）。
+
+          もとは中身なりの幅にしていたので、「シーチング」の札だけが
+          「ウール」の札より 15px 広く、選ぶものが同じ重さに見えなかった。
+          4等分の枠（`grid-cols-4`）に入れて、幅は枠のほうで決める。
+
+          残りを直に打つ欄が取る。枠には下限を付けてあるので、
+          これより細い画面では欄のほうが次の行へ折り返し、
+          札は4つ並んだまま横いっぱいに広がる
         */}
+        <div className="grid min-w-[200px] flex-1 grid-cols-4 gap-1.5">
         {COMMON_WIDTHS_MM.map((mm) => (
           <button
             key={mm}
             type="button"
             onClick={() => { setTyping(null); onWidth(mm) }}
-            className={`flex flex-col items-center rounded-lg px-2 py-1.5 leading-tight ${
+            className={`flex flex-col items-center rounded-lg px-1 py-1.5 leading-tight ${
               widthMm === mm ? 'bg-mat-500 text-white' : 'border border-ink-100 text-ink-700'
             }`}
           >
@@ -159,7 +176,8 @@ export function FabricSetup({ widthMm, hasNap, onWidth, onNap }: Props) {
             </span>
           </button>
         ))}
-        <label className="flex items-center gap-1 rounded-lg border border-ink-100 px-2 py-2">
+        </div>
+        <label className="flex shrink-0 items-center gap-1 rounded-lg border border-ink-100 px-2 py-2">
           <input
             type="number"
             inputMode="decimal"
