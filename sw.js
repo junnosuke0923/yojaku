@@ -1,5 +1,5 @@
-const CACHE = 'yojaku-2026-09-13 09:45'
-const FILES = ["./","./index.html","./manifest.webmanifest","./icon.svg","./icon-192.png","./icon-512.png","./icon-maskable-512.png","./sample-photo.jpg","./assets/index-DkNHoPRM.js","./assets/index-DF4FfV1b.css"]
+const CACHE = 'yojaku-2026-09-13 10:50'
+const FILES = ["./","./index.html","./manifest.webmanifest","./icon.svg","./icon-192.png","./icon-512.png","./icon-maskable-512.png","./sample-photo.jpg","./assets/index-Bjm05RT_.js","./assets/index-DF4FfV1b.css"]
 /*
   覚えたものを探すときの、ゆるめかた。
   ignoreVary が要る。配信の仕方によっては Vary という但し書きが付いていて、
@@ -31,6 +31,15 @@ self.addEventListener('fetch', (e) => {
   if (url.origin !== location.origin) return
   // 版の確認は、覚えているほうを返してはいけない
   if (url.pathname.endsWith('/version.txt')) return
+  /*
+    動画には手を出さない（2026-09-13、使い方の動画を入れたとき）。
+    動画は「ここからここまで」と切り分けて頼まれる（Range）。
+    その切れはしを覚えてしまうと、次に通しで頼まれたときに
+    途中までしか返らず、再生が途中で止まる。
+    大きさも 4.8MB あるので、覚え場所に置く相手ではない
+  */
+  if (req.headers.has('range')) return
+  if (url.pathname.endsWith('.mp4')) return
   if (req.mode === 'navigate') {
     e.respondWith((async () => {
       try { return await fetch(req) } catch {
