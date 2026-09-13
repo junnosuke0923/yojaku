@@ -487,6 +487,7 @@ export function CornerPicker({ bitmap, imageWidth, imageHeight, quad, mode, onCh
   return (
     <div
       ref={wrapRef}
+      data-tour="ruler-quad"
       className="relative w-full touch-none select-none overflow-hidden rounded-xl bg-ink-100"
       style={{ height: boxH || undefined }}
     >

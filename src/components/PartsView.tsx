@@ -142,12 +142,11 @@ export function PartsView({ state, onChange, onAddMore, onLayout }: Props) {
             ここで聞いているのは「できあがりに何枚要るか」。
             裁断のときに置く型紙の数はこれとは別で、二重の生地の上なら1枚で足りる。
 
-            この説明は、はじめて開いたときの案内（Tour.tsx）と同じことを言っている。
-            案内を出すようにしたら、こちらは消すこと。いまは案内を止めてあるので置いてある
+            この話は、はじめて開いたときの案内（Tour.tsx の part-row）が言う。
+            常設の説明はそちらと重なるので消した（2026-09-13、案内を出すのにあわせて）。
+            案内をまた止めるときは、ここに戻すこと——
+            戻す文面は text.ts の parts.count.summary / parts.count.body にそのまま残してある
           */}
-          <Hint summary={<T id="parts.count.summary" />}>
-            <T id="parts.count.body" />
-          </Hint>
 
           {/*
             定規は地の目の「向き」までは教えてくれない。上下対称だから。
@@ -343,8 +342,6 @@ function SeamBody({ part, hasNap, onPatch, onReplace }: {
 }) {
   return (
     <div className="flex flex-col gap-2.5">
-      <Tour id="seam" />
-
       {/*
         説明はひと言だけ。続きは「？」の中（依頼者の指示・2026-08-27）。
         絵は「？」の印そのものにしてある。ここには縫い代の絵が
@@ -501,7 +498,6 @@ function PartRow({
   return (
     <li
       ref={liRef}
-      data-tour={first ? 'part-row' : undefined}
       className={`flex flex-col rounded-xl border bg-white p-3 ${
         open ? 'border-mat-500' : 'border-ink-100'
       }`}
@@ -533,7 +529,12 @@ function PartRow({
         </div>
       )}
 
-      <div className="flex gap-3">
+      {/*
+        案内（Tour.tsx）が「1枚ずつカードに」と指す先は、この段だけにしてある。
+        カードまるごとに付けると、開いているカードは画面より高くなり、
+        光る枠が画面いっぱいになって何も指さない絵になる
+      */}
+      <div data-tour={first ? 'part-row' : undefined} className="flex gap-3">
         {/*
           小さな絵は、**閉じているあいだだけ**（依頼者の指摘・2026-09-04
           「パーツを選んで、この大きな縫い代付けの画面を開いた時に、
@@ -677,7 +678,14 @@ function PartRow({
               type="button"
               onClick={onOpen}
               aria-expanded={open}
-              data-tour={first ? 'seam-open' : undefined}
+              /*
+                案内（Tour.tsx）が「別の型紙は、その行を押します」と指す先。
+                この行は**閉じているカードにだけ**出るので、
+                いちばん上の閉じたカードが選ばれる。
+                前は1枚目に付けてあったが、1枚目は最初から開いていて
+                この行が無く、案内がだまって飛ばされていた
+              */
+              data-tour="seam-open"
               className="-mx-1 flex items-center gap-1.5 rounded-b-lg border-t border-ink-100 px-1 pt-2 pb-0.5 text-left active:bg-table"
             >
               <Icon name="seam" className="h-3.5 w-3.5 shrink-0 text-ink-300" />

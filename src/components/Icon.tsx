@@ -31,7 +31,7 @@ export type IconName =
   | 'question' | 'hint' | 'warn' | 'check'
   | 'plus' | 'close' | 'trash' | 'back' | 'chevron' | 'undo' | 'redo' | 'save' | 'packUp' | 'list'
   | 'turnLeft' | 'turnRight'
-  | 'home' | 'share'
+  | 'home' | 'share' | 'play'
 
 /**
  * みみのピン穴。生地の絵で使っている点々と同じもの。
@@ -393,6 +393,14 @@ const SHAPES: Record<IconName, ReactNode> = {
     合わせる先が無いものを自分で描くと、どこにも似ていない絵になる。
     形は Lucide（MIT）の house と share から書き写して、線の太さをそろえた
   */
+
+  /** 使い方の動画。丸の中の三角（どの端末でも「再生」はこの形） */
+  play: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M10.2 8.6L15.6 12l-5.4 3.4z" />
+    </>
+  ),
 
   /** ホーム画面。家の形 */
   home: (

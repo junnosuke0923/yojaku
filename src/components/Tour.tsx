@@ -15,20 +15,28 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from './Icon'
 
-export type TourId = 'photo' | 'parts' | 'seam' | 'layout'
+export type TourId = 'photo' | 'ruler' | 'result' | 'parts' | 'layout'
 
 /**
- * いまは出さない（依頼者の指示・2026-08-27）。
+ * 出す（依頼者の指示・2026-09-13「アプリの中の案内を出す」）。
  *
- * 機能の直しと画面の調整がこの先も続くので、案内の文面と実物が食い違いやすく、
- * 画面を変えるたびに文面も直すことになる。画面が固まってから出す。
+ * 2026-08-27 から止めてあった。機能の直しと画面の調整が続くあいだは、
+ * 案内の文面と実物が食い違いやすかったため。4段階に落ち着いたので出す。
  *
- * `true` に戻すときは、あわせて次の2つをやること。
- *   - 案内と同じことを言っている常設の説明を、もう一度消す
- *     （パーツ一覧の「枚数はできあがりに必要な数」がそれ。いまは戻してある）
- *   - 指す相手（data-tour の印）が、そのときの画面と合っているか確かめる
+ * 出すにあたって、止めていたあいだに増えたずれを直してある。
+ *   - 「縫い代」の画面に案内が2つ（parts と seam）掛かっていて、
+ *     同時に開いていた。1つにまとめた
+ *   - 「測る」の画面には案内が無かった。ここがいちばん迷うので足した
+ *   - `seam-open` の印が、開いているカードに付いていて当たらなかった。
+ *     閉じているカードに付け替えた
+ *   - 案内と同じことを言っていた常設の説明（パーツ一覧の
+ *     「枚数はできあがりに必要な数」）を消した
+ *
+ * この先また画面を変えるときは、**指す相手（data-tour の印）が
+ * そのときの画面にあるか**を必ず確かめること。無い印はだまって飛ばされるので、
+ * 案内が1つ減っていても画面上は何も起きない
  */
-export const TOUR_ON: boolean = false
+export const TOUR_ON: boolean = true
 
 /** 案内の1つぶん。target は、指す相手に付けた data-tour の値 */
 type Spot = {
@@ -39,9 +47,10 @@ type Spot = {
 
 /*
   中身を書き替えたら、この番号を上げる。
-  一度読んだ人にも、新しい案内をもう一度出すため
+  一度読んだ人にも、新しい案内をもう一度出すため。
+  tour1 → tour2（2026-09-13、案内を出すのにあわせて全部書き直した）
 */
-const KEY = 'yojaku.tour1.'
+const KEY = 'yojaku.tour2.'
 
 const TOURS: Record<TourId, Spot[]> = {
   photo: [
@@ -61,19 +70,62 @@ const TOURS: Record<TourId, Spot[]> = {
       body: '型紙といっしょに方眼定規を1本置いてください。その定規が、写真を実寸に直すものさしになります。',
     },
   ],
+  /*
+    「測る」の1枚目。写真の上に当てた枠を、定規に合わせてもらう画面。
+    ここを外すと、このあとの寸法がまるごとずれる。
+    それなのに、何を合わせているのかが絵だけでは伝わりにくい
+  */
+  ruler: [
+    {
+      target: 'ruler-quad',
+      title: 'この枠を、定規のふちに合わせます',
+      body: '写真から定規をさがして、枠を当ててあります。ずれていたら角をつまんで直してください。ここがこのあとの寸法のもとになります。',
+    },
+    {
+      target: 'ruler-kind',
+      title: '使った定規は、どちらですか',
+      body: '選んだ定規の実際の長さを、ものさしにします。50cm と 30cm で答えが変わるので、ここだけは見ておいてください。',
+    },
+    {
+      target: 'ruler-go',
+      title: '合ったら、実寸に直します',
+      body: '写真の中の型紙を切り抜いて、センチの形にします。少し時間がかかります。',
+    },
+  ],
+
+  /*
+    「測る」の2枚目。切り抜けた形と寸法を確かめるところ。
+    ここで数字を見ないまま進むと、あとの計算がぜんぶ狂う
+  */
+  result: [
+    {
+      target: 'result-card',
+      title: 'この丈と幅が、実物と近いか',
+      body: '近くなければ、定規の種類か四隅がずれています。型紙でないもの（手や消しゴム）は、左の ✓ を押して外してください。',
+    },
+    {
+      target: 'result-seam',
+      title: '持ってきた型紙は、どちらの線ですか',
+      body: '出来上がり線なら「縫い代なし」。裁ち切り線まで引いてあるなら「縫い代つき」。この写真から取り込むもの全部に効きます。',
+    },
+    {
+      target: 'result-go',
+      title: '取り込むと、縫い代の画面へ',
+      body: '写真が何枚かあるときは、続けて次の写真になります。あとから「撮り足す」で足すこともできます。',
+    },
+  ],
+
+  /*
+    「縫い代」の画面。カードの一覧と、開いているカードの中身は
+    ひと続きの画面なので、案内も1つにまとめてある
+    （前は parts と seam の2つが同時に開いていた）
+  */
   parts: [
     {
       target: 'part-row',
-      title: '取り込んだ型紙。名前と枚数をここで',
-      body: '枚数は、できあがりに必要な数です（左右で使うなら 2）。左の絵を押すと、縫い代を付ける画面に移ります。',
+      title: '取り込んだ型紙が、1枚ずつカードに',
+      body: '名前は一覧から選べます（スカート前、ベルト…）。枚数は、できあがりに必要な数です——左右で使うなら 2 にしてください。',
     },
-    {
-      target: 'to-layout',
-      title: 'ぜんぶ決まったら、生地の上へ',
-      body: 'あとから戻って直せます。並べてみてから枚数を変えても、長さは計算し直されます。',
-    },
-  ],
-  seam: [
     {
       target: 'seam-figure',
       title: '辺を押すと、その辺を選べます',
@@ -94,6 +146,11 @@ const TOURS: Record<TourId, Spot[]> = {
       title: '別の型紙は、その行を押します',
       body: '「縫い代を決める」の行を押すと、その型紙のパネルが開きます。開くのは1つだけで、もう一度押せば畳めます。',
     },
+    {
+      target: 'to-layout',
+      title: 'ぜんぶ決まったら、生地の上へ',
+      body: 'あとから戻って直せます。並べてみてから枚数を変えても、長さは計算し直されます。',
+    },
   ],
   layout: [
     {
@@ -102,9 +159,14 @@ const TOURS: Record<TourId, Spot[]> = {
       body: '両端のみみは使えないので、そのぶんを引いた幅で並べます。一覧にない幅は、右の欄に数字で入れてください。',
     },
     {
+      target: 'fabric-nap',
+      title: '毛並みや柄に上下がある生地は、ここ',
+      body: '押すと「一方裁ち」に変わり、型紙を上下逆に入れられなくなります。ふだんの生地は「差し込み可」のままで大丈夫です。',
+    },
+    {
       target: 'fabric',
       title: 'これが生地です',
-      body: '上下の波線が、はさみで切る裁ち端。左右の細い帯がみみです。置いた型紙は、指でつまんで動かせます。',
+      body: '上下の波線が、はさみで切る裁ち端。左右の細い帯がみみです。置いた型紙は、指でつまんで動かせます。上の断面図の辺を押すと、折り山の位置を変えられます。',
     },
     {
       target: 'tray',
@@ -224,8 +286,22 @@ export function Tour({ id }: { id: TourId }) {
   const pad = 6
   const hole = { top: box.t - pad, left: box.l - pad, width: box.w + pad * 2, height: box.h + pad * 2 }
 
-  /* ふきだしは、余白の広いほうへ。狭いほうに出すと画面から落ちる */
-  const below = window.innerHeight - (box.t + box.h) > 240
+  /*
+    ふきだしの置き場所。
+
+    まず下、入らなければ上。**どちらにも入らないとき**は画面の下端に置く。
+    指す相手が画面より高いことがあり（縫い代のカードなど）、
+    そのときに上下どちらかへ寄せると、ふきだしがまるごと画面の外へ出て
+    「次へ」が押せなくなる。案内が進まなくなり、うしろの板だけが残って
+    画面そのものが触れなくなる——2026-09-13 に実際にそうなった。
+
+    下端に置くときは、指す先を示す角（▲）を出さない。
+    相手をまたいで指すことになり、線が嘘になるため
+  */
+  const room = 240
+  const below = window.innerHeight - (box.t + box.h) > room
+  const above = !below && box.t > room
+  const floating = !below && !above
   const arrowX = Math.min(Math.max(box.l + box.w / 2, 28), window.innerWidth - 28)
 
   return createPortal(
@@ -242,18 +318,20 @@ export function Tour({ id }: { id: TourId }) {
       />
 
       {/* ふきだしの角。どれを指しているのかを、線でも示す */}
-      <div
-        className="pointer-events-none fixed z-50 h-3 w-3 rotate-45 border-mat-500 bg-white"
-        style={{
-          left: arrowX - 6,
-          top: below ? box.t + box.h + pad + 6 : undefined,
-          bottom: below ? undefined : window.innerHeight - box.t + pad + 6,
-          borderTopWidth: below ? 2 : 0,
-          borderLeftWidth: below ? 2 : 0,
-          borderRightWidth: below ? 0 : 2,
-          borderBottomWidth: below ? 0 : 2,
-        }}
-      />
+      {!floating && (
+        <div
+          className="pointer-events-none fixed z-50 h-3 w-3 rotate-45 border-mat-500 bg-white"
+          style={{
+            left: arrowX - 6,
+            top: below ? box.t + box.h + pad + 6 : undefined,
+            bottom: below ? undefined : window.innerHeight - box.t + pad + 6,
+            borderTopWidth: below ? 2 : 0,
+            borderLeftWidth: below ? 2 : 0,
+            borderRightWidth: below ? 0 : 2,
+            borderBottomWidth: below ? 0 : 2,
+          }}
+        />
+      )}
 
       <div
         className="fixed z-50 flex flex-col gap-2 rounded-2xl border-2 border-mat-500 bg-white px-4 py-3.5 shadow-lg"
@@ -262,7 +340,11 @@ export function Tour({ id }: { id: TourId }) {
           transform: 'translateX(-50%)',
           width: 'min(calc(100vw - 24px), 27rem)',
           top: below ? box.t + box.h + pad + 12 : undefined,
-          bottom: below ? undefined : window.innerHeight - box.t + pad + 12,
+          bottom: below
+            ? undefined
+            : floating
+              ? 12
+              : window.innerHeight - box.t + pad + 12,
         }}
       >
         <div className="flex items-center gap-2">

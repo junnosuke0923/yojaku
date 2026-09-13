@@ -165,6 +165,8 @@ function PartCard({ part, index, on, onToggle }: {
   const [open, setOpen] = useState(false)
   return (
     <div
+      /* 案内（Tour.tsx）が指すのは1枚目だけ。番号は 1 から数える */
+      data-tour={index === 1 ? 'result-card' : undefined}
       className={`rounded-xl border transition-opacity ${
         on ? 'border-mat-500 bg-white' : 'border-ink-100 bg-white opacity-50'
       }`}

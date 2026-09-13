@@ -30,7 +30,7 @@ export function RulerToggle({ value, guess, onChange }: Props) {
   const matched = guess?.confident === true && guess.suggested === value
 
   return (
-    <div className="flex flex-col gap-2">
+    <div data-tour="ruler-kind" className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
         <span className="flex items-center gap-2 text-sm font-bold text-ink-700">
           <Icon name="ruler" className="h-4 w-4 shrink-0 text-mat-600" />

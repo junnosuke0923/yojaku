@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CornerPicker, rectifyQuad } from './components/CornerPicker'
 import { Heading, Hint, Icon, Note, type IconName } from './components/Icon'
+import { HowToCard } from './components/HowToCard'
 import { InstallCard } from './components/InstallCard'
 import { LayoutView } from './components/LayoutView'
 import { GreenTuner } from './components/GreenTuner'
@@ -697,7 +698,12 @@ export function App() {
     ? parts.placements.length > 0
     : parts.parts.length > 0 || result !== null || image !== null
   /** この画面に、呼び戻せる案内があるか（いまは案内そのものを止めてある） */
-  const hasTour = TOUR_ON && (step === 'photo' || step === 'parts' || step === 'layout')
+  /*
+    見出しの「？」から案内を呼び戻せるか。
+    前は「測る」だけ案内を持っていなかったので、画面を選んで出していた。
+    4つとも持つようになった（2026-09-13）ので、選ぶ必要がなくなった
+  */
+  const hasTour = TOUR_ON
 
   return (
     <div className="mx-auto flex min-h-full w-full max-w-xl flex-col">
@@ -1171,6 +1177,16 @@ export function App() {
             )}
 
             {/*
+              使い方の動画（依頼者の指示・2026-09-13
+              「アプリの中にボタンを付けて公開」）。
+
+              ホーム画面の札より上に置く。はじめて開いた人にとっては、
+              置き場所の話より先に「これは何をする道具か」のほうが要る。
+              ふだんは1行に畳んであるので、場所は取らない
+            */}
+            <HowToCard />
+
+            {/*
               ホーム画面に置くことを勧める札（依頼者の指示・2026-09-13）。
 
               いちばん下に置く。この画面のふだんの仕事は「撮る」なので、
@@ -1229,6 +1245,7 @@ export function App() {
             説明を2つ「？」に畳んでもあと少し足りなかったので、最後はここで詰めた
           */
           <section className="flex flex-col gap-4">
+            <Tour id="ruler" />
             <QueueBar no={queueNo} total={queueTotal} onSkip={() => nextPhoto()} />
             {/*
               こちらで四隅を当てられたときは、頼むことが変わる（依頼者の質問・2026-09-01）。
@@ -1355,6 +1372,7 @@ export function App() {
                 type="button"
                 onClick={run}
                 disabled={busy}
+                data-tour="ruler-go"
                 className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-mat-500 px-5 py-4 text-base font-bold text-white active:bg-mat-600 disabled:opacity-50"
               >
                 {!busy && <Icon name="measure" className="h-5 w-5 shrink-0" />}
@@ -1366,6 +1384,7 @@ export function App() {
 
         {step === 'ruler' && image && shown && (
           <section className="flex flex-col gap-5">
+            <Tour id="result" />
             <QueueBar no={queueNo} total={queueTotal} onSkip={() => nextPhoto()} />
             <ResultView
               bitmap={image.bitmap}
@@ -1417,7 +1436,7 @@ export function App() {
               持ってくる型紙は、出来上がり線で切ってあるとは限らない（依頼者の指摘）。
               先にここで聞いておけば、縫い代を足す画面は要る人にだけ出せる
             */}
-            <div className="flex flex-col gap-3 rounded-xl border border-ink-100 bg-white px-4 py-4">
+            <div data-tour="result-seam" className="flex flex-col gap-3 rounded-xl border border-ink-100 bg-white px-4 py-4">
               {/* 問いかけには「？」を付ける。答えを選ぶところだと、読む前に分かる */}
               {/*
                 これは**写真ぜんぶに効く1つの設定**で、型紙ごとには持っていない。
@@ -1512,6 +1531,7 @@ export function App() {
               type="button"
               onClick={keep}
               disabled={chosenCount === 0 || askAgain}
+              data-tour="result-go"
               className="flex items-center justify-center gap-2 rounded-xl bg-mat-500 px-5 py-4 text-base font-bold text-white active:bg-mat-600 disabled:opacity-50"
             >
               <Icon name="part" className="h-5 w-5 shrink-0" />
