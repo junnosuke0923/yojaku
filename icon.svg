@@ -1,13 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <!--
-    要尺シミュレーターの印。アプリがしていることを、そのまま絵にしてある。
-    地は生地の緑。その上に折った生地（左の帯が二重になっているところ）、
-    さらにその上に型紙が1枚。型紙の左の辺は折り山にぴったり当ててある＝「わ」
+    要尺シミュレーターの印（依頼者の指示・2026-09-13）。
+    後ろスカートの型紙を、後ろ中心を「わ」にして生地の折り山に当てたところ。
+    ウエストと裾は後ろ中心と直角に交わる——わを開いたときに中心が尖らないため。
+    太い緑の線が折り山で、生地の上端から下端まで通っている。
   -->
   <rect width="512" height="512" fill="#234232"/>
-  <rect x="70" y="96" width="372" height="320" rx="10" fill="#eef3ef"/>
-  <rect x="70" y="96" width="86" height="320" rx="10" fill="#dbe6de"/>
-  <path d="M156 96V416" stroke="#35664e" stroke-width="10" stroke-linecap="round"/>
-  <path d="M156 140h150l38 34v164l-38 34H156" fill="#ffffff" stroke="#35664e"
-        stroke-width="15" stroke-linejoin="round" stroke-linecap="round"/>
+  <rect x="106" y="48" width="300" height="416" rx="0" fill="#b6ccbf"/>
+  <path d="M120 126 C160 126 200 134 288 108 C300 136 318 178 318 214 C318 300 313 366 310 424 L120 424 Z" fill="#ffffff"/>
+  <path d="M120 126 C160 126 200 134 288 108 C300 136 318 178 318 214 C318 300 313 366 310 424 L120 424" fill="none" stroke="#1e3629" stroke-width="17"
+        stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M170.6 127.2L179.0 198.0L187.4 126.7" fill="none" stroke="#1e3629" stroke-width="11"
+        stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M227.6 122.2L236.0 182.0L244.4 119.1" fill="none" stroke="#1e3629" stroke-width="11"
+        stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M120 48V464" stroke="#6e9f85" stroke-width="28"/>
 </svg>
