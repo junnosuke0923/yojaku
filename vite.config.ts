@@ -133,7 +133,8 @@ export default defineConfig({
         const assets = Object.keys(bundle).filter((f) => f !== 'version.txt')
         const files = [
           './', './index.html', './manifest.webmanifest',
-          './icon.svg', './icon-192.png', './icon-512.png', './sample-photo.jpg',
+          './icon.svg', './icon-192.png', './icon-512.png',
+          './icon-maskable-512.png', './sample-photo.jpg',
           ...assets.map((f) => `./${f}`),
         ]
         this.emitFile({ type: 'asset', fileName: 'sw.js', source: swSource(BUILD_ID, files) })
