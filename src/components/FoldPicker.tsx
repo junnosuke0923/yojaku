@@ -17,7 +17,7 @@
  * この図なら4辺ぜんぶが常に画面の中にある。
  *
  * さわり方は2通りある。**押す**と「わ」が付いたり外れたりする。
- * **辺をつまんで内側へ引きずる**と、引いた深さで折り方まで決まる
+ * **辺を押したまま内側へ動かす**と、動かした深さで折り方まで決まる
  * （きっちり折り切る位置まで引けば、そこに吸い付く）。
  * 片側だけ折るなら折り切る位置は向かい側の生地端で、両側から折るなら真ん中になる。
  * 引きずるほうは、押すことの上位互換ではなく、
@@ -802,7 +802,7 @@ export function FoldPicker({ fold, half, onEdge, onHint, scale }: Props) {
             role="button"
             tabIndex={0}
             aria-pressed={on(s)}
-            aria-label={`${SIDE_NAMES[s]}の辺を「わ」にする。内側へ引きずると折る深さも決まります`}
+            aria-label={`${SIDE_NAMES[s]}の辺を「わ」にする。押したまま内側へ動かすと折る深さも決まります`}
             style={{ cursor: 'pointer' }}
             onPointerDown={start(s)}
             onPointerMove={move}
