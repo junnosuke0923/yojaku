@@ -12,10 +12,30 @@
       根に置いたときでも、同じものがそのまま動く
     -->
     <link rel="manifest" href="./manifest.webmanifest" />
+    <!--
+      Android は「ホーム画面に追加しますか」を出せる状態になると、
+      `beforeinstallprompt` という知らせを一度だけ投げてくる。
+      これを受け取っておかないと、あとから自分のボタンで呼び出せない。
+
+      画面が組み上がる前に飛んでくることがあるので、**ここで受け取る**。
+      React の中で待ち構えるだけでは、間に合わないことがある
+      （依頼者の指示・2026-09-13、ホーム画面への追加を勧めるボタン）
+    -->
+    <script>
+      window.addEventListener('beforeinstallprompt', function (e) {
+        // 端末まかせの帯を止めて、こちらのボタンから出す
+        e.preventDefault()
+        window.__yojakuInstall = e
+        window.dispatchEvent(new Event('yojaku:installable'))
+      })
+      window.addEventListener('appinstalled', function () {
+        window.__yojakuInstall = null
+      })
+    </script>
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>要尺シミュレーター</title>
-    <script type="module" crossorigin src="./assets/index-JcvGIIsc.js"></script>
+    <script type="module" crossorigin src="./assets/index-DkNHoPRM.js"></script>
     <link rel="stylesheet" crossorigin href="./assets/index-DF4FfV1b.css">
   </head>
   <body>
