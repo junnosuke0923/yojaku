@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CornerPicker, rectifyQuad } from './components/CornerPicker'
 import { Heading, Hint, Icon, Note, type IconName } from './components/Icon'
+import { InstallCard } from './components/InstallCard'
 import { LayoutView } from './components/LayoutView'
 import { GreenTuner } from './components/GreenTuner'
 import { PartsView } from './components/PartsView'
@@ -1168,6 +1169,15 @@ export function App() {
                 )}
               </div>
             )}
+
+            {/*
+              ホーム画面に置くことを勧める札（依頼者の指示・2026-09-13）。
+
+              いちばん下に置く。この画面のふだんの仕事は「撮る」なので、
+              一度きりの用事をその上に積まない。
+              端末が受け付けないときや、もう置いてあるときは、何も出ない
+            */}
+            <InstallCard />
 
             {DEV && (
               <div className="mt-2 flex flex-col gap-3 rounded-xl border-2 border-dashed border-hold-400 bg-hold-50 px-4 py-4">
