@@ -13,7 +13,7 @@ import type { EdgeGroup } from './edges'
 import { bounds, centroid, clipLineToBox, type Point, type Polygon } from './geom'
 import { turnPoly } from './marks'
 import { unionWithMirror } from './openFold'
-import { buildSeam, DEFAULT_SEAM_MM, initialPlan, SEAM_INCLUDED_MM, type SeamPlan } from './seam'
+import { buildSeam, DEFAULT_SEAM_MM, initialPlan, type SeamPlan } from './seam'
 import {
   foldEdgeSides, foldSidesOf, FOLD_MARK_REF_MM, isVerticalSide, SELVAGE_MM,
   type FoldMark, type FoldMode, type PlacedPart, type Placement, type Section, type Side,
@@ -46,14 +46,21 @@ export type StoredPart = {
   /** 出来上がり線(mm)。写真から取れるのはこれ（学生の型紙は出来上がり線で切ってある） */
   outlineMm: Polygon
   /**
-   * 取り込んだ型紙に、もう縫い代が付いているか。
+   * 辺のまとまりごとの縫い代(mm)。0 は「縫い代を足さない」。
    *
-   * 学生が持ってくる型紙は出来上がり線で切ってあるとは限らない。
-   * 付いていれば縫い代を足す画面は要らず、「わ」の辺の指定だけになる（依頼者の指示）。
+   * 縫い代つきの型紙は、全部の辺を 0 にすることで表す（依頼者の指示・2026-09-16）。
+   * 「わ」にしてある辺の値もそのまま残してあるので、わを外せばもとの幅が戻る
    */
-  seamIncluded: boolean
-  /** 辺のまとまりごとの縫い代(mm)。0 は「ここは折り山」、負は「もう付いている」 */
   allowancesMm: number[]
+  /**
+   * 「わ（折り山）」にしてある辺の番号。無ければ null。
+   *
+   * **1つの型紙に1辺だけ**（依頼者の指示・2026-09-16）。向かい合う2辺が折り山なら
+   * 筒になってしまい、物理的にありえない。隣り合う2辺（四つ折りで1/4を裁つ）は
+   * 現実にはあるが、このアプリの生地の折り方は縦わか横わの一方だけなので、
+   * 2辺目はどうやっても折り山に当たらない
+   */
+  foldEdge?: number | null
   /**
    * 「わ」の辺で開いた形で裁つか（依頼者の指示・2026-08-27）。
    *
@@ -111,6 +118,44 @@ export const EMPTY: PartsState = {
   placements: [],
 }
 
+/**
+ * しまってある古いぶんの「わ」を、新しい持ち方へ読みかえる（2026-09-16）。
+ *
+ * 前は縫い代 0 がそのまま「わ」を意味し、縫い代つきの辺は -1 で表していた。
+ * いまは「わ」を `foldEdge` に分けて持ち、0 は本当の 0 になった。
+ *
+ * - -1（もう付いている）は、本当の 0 に直す
+ * - 0（わ）が1つなら、そのまま `foldEdge` に移す
+ * - 0 が2つ以上あるものは、**いちばん長い1辺だけ**を「わ」として残す。
+ *   これは「開いて裁つ」がもともと鏡に選んでいた辺なので、見た目が変わらない
+ * - 「わ」から外れた辺は、既定の縫い代（1cm）に戻す。0 のまま残すと
+ *   縫い代なしの辺が黙って残り、用尺が短く出て生地が足りなくなる。
+ *   ただし縫い代つきで取り込んだ型紙は、もとから足さないので 0 のままにする
+ */
+function migrateFoldEdge(p: StoredPart & { seamIncluded?: boolean }): StoredPart {
+  if (p.foldEdge !== undefined) return p
+  const olds = Array.isArray(p.allowancesMm) ? p.allowancesMm : []
+  const zeros = olds.map((a, i) => (a === 0 ? i : -1)).filter((i) => i >= 0)
+
+  let foldEdge: number | null = zeros.length > 0 ? zeros[0] : null
+  if (zeros.length > 1 && Array.isArray(p.outlineMm) && p.outlineMm.length >= 3) {
+    const { groups } = initialPlan(p.outlineMm)
+    for (const i of zeros) {
+      if ((groups[i]?.lengthMm ?? 0) > (groups[foldEdge ?? 0]?.lengthMm ?? 0)) foldEdge = i
+    }
+  }
+
+  const allowancesMm = olds.map((a, i) => {
+    if (i === foldEdge) return 0
+    if (a < 0) return 0
+    if (a === 0) return p.seamIncluded ? 0 : DEFAULT_SEAM_MM
+    return a
+  })
+  const next = { ...p, foldEdge, allowancesMm }
+  delete (next as { seamIncluded?: boolean }).seamIncluded
+  return next
+}
+
 export function load(): PartsState {
   try {
     const raw = localStorage.getItem(KEY)
@@ -118,14 +163,13 @@ export function load(): PartsState {
     const parsed = JSON.parse(raw) as Partial<PartsState>
     return {
       parts: Array.isArray(parsed.parts)
-        ? parsed.parts.map((p) => ({
+        ? parsed.parts.map((p) => migrateFoldEdge({
             ...p,
             /*
               しまってある古いぶんの読みかえ。
               `flipped: true` は「180 度まわしてある」ということ
             */
             turnDeg: p.turnDeg ?? ((p as { flipped?: boolean }).flipped ? 180 : 0),
-            seamIncluded: p.seamIncluded ?? false,
             kind: p.kind ?? 'pattern', openFold: p.openFold ?? false,
           }))
         : [],
@@ -251,16 +295,15 @@ export function applyFoldChange(
 /** 解析結果のパーツを、しまっておく形に直す。既定の縫い代を全周に付けておく */
 export function toStored(
   outlineMm: Polygon, widthMm: number, heightMm: number, index: number,
-  seamIncluded = false,
 ): StoredPart {
-  const plan = initialPlan(outlineMm, seamIncluded ? SEAM_INCLUDED_MM : DEFAULT_SEAM_MM)
+  const plan = initialPlan(outlineMm, DEFAULT_SEAM_MM)
   return {
     id: `p${Date.now().toString(36)}${index}`,
     kind: 'pattern',
     name: `パーツ${index + 1}`,
     outlineMm,
-    seamIncluded,
     allowancesMm: plan.allowancesMm,
+    foldEdge: null,
     needed: 1,
     turnDeg: 0,
     widthMm,
@@ -290,14 +333,14 @@ export function toReserve(name: string, widthMm: number, heightMm: number): Stor
     { x: widthMm, y: heightMm },
     { x: 0, y: heightMm },
   ]
-  const plan = initialPlan(outlineMm, SEAM_INCLUDED_MM)
+  const plan = initialPlan(outlineMm, 0)
   return {
     id: `r${Date.now().toString(36)}`,
     kind: 'reserve',
     name,
     outlineMm,
-    seamIncluded: true,
     allowancesMm: plan.allowancesMm,
+    foldEdge: null,
     needed: 1,
     turnDeg: 0,
     widthMm,
@@ -341,12 +384,12 @@ export const isSquare = (turnDeg: number) => Math.abs(turnDeg - squaredTurn(turn
  * 万一、辺の数が食い違ったら（プログラムを直したときなど）既定値に戻す。
  */
 export function planOf(part: StoredPart): SeamPlan {
-  const plan = initialPlan(
-    outlineOf(part),
-    part.seamIncluded ? SEAM_INCLUDED_MM : DEFAULT_SEAM_MM,
-  )
+  const plan = initialPlan(outlineOf(part), DEFAULT_SEAM_MM)
   if (part.allowancesMm.length === plan.groups.length) {
     plan.allowancesMm = [...part.allowancesMm]
+    // 辺の数が合っているときだけ「わ」も引き継ぐ。番号がずれたまま拾うと別の辺が折り山になる
+    const f = part.foldEdge
+    plan.foldIndex = f != null && f >= 0 && f < plan.groups.length ? f : null
   }
   return plan
 }
@@ -360,7 +403,7 @@ function boxAreaOf(poly: Polygon): number {
 /**
  * 生地の上に置くための形。縫い代を足したあとの裁ち切り線を、左上へ寄せて渡す。
  *
- * 縫い代 0 の辺があるかどうかも一緒に渡す。
+ * 「わ」の辺があるかどうかも一緒に渡す。
  * その辺は折り山に当てないと実物ではありえない図になるので、計算側で見張っている。
  */
 export function placedPartOf(part: StoredPart): PlacedPart | null {
@@ -372,18 +415,12 @@ export function placedPartOf(part: StoredPart): PlacedPart | null {
   let finishedLineMm = seam.finishedLineMm
   /** 開いたときの中心線（＝鏡にした線）。開かなければ無い */
   let centerLineMm: { a: Point; b: Point } | null = null
-  // 0 は「ここは折り山」。負（縫い代つき）は折り山ではない
-  let hasFoldEdge = plan.allowancesMm.some((a) => a === 0)
+  let hasFoldEdge = plan.foldIndex != null
 
   if (part.openFold && hasFoldEdge) {
-    // いちばん長い「わ」の辺を鏡にして、左右に開く。
-    // 短いほうを選ぶと、ベルトで長さの向きに開いてしまう
-    let mirror: EdgeGroup | null = null
-    for (let i = 0; i < plan.groups.length; i++) {
-      if (plan.allowancesMm[i] !== 0) continue
-      const g = plan.groups[i]
-      if (!mirror || g.lengthMm > mirror.lengthMm) mirror = g
-    }
+    // 「わ」の辺を鏡にして、左右に開く。わは1辺だけなので、選びようがない
+    const mirror: EdgeGroup | null =
+      plan.foldIndex != null ? plan.groups[plan.foldIndex] ?? null : null
     if (mirror) {
       /*
         鏡にするのは、「わ」の辺の**端どうしを結んだ直線**。
@@ -439,7 +476,7 @@ export function placedPartOf(part: StoredPart): PlacedPart | null {
     const sy = seam.finishedLineMm[0].y - plan.path.points[0].y
     const R = FOLD_MARK_REF_MM
     for (let i = 0; i < plan.groups.length; i++) {
-      if (plan.allowancesMm[i] !== 0) continue
+      if (i !== plan.foldIndex) continue
       const g = plan.groups[i]
       const cx = g.midpoint.x + sx
       const cy = g.midpoint.y + sy
@@ -486,9 +523,9 @@ export function placedPartOf(part: StoredPart): PlacedPart | null {
   }
 }
 
-/** 「わ」で開いて裁つ設定が使えるか（＝縫い代 0 の辺があるか） */
+/** 「わ」で開いて裁つ設定が使えるか（＝「わ」の辺があるか） */
 export const canOpenFold = (part: StoredPart): boolean =>
-  !isReserve(part) && part.allowancesMm.some((a) => a === 0)
+  !isReserve(part) && part.foldEdge != null
 
 /** 実際に生地の上で場所を取る大きさ(mm)。「わ」で開いてあればその倍の幅 */
 export function cutSizeOf(part: StoredPart): { widthMm: number; heightMm: number } | null {

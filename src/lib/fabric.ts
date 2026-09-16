@@ -372,7 +372,7 @@ export type PlacedPart = {
    * 「この縫い代の重なりならどうにかなる」という判断ができない（依頼者の指示）。
    */
   finishedLineMm: Polygon
-  /** 縫い代 0 の辺（＝折り山に当てる辺）を持つか */
+  /** 「わ」の辺（＝折り山に当てる辺）を持つか */
   hasFoldEdge: boolean
   /** 「わ」の辺に付ける作図の記号の置き場所。辺ごとに1つ */
   foldMarksMm: FoldMark[]
@@ -869,13 +869,13 @@ export function computeYardage(
           message: '毛並みのある生地・一方向の柄です。上下逆（180度）にすると向きがそろいません。',
         })
       }
-      // 縫い代 0 の辺を持つパーツは、折り山に当てないといけない。
+      // 「わ」の辺を持つパーツは、折り山に当てないといけない。
       // 少しずれたまま置けてしまうと、実物ではありえない図が出来上がる
       if (part.hasFoldEdge && !onFold) {
         problems.push({
           kind: 'offFold',
           placementId: p.id,
-          message: 'このパーツには「わ」の辺（縫い代 0）があります。折り山に当ててください。',
+          message: 'このパーツには「わ」の辺があります。折り山に当ててください。',
         })
       }
 

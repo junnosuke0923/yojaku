@@ -12,7 +12,7 @@
 
 import { useMemo, useRef, useState, type PointerEvent, type ReactNode } from 'react'
 import { bounds } from '../lib/geom'
-import { applyToAll, buildSeam, SEAM_INCLUDED_MM, SEAM_STEPS_CM, type SeamPlan } from '../lib/seam'
+import { allowanceOf, applyToAll, buildSeam, SEAM_STEPS_CM, type SeamPlan } from '../lib/seam'
 import { isSquare, squaredTurn } from '../lib/store'
 import { Icon, Note } from './Icon'
 import { PatternMarks } from './PatternMarks'
@@ -34,11 +34,6 @@ type Props = {
    */
   turnDeg: number
   onTurn: (turnDeg: number) => void
-  /**
-   * 取り込んだ型紙に、もう縫い代が付いているか。
-   * 付いているなら足す量は聞かず、「わ」の辺の指定だけになる。
-   */
-  seamIncluded: boolean
 }
 
 /** 番号のふきだしを、辺からどれだけ外へ押し出すか(mm) */
@@ -52,7 +47,7 @@ const TAP_SLOP_PX = 8
 
 const clampTo = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v)
 
-export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded, turnDeg, onTurn }: Props) {
+export function SeamEditor({ plan, onChange, hasNap, name, turnDeg, onTurn }: Props) {
   const [selected, setSelected] = useState(0)
   const [bulkCm, setBulkCm] = useState(1)
   /** 一覧に無い幅を、自分で入れる欄。cm。空なら「まだ入れていない」 */
@@ -275,9 +270,40 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded, turnDeg
     onChange({ ...plan, allowancesMm })
   }
 
+  /**
+   * この辺を「わ（折り山）」にする／やめる。
+   *
+   * **「わ」は1つの型紙に1辺だけ**（依頼者の指示・2026-09-16）。
+   * 向かい合う2辺が折り山なら筒になってしまうし、このアプリの生地は
+   * 縦わか横わの一方にしか折らないので、2辺目は折り山に当たりようがない。
+   *
+   * ほかの辺が「わ」だったときは、手前で止めずに、そちらを譲らせる
+   * （`opposing-values-push-back`）。押した操作はそのまま通して、
+   * 何が起きたかは注意書きで言う。譲った辺の縫い代は覚えたままなので、
+   * もとの幅がそのまま戻る
+   */
+  const toggleFold = () => {
+    const was = plan.foldIndex
+    setFreeCm('')
+    if (was === selected) {
+      setNote(null)
+      onChange({ ...plan, foldIndex: null })
+      return
+    }
+    setNote(
+      was == null
+        ? null
+        : <T id="seam.fold.moved" vars={{
+            no: plan.groups[was]?.no ?? was + 1,
+            cm: (Math.max(0, plan.allowancesMm[was] ?? 0) / 10).toFixed(1),
+          }} />,
+    )
+    onChange({ ...plan, foldIndex: selected })
+  }
+
   const doBulk = () => {
     const { plan: next, changed } = applyToAll(plan, bulkCm * 10)
-    const skipped = plan.allowancesMm.filter((a) => a === 0).length
+    const skipped = plan.foldIndex == null ? 0 : 1
     setNote(
       skipped > 0
         ? <T id="seam.bulk.some" vars={{ changed, cm: bulkCm, skipped }} />
@@ -303,7 +329,9 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded, turnDeg
     return d
   }
 
-  const currentMm = plan.allowancesMm[selected] ?? 0
+  /** いま選んでいる辺が「わ」か。わの辺の縫い代は 0 で固定 */
+  const isFold = plan.foldIndex === selected
+  const currentMm = allowanceOf(plan, selected)
   /** いまの幅が、決まった札のどれでもない＝自分で決めた辺 */
   const isCustom =
     currentMm > 0 && !SEAM_STEPS_CM.some((c) => Math.abs(currentMm - c * 10) < 0.01)
@@ -316,7 +344,7 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded, turnDeg
    * めったに使わない数値は、この欄へ逃がしてある。
    *
    * 1 mm 刻みに丸める。それより細かい指定は、裁つときに意味を持たない。
-   * 0 と入れたら「わ」になる。札の「わ 0」と同じ扱い
+   * 0 と入れたら本当に 0（縫い代を足さない）。「わ」にはならない
    */
   const applyFree = () => {
     const cm = Number(freeCm)
@@ -382,7 +410,7 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded, turnDeg
           aspectRatio: `${view.w} / ${view.h}`,
           // 下に置く操作のぶんを引いた残り。自分で決める欄がある画面は、そのぶん深く引く
           // まわす操作の1段ぶん（3rem）を足して引く
-          maxHeight: `max(140px, min(34vh, calc(100dvh - ${seamIncluded ? '36rem' : '38.5rem'})))`,
+          maxHeight: `max(140px, min(34vh, calc(100dvh - 41rem)))`,
           touchAction: 'none',
         }}
         role="img"
@@ -416,7 +444,7 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded, turnDeg
         <PatternMarks poly={shifted} hasNap={hasNap} name={name} fontShrink={zoom.k} />
 
         {/* 「わ」の辺に付ける作図の記号。地の目線より後に描いて、隠れないようにする */}
-        {plan.groups.map((g, gi) => (plan.allowancesMm[gi] === 0 ? foldMark(g) : null))}
+        {plan.groups.map((g, gi) => (gi === plan.foldIndex ? foldMark(g) : null))}
 
         {/* 選んでいる辺を光らせる */}
         {plan.groups.map((g, gi) => (
@@ -446,7 +474,7 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded, turnDeg
 
         {/* 番号。まとまりの真ん中から外へ押し出す */}
         {plan.groups.map((g, gi) => {
-          const mm = plan.allowancesMm[gi]
+          const mm = allowanceOf(plan, gi)
           // 押し出す量も割る。そうしないと、寄ったときに番号だけが遠くへ飛んでいく
           const push = mm + lbl(LABEL_PUSH_MM)
           const cx = g.midpoint.x + view.dx + g.outward.x * push
@@ -468,7 +496,7 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded, turnDeg
                 「わ」の字は、さらに外へ押し出す。
                 番号のふきだしの真下に置くと、辺に付けた わ の記号に重なる
               */}
-              {mm === 0 && (
+              {gi === plan.foldIndex && (
                 <text
                   x={cx + g.outward.x * lbl(24)} y={cy + g.outward.y * lbl(24) + lbl(6)}
                   textAnchor="middle" fontSize={lbl(15)} fill="#2b332d"
@@ -546,28 +574,30 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded, turnDeg
         1画面に収めたいので同じ枠に入れてある（依頼者の指示・2026-08-27）
       */}
       <div className="rounded-xl border border-ink-100 bg-white px-4 py-3">
-        {!seamIncluded && (
-          <div data-tour="seam-bulk" className="flex items-center gap-3 border-b border-ink-100 pb-3">
-            {/* 絵は付けない。この画面には縫い代の絵がすでに出ている（依頼者の指摘・2026-08-27） */}
-            <span className="shrink-0 text-sm font-bold text-ink-700">まとめて</span>
-            <select
-              value={bulkCm}
-              onChange={(e) => setBulkCm(Number(e.target.value))}
-              className="tnum rounded-lg border border-ink-100 px-3 py-1.5 text-base"
-            >
-              {SEAM_STEPS_CM.filter((c) => c > 0).map((c) => (
-                <option key={c} value={c}>{c} cm</option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={doBulk}
-              className="ml-auto rounded-lg bg-mat-500 px-4 py-2 text-sm font-bold text-white active:bg-mat-600"
-            >
-              全部に付ける
-            </button>
-          </div>
-        )}
+        <div data-tour="seam-bulk" className="flex items-center gap-3 border-b border-ink-100 pb-3">
+          {/* 絵は付けない。この画面には縫い代の絵がすでに出ている（依頼者の指摘・2026-08-27） */}
+          <span className="shrink-0 text-sm font-bold text-ink-700">まとめて</span>
+          <select
+            value={bulkCm}
+            onChange={(e) => setBulkCm(Number(e.target.value))}
+            className="tnum rounded-lg border border-ink-100 px-3 py-1.5 text-base"
+          >
+            {/*
+              0 も選べる。縫い代つきの型紙は、ここで 0 にそろえるのがいちばん早い
+              （依頼者の指示・2026-09-16）。「わ」の辺だけは飛ばすので、壊れない
+            */}
+            {SEAM_STEPS_CM.map((c) => (
+              <option key={c} value={c}>{c} cm</option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={doBulk}
+            className="ml-auto rounded-lg bg-mat-500 px-4 py-2 text-sm font-bold text-white active:bg-mat-600"
+          >
+            全部に付ける
+          </button>
+        </div>
         {note && (
           <div className="pt-2">
             <Note icon="check" tone="good">{note}</Note>
@@ -581,73 +611,64 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded, turnDeg
             長さ {Math.round((plan.groups[selected]?.lengthMm ?? 0) / 10)} cm
           </span>
           <span className="tnum ml-auto text-lg font-bold text-seam">
-            {currentMm === 0 ? (
+            {isFold ? (
               <>
                 わ
                 <span className="pl-1 text-xs font-bold opacity-70">縫い代 0</span>
               </>
-            ) : seamIncluded ? (
-              'ふつうの辺'
             ) : (
               `${(currentMm / 10).toFixed(1)} cm`
             )}
           </span>
         </div>
 
-        {seamIncluded ? (
-          <>
+        {/*
+          「わ（折り山）」は、縫い代の数字とは別の決めごとにしてある
+          （依頼者の指示・2026-09-16）。もとは縫い代 0 の札がそのまま
+          「わ」を意味していたが、**わなら縫い代 0。しかし縫い代 0 だからといって
+          わとは限らない**（縫い代つきの型紙のふつうの辺も 0）。
+          一方通行の関係を1つの札にまとめていたので、逆から読まれると壊れていた。
+
+          押しボタンは1つ。入れると、下の数字は 0 のまま動かせなくなる。
+          折り山に縫い代を付けることは実務でありえないので、選べるようにしない
+        */}
+        <button
+          type="button"
+          data-tour="seam-fold"
+          onClick={toggleFold}
+          aria-pressed={isFold}
+          className={`mb-2 flex w-full items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-bold ${
+            isFold ? 'bg-seam text-white' : 'border border-ink-100 text-ink-700'
+          }`}
+        >
+          <Icon name="fold" className="h-4 w-4 shrink-0" />
+          この辺は「わ」（折り山）
+          {isFold && <span className="text-xs font-bold opacity-80">／ 縫い代 0</span>}
+        </button>
+
+        <>
             {/*
-              縫い代つきの型紙でも「わ」の指定だけは要る。
-              折り山に当てる辺かどうかで、要尺も枚数も変わるため
+              「わ」にしてあるあいだは、数字を押せなくする。
+              押せないまま 0 が選ばれた形にしてあるので、
+              **わの縫い代は 0 だ**ということが、文を読まなくても図と札から分かる
             */}
-            <div data-tour="seam-steps" className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setAllowance(selected, SEAM_INCLUDED_MM)}
-                className={`rounded-lg py-3 text-sm font-bold ${
-                  currentMm !== 0 ? 'bg-mat-500 text-white' : 'border border-ink-100 text-ink-700'
-                }`}
-              >
-                ふつうの辺
-              </button>
-              <button
-                type="button"
-                onClick={() => setAllowance(selected, 0)}
-                className={`flex items-center justify-center gap-1.5 rounded-lg py-3 text-sm font-bold ${
-                  currentMm === 0 ? 'bg-seam text-white' : 'border border-ink-100 text-ink-700'
-                }`}
-              >
-                <Icon name="fold" className="h-4 w-4 shrink-0" />
-                わ（折り山）
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <div data-tour="seam-steps" className="grid grid-cols-6 gap-1.5">
+            <div
+              data-tour="seam-steps"
+              className={`grid grid-cols-6 gap-1.5 ${isFold ? 'opacity-45' : ''}`}
+            >
               {SEAM_STEPS_CM.map((cm) => {
                 const on = Math.abs(currentMm - cm * 10) < 0.01
                 return (
                   <button
                     key={cm}
                     type="button"
+                    disabled={isFold}
                     onClick={() => setAllowance(selected, cm * 10)}
                     className={`tnum rounded-lg py-2 text-sm font-bold ${
                       on ? 'bg-seam text-white' : 'border border-ink-100 text-ink-700'
                     }`}
                   >
-                    {/*
-                      「わ」と「縫い代 0」が同じことだと、札そのものに書いておく
-                      （依頼者の案・2026-08-27）。文で説明するより短く、消えない
-                    */}
-                    {cm === 0 ? (
-                      <>
-                        わ
-                        <span className="pl-0.5 text-[0.72em] opacity-70">0</span>
-                      </>
-                    ) : (
-                      cm
-                    )}
+                    {cm}
                   </button>
                 )
               })}
@@ -669,28 +690,34 @@ export function SeamEditor({ plan, onChange, hasNap, name, seamIncluded, turnDeg
                 step={0.1}
                 min={0}
                 max={20}
+                disabled={isFold}
                 value={freeCm}
                 onChange={(e) => setFreeCm(e.target.value)}
                 placeholder={isCustom ? (currentMm / 10).toFixed(1) : '1.8'}
                 aria-label="縫い代の幅（cm）"
                 className={`tnum w-16 rounded-lg border px-2 py-1.5 text-center text-base ${
                   isCustom ? 'border-seam font-bold text-seam' : 'border-ink-100'
-                }`}
+                } ${isFold ? 'opacity-45' : ''}`}
               />
               <span className="text-sm text-ink-500">cm</span>
               <button
                 type="submit"
-                className="ml-auto shrink-0 rounded-lg border border-mat-500 px-3 py-1.5 text-sm font-bold text-mat-700 active:bg-mat-50"
+                disabled={isFold}
+                className={`ml-auto shrink-0 rounded-lg border border-mat-500 px-3 py-1.5 text-sm font-bold text-mat-700 active:bg-mat-50 ${
+                  isFold ? 'opacity-45' : ''
+                }`}
               >
                 この辺に付ける
               </button>
             </form>
-          </>
-        )}
+        </>
       </div>
 
-      {/* 縫い代つきの型紙は、取り込んだ形そのものが裁ち切り線。二重に出しても混乱するだけ */}
-      {seam && !seamIncluded && (
+      {/*
+        どこにも縫い代を足していない型紙（縫い代つきで取り込んだもの）は、
+        取り込んだ形そのものが裁ち切り線。同じ数字を二重に出しても混乱するだけ
+      */}
+      {seam && plan.groups.some((_, i) => allowanceOf(plan, i) > 0) && (
         <p className="tnum flex items-center gap-2 text-sm text-ink-500">
           <Icon name="scissors" className="h-4 w-4 shrink-0 text-mat-600" />
           {/* 「縫い代を足した大きさのことだろう、と推測で進みました」（学生の点検・2026-09-02） */}

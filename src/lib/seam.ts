@@ -8,9 +8,18 @@
  * やり方は「辺のまとまりごとに、その幅ぶんの帯を塗って足す」だけ。
  * 角の処理も、へこみも、幅の違う辺どうしのつなぎ目も、塗って重ねれば勝手に解決する。
  *
- * 縫い代 0 の辺は「わ（折り山）」の意味を持つ（依頼者の指摘）。
- * 折り山には縫い代を付けないという決まりがあるので、この2つは同じことの裏表になる。
- * だからアプリは「どの辺がわですか」と別にたずねなくてよい。
+ * 「わ（折り山）」は、縫い代の値とは**別に持つ**（依頼者の指示・2026-09-16）。
+ *
+ * もとは「縫い代 0 の辺＝わ」と決めて、1つの値に2つの意味を持たせていた。
+ * 折り山に縫い代は付けないのだから裏表だ、という理屈だったが、これは一方通行で、
+ * **わなら縫い代 0。しかし縫い代 0 だからといって、わとは限らない。**
+ * 縫い代つきの型紙のふつうの辺も、足す量は 0 だが折り山ではない。
+ * 0 が塞がっていたせいで、内部に別の印を立て、写真を取り込む段階で
+ * 「縫い代なし／縫い代つき」をたずねる二択まで増えていた。
+ *
+ * いまは `foldIndex` が「わ」の辺を指す。0 は本当の 0 に戻したので、
+ * 縫い代つきの型紙は「まとめて 0cm」で表せる。わは1つの型紙に1辺だけ
+ * （向かい合う2辺が折り山なら筒になり、物理的にありえない）。
  */
 
 import { traceOuterContour } from './contour'
@@ -22,17 +31,7 @@ import { createGrid, fillPolygon } from './raster'
 /** 縫い代の既定値(mm)。1cm */
 export const DEFAULT_SEAM_MM = 10
 
-/**
- * 「この辺には、もう縫い代が付いている」という印(mm)。
- *
- * 学生が持ってくる型紙は出来上がり線で切ってあるとは限らず、縫い代つきのこともある。
- * そのときは何も足さないが、0 は使えない。0 は「ここは折り山（わ）」という
- * 別の意味に取ってあるからで、混ぜると図が壊れる。
- * 負の値にしておけば、足す量としては 0 と同じに扱われ、意味だけが分かれる。
- */
-export const SEAM_INCLUDED_MM = -1
-
-/** 画面に出す刻み(cm)。学校で実際に使う値だけを並べる */
+/** 画面に出す刻み(cm)。学校で実際に使う値だけを並べる。0 は本当の 0（縫い代を足さない） */
 export const SEAM_STEPS_CM = [0, 0.5, 0.7, 1, 1.2, 1.5, 2, 2.5, 3, 3.5, 4, 5]
 
 /** 裁ち切り線の点を間引く強さ(mm) */
@@ -41,38 +40,58 @@ const SIMPLIFY_MM = 1.5
 export type SeamPlan = {
   path: EdgePath
   groups: EdgeGroup[]
-  /** groups と同じ並びの縫い代(mm)。0 は「ここは折り山」 */
+  /**
+   * groups と同じ並びの縫い代(mm)。
+   *
+   * 「わ」にしてある辺の値も、**学生が選んだまま覚えておく**。
+   * 実際に足す量は `allowanceOf` が 0 に伏せるので、わを外したときに
+   * もとの幅がそのまま戻ってくる。押し間違えて「わ」を移しただけで
+   * 縫い代が消えると、用尺が短く出て生地が足りなくなる
+   */
   allowancesMm: number[]
+  /** 「わ（折り山）」にしてある辺。1つの型紙に1辺だけ。無ければ null */
+  foldIndex: number | null
 }
+
+/**
+ * その辺に実際に足す縫い代(mm)。
+ *
+ * 「わ」の辺は必ず 0。折り山に縫い代を付けることは実務でありえないので、
+ * 覚えてある値によらず、ここで伏せる
+ */
+export const allowanceOf = (plan: SeamPlan, i: number): number =>
+  plan.foldIndex === i ? 0 : Math.max(0, plan.allowancesMm[i] ?? 0)
 
 /** 出来上がり線から、既定の縫い代を全周に付けた計画を作る */
 export function initialPlan(outlineMm: Polygon, defaultMm = DEFAULT_SEAM_MM): SeamPlan {
   const outline = normalizeWinding(outlineMm)
   const { path, groups } = splitEdges(outline)
-  return { path, groups, allowancesMm: groups.map(() => defaultMm) }
+  return { path, groups, allowancesMm: groups.map(() => defaultMm), foldIndex: null }
 }
 
 /**
  * まとめて縫い代を決める（依頼者の指示）。
  *
- * ただし **0 の辺は飛ばす**。0 は縫い代の広さではなく「ここは折り山」という
- * 別の意味を持たせてあるので、まとめて上書きすると図が壊れる。
+ * ただし **「わ」の辺は飛ばす**。折り山に縫い代を付けることはありえないので、
+ * まとめて上書きされると図が壊れる。
+ * 0 は飛ばさない。縫い代つきの型紙は「まとめて 0cm」でそろえる
+ * （依頼者の指示・2026-09-16）。
  *
  * 返すのは「実際に変えた本数」。画面に出して、何が起きたかを学生に見せるため。
  */
 export function applyToAll(plan: SeamPlan, mm: number): { plan: SeamPlan; changed: number } {
   let changed = 0
-  const allowancesMm = plan.allowancesMm.map((a) => {
-    if (a === 0) return 0
+  const allowancesMm = plan.allowancesMm.map((a, i) => {
+    if (i === plan.foldIndex) return a
     changed++
     return mm
   })
   return { plan: { ...plan, allowancesMm }, changed }
 }
 
-/** 折り山（縫い代 0）にしてある辺のまとまり */
+/** 折り山（「わ」）にしてある辺のまとまり。1辺だけなので、多くても1本 */
 export const foldGroups = (plan: SeamPlan): EdgeGroup[] =>
-  plan.groups.filter((_, i) => plan.allowancesMm[i] === 0)
+  plan.foldIndex == null ? [] : plan.groups.filter((_, i) => i === plan.foldIndex)
 
 export type SeamResult = {
   /** 裁ち切り線(mm)。左上を原点に寄せてある */
@@ -99,7 +118,7 @@ export function buildSeam(plan: SeamPlan): SeamResult | null {
   const pts = plan.path.points
   if (pts.length < 3) return null
 
-  const maxAllowance = plan.allowancesMm.reduce((m, a) => Math.max(m, a), 0)
+  const maxAllowance = plan.groups.reduce((m, _, i) => Math.max(m, allowanceOf(plan, i)), 0)
   /** 「わ」に突き当たる帯を、いったん行き過ぎさせる長さ(mm)。あとで線で切りそろえる */
   const reach = maxAllowance + 4
   const pad = Math.ceil(maxAllowance) + 6
@@ -124,21 +143,20 @@ export function buildSeam(plan: SeamPlan): SeamResult | null {
   const perPoint = new Float64Array(n)
   for (let g = 0; g < plan.groups.length; g++) {
     const { start, end } = plan.groups[g]
-    // 負の値（縫い代つき）は、足す量としては 0 と同じ
-    const mm = Math.max(0, plan.allowancesMm[g])
+    const mm = allowanceOf(plan, g)
     for (let i = start; i < end; i++) perPoint[i % n] = mm
   }
 
   /*
     「わ（折り山）」にしてある点だけに印を付ける。
 
-    縫い代 0 と同じに見えるが、混ぜてはいけない。縫い代つきの辺（SEAM_INCLUDED_MM）も
-    足す量は 0 になるが、あちらは折り山ではないので、切りそろえる線が存在しない。
+    縫い代 0 の辺と同じに見えるが、混ぜてはいけない。縫い代つきの型紙の
+    ふつうの辺も足す量は 0 だが、あちらは折り山ではないので、
+    帯を切りそろえる線が存在しない。
   */
   const isFold = new Uint8Array(n)
-  for (let g = 0; g < plan.groups.length; g++) {
-    if (plan.allowancesMm[g] !== 0) continue
-    const { start, end } = plan.groups[g]
+  if (plan.foldIndex != null && plan.groups[plan.foldIndex]) {
+    const { start, end } = plan.groups[plan.foldIndex]
     for (let i = start; i < end; i++) isFold[i % n] = 1
   }
 
@@ -267,7 +285,7 @@ export function buildSeam(plan: SeamPlan): SeamResult | null {
     そのとき型紙そのものを切り落としてしまわないため。
     切り落とすのはあくまで「後から足した縫い代」だけにする。
   */
-  const foldLines = plan.groups.filter((_, g) => plan.allowancesMm[g] === 0)
+  const foldLines = foldGroups(plan)
   if (foldLines.length > 0) {
     const far = grid.width + grid.height
     for (const { start, end } of foldLines) {

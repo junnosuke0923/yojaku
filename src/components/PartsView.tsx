@@ -182,13 +182,12 @@ export function PartsView({ state, onChange, onAddMore, onLayout }: Props) {
  * カードに出す、いまの縫い代のようす。
  *
  * 足す量として数えるのは 0 より大きい辺だけ。
- * 0 は「わ」（折り山に当てる）、負の値は「型紙にもう付いている」という印で、
- * どちらも足す量ではないので、cm の幅の話からは外す（lib/seam.ts を参照）
+ * 0 の辺（縫い代を足さない）と「わ」の辺は、cm の幅の話からは外す（lib/seam.ts を参照）
  */
 function seamSummary(part: StoredPart): string {
-  const add = part.allowancesMm.filter((a) => a > 0)
+  const add = part.allowancesMm.filter((a, i) => a > 0 && i !== part.foldEdge)
   const cm = (v: number) => (v / 10).toFixed(1)
-  if (add.length === 0) return part.seamIncluded ? '型紙についている' : 'なし'
+  if (add.length === 0) return 'なし'
   const lo = Math.min(...add)
   const hi = Math.max(...add)
   return lo === hi ? `${cm(lo)} cm` : `${cm(lo)}〜${cm(hi)} cm`
@@ -347,28 +346,21 @@ function SeamBody({ part, hasNap, onPatch, onReplace }: {
         絵は「？」の印そのものにしてある。ここには縫い代の絵が
         いくつも出るので、同じ絵を並べない（依頼者の指摘・2026-08-27）
       */}
-      {part.seamIncluded ? (
-        <Hint icon="fold" summary={<T id="parts.seam.included.summary" />}>
-          <T id="parts.seam.included.body" />
-        </Hint>
-      ) : (
-        <Hint summary={<T id="parts.seam.add.summary" />}>
-          <T id="parts.seam.add.body" />
-        </Hint>
-      )}
+      <Hint summary={<T id="parts.seam.add.summary" />}>
+        <T id="parts.seam.add.body" />
+      </Hint>
 
       <SeamEditor
         plan={planOf(part)}
         hasNap={hasNap}
         name={part.name}
-        seamIncluded={part.seamIncluded}
         turnDeg={part.turnDeg}
         /*
           まわすと外まわりの大きさも変わるので、`withTurn` に通して
           幅と丈を測り直してもらう（依頼者の指示・2026-09-01）
         */
         onTurn={(turnDeg) => onReplace(withTurn(part, turnDeg))}
-        onChange={(plan) => onPatch({ allowancesMm: plan.allowancesMm })}
+        onChange={(plan) => onPatch({ allowancesMm: plan.allowancesMm, foldEdge: plan.foldIndex })}
       />
 
       <OpenFoldOption part={part} onPatch={onPatch} />
@@ -445,8 +437,7 @@ function PartRow({
   */
   const placed = useMemo(() => placedPartOf(part), [part])
   const size = placed ? sizeOf(placed) : null
-  const folds = part.allowancesMm.filter((a) => a === 0).length
-  const opened = part.openFold === true && folds > 0
+  const opened = part.openFold === true && part.foldEdge != null
   const seam = seamSummary(part)
 
   /**
@@ -692,10 +683,11 @@ function PartRow({
               <span className="min-w-0 truncate text-[11px] font-bold text-ink-700">
                 縫い代を決める
               </span>
-              {folds > 0 && (
+              {part.foldEdge != null && (
                 <span className="flex shrink-0 items-center gap-1 text-[11px] font-bold text-seam">
                   <Icon name="fold" className="h-3.5 w-3.5 shrink-0" />
-                  {opened ? 'わにしないで裁つ' : `わ ${folds}本`}
+                  {/* 「わ」は1辺だけなので、本数は言わずに何番の辺かを言う */}
+                  {opened ? 'わにしないで裁つ' : `わ ${part.foldEdge + 1}番`}
                 </span>
               )}
               <span className="tnum ml-auto shrink-0 text-[11px] text-ink-500">{seam}</span>

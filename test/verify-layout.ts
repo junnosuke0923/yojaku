@@ -11,7 +11,7 @@
  *   実行: npm run verify:layout
  */
 
-import { initialPlan, applyToAll, buildSeam, foldGroups, SEAM_INCLUDED_MM } from '../src/lib/seam'
+import { allowanceOf, initialPlan, applyToAll, buildSeam, foldGroups } from '../src/lib/seam'
 import { splitEdges } from '../src/lib/edges'
 import { bounds, signedArea, type Point } from '../src/lib/geom'
 import {
@@ -93,12 +93,14 @@ console.log('\n■ 縫い代 — 全周1cmで、縦横とも2cm大きくなる�
     `${Math.round(seam.areaMm2)} mm²`)
 }
 
-console.log('\n■ 縫い代 0 ＝ わ — その辺だけ大きくならないか')
+console.log('\n■ 「わ」の辺 — その辺だけ大きくならないか')
 {
   const plan = initialPlan(rect(200, 300), 10)
   const left = plan.groups.findIndex((g) => g.midpoint.x < 1)
   ok('左辺が見つかる', left >= 0, `${left} 番目`)
-  plan.allowancesMm[left] = 0
+  // 縫い代の数字はそのまま（10mm）。「わ」にしてあるぶんだけ 0 として効く
+  plan.foldIndex = left
+  ok('わの辺は縫い代 0 として効く', allowanceOf(plan, left) === 0, `${allowanceOf(plan, left)} mm`)
 
   const seam = buildSeam(plan)!
   near('幅は片側だけ増える', seam.widthMm, 210, 2)
@@ -106,17 +108,31 @@ console.log('\n■ 縫い代 0 ＝ わ — その辺だけ大きくならない�
   ok('折り山として拾える', foldGroups(plan).length === 1, `${foldGroups(plan).length}本`)
 }
 
-console.log('\n■ 一括設定 — 0 の辺を飛ばすか（依頼者の指示）')
+console.log('\n■ 一括設定 — 「わ」の辺を飛ばすか（依頼者の指示）')
 {
   const plan = initialPlan(rect(200, 300), 10)
   const left = plan.groups.findIndex((g) => g.midpoint.x < 1)
-  plan.allowancesMm[left] = 0
+  plan.foldIndex = left
 
   const { plan: after, changed } = applyToAll(plan, 15)
   ok('変えたのは3本', changed === 3, `${changed}本`)
-  ok('わの辺は 0 のまま', after.allowancesMm[left] === 0, `${after.allowancesMm[left]} mm`)
+  ok('わの辺は 0 のまま', allowanceOf(after, left) === 0, `${allowanceOf(after, left)} mm`)
+  ok('わを外せば元の 10mm が戻る', after.allowancesMm[left] === 10,
+    `${after.allowancesMm[left]} mm`)
   ok('ほかは15mm', after.allowancesMm.filter((a) => a === 15).length === 3,
     after.allowancesMm.join(' / '))
+}
+
+console.log('\n■ 一括設定 — 0 cm も選べる（縫い代つきの型紙）')
+{
+  const plan = initialPlan(rect(200, 300), 10)
+  const { plan: after, changed } = applyToAll(plan, 0)
+  ok('4本とも 0 になる', changed === 4 && after.allowancesMm.every((a) => a === 0),
+    after.allowancesMm.join(' / '))
+  ok('「わ」は付かない', after.foldIndex === null, `${after.foldIndex}`)
+  const seam = buildSeam(after)!
+  near('出来上がりのままの幅', seam.widthMm, 200, 2)
+  near('出来上がりのままの丈', seam.heightMm, 300, 2)
 }
 
 console.log('\n■ 辺ごとに違う縫い代 — 裾だけ4cm（学校の図と同じ形）')
@@ -344,7 +360,7 @@ console.log('\n■ ベルトを「わ」で開いて、幅を倍にして裁つ'
   const plan = planOf(stored)
   let longest = 0
   plan.groups.forEach((g, i) => { if (g.lengthMm > plan.groups[longest].lengthMm) longest = i })
-  const belt = { ...stored, allowancesMm: plan.allowancesMm.map((_, i) => (i === longest ? 0 : 10)) }
+  const belt = { ...stored, allowancesMm: plan.groups.map(() => 10), foldEdge: longest }
 
   const closed = placedPartOf(belt)!
   const opened = placedPartOf({ ...belt, openFold: true })!
@@ -830,7 +846,7 @@ function turnChecks() {
 
   // 辺ごとに決めた縫い代が、まわしても同じ辺に残る
   {
-    const withSeam = { ...base, allowancesMm: [10, 0, 25, 15] }
+    const withSeam = { ...base, allowancesMm: [10, 5, 25, 15], foldEdge: 1 }
     const before = planOf(withSeam)
     const after = planOf(withTurn(withSeam, 90))
     ok('まわしても縫い代の並びは同じ',
@@ -838,8 +854,8 @@ function turnChecks() {
       && before.allowancesMm.every((a, i) => a === after.allowancesMm[i]),
       after.allowancesMm.join(' / '))
     ok('まわしても「わ」の辺は同じ番号',
-      before.allowancesMm.indexOf(0) === after.allowancesMm.indexOf(0),
-      `${after.allowancesMm.indexOf(0)} 番`)
+      before.foldIndex === 1 && after.foldIndex === 1,
+      `${after.foldIndex} 番`)
     // 縫い代を足した裁ち切り線も、ちゃんと組み上がる
     ok('まわしても裁ち切り線が引ける', !!placedPartOf(withTurn(withSeam, 33)), 'あり')
   }
@@ -1105,7 +1121,7 @@ function foldFlushChecks() {
       let worst = 0
       let worstNo = 0
       for (let gi = 0; gi < base.groups.length; gi++) {
-        const plan = { ...base, allowancesMm: base.allowancesMm.map((a, i) => (i === gi ? 0 : a)) }
+        const plan = { ...base, foldIndex: gi }
         const r = buildSeam(plan)
         if (!r) { worst = 999; break }
         const out = outsideFold(r.cutLineMm, r.finishedLineMm, base.groups[gi], mm)
@@ -1117,15 +1133,22 @@ function foldFlushChecks() {
   }
 
   {
-    // 「縫い代つき」の辺は折り山ではない。足す量は同じ 0 でも、切りそろえる線は無い
+    /*
+      縫い代 0 の辺は、もう「わ」ではない（依頼者の指示・2026-09-16）。
+      わなら縫い代 0 だが、縫い代 0 だからといってわとは限らない。
+      切りそろえる線が引かれるのは、「わ」に選んだ辺だけ
+    */
     const base = initialPlan([{ x: 0, y: 0 }, { x: 200, y: 60 }, { x: 220, y: 360 }, { x: 0, y: 400 }], 40)
     const g = base.groups[0]
-    const asFold = buildSeam({ ...base, allowancesMm: base.allowancesMm.map((a, i) => (i === 0 ? 0 : a)) })
-    const asIncluded = buildSeam({ ...base, allowancesMm: base.allowancesMm.map((a, i) => (i === 0 ? SEAM_INCLUDED_MM : a)) })
+    const asFold = buildSeam({ ...base, foldIndex: 0 })
+    const asZero = buildSeam({ ...base, allowancesMm: base.allowancesMm.map((a, i) => (i === 0 ? 0 : a)) })
     const a = asFold ? outsideFold(asFold.cutLineMm, asFold.finishedLineMm, g, 40) : 999
-    const b = asIncluded ? outsideFold(asIncluded.cutLineMm, asIncluded.finishedLineMm, g, 40) : 0
-    ok('「縫い代つき」の辺は切りそろえない', a <= 1.0 && b > 2,
-      `わ ${a.toFixed(1)}mm / 縫い代つき ${b.toFixed(1)}mm`)
+    const b = asZero ? outsideFold(asZero.cutLineMm, asZero.finishedLineMm, g, 40) : 0
+    ok('ただ 0 にしただけの辺は切りそろえない', a <= 1.0 && b > 2,
+      `わ ${a.toFixed(1)}mm / 縫い代 0 ${b.toFixed(1)}mm`)
+    ok('ただ 0 にしただけの辺は折り山に数えない',
+      foldGroups({ ...base, allowancesMm: base.allowancesMm.map((x, i) => (i === 0 ? 0 : x)) }).length === 0,
+      '0本')
   }
 }
 

@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CornerPicker, rectifyQuad } from './components/CornerPicker'
-import { Heading, Hint, Icon, Note, type IconName } from './components/Icon'
+import { Hint, Icon, Note, type IconName } from './components/Icon'
 import { HowToCard } from './components/HowToCard'
 import { InstallCard } from './components/InstallCard'
 import { LayoutView } from './components/LayoutView'
@@ -179,8 +179,6 @@ export function App() {
   const [error, setError] = useState<string | null>(null)
   // 取り込んだパーツと生地の設定は端末の中に持つ。何度も撮り足す途中で閉じても消えないように
   const [parts, setParts] = useState<PartsState>(loadParts)
-  /** 取り込もうとしている型紙に、もう縫い代が付いているか */
-  const [seamIncluded, setSeamIncluded] = useState(false)
   /**
    * 開いたときに、前回のパーツが端末に残っていたか（依頼者の指摘・2026-09-01）。
    *
@@ -577,7 +575,7 @@ export function App() {
     const added = shown.parts
       .filter((p) => !excluded.has(p.id))
       .map((p, i) =>
-        toStored(p.outlineMm, p.widthMm, p.heightMm, left.length + i, seamIncluded),
+        toStored(p.outlineMm, p.widthMm, p.heightMm, left.length + i),
       )
     updateParts({
       ...parts,
@@ -730,7 +728,7 @@ export function App() {
             {step === 'layout'
               ? '生地の幅を決めて、型紙を並べる'
               : step === 'parts'
-                ? seamIncluded ? 'わの辺を決める' : '縫い代を付ける'
+                ? '縫い代を付ける'
                 : '実寸をつかむ'}
           </span>
         </div>
@@ -1433,54 +1431,16 @@ export function App() {
             )}
 
             {/*
-              持ってくる型紙は、出来上がり線で切ってあるとは限らない（依頼者の指摘）。
-              先にここで聞いておけば、縫い代を足す画面は要る人にだけ出せる
+              ここには「この写真の型紙は、縫い代なし／縫い代つき、どちらですか」という
+              二択があった。外した（依頼者の指示・2026-09-16）。
+
+              何が変わる質問なのかは、縫い代の画面を一度も見ないうちには分からない。
+              しかも押し間違えると縫い代が1mmも足されないまま進み、用尺が短く出て
+              **生地が足りなくなる**。間違いの重さが2つの選択肢で釣り合っていなかった。
+
+              いまは縫い代の画面で「まとめて 0cm」にすれば同じことが表せる。
+              図と数字を目の前にした場所で決められるので、間違いようがない
             */}
-            <div data-tour="result-seam" className="flex flex-col gap-3 rounded-xl border border-ink-100 bg-white px-4 py-4">
-              {/* 問いかけには「？」を付ける。答えを選ぶところだと、読む前に分かる */}
-              {/*
-                これは**写真ぜんぶに効く1つの設定**で、型紙ごとには持っていない。
-                3枚のカードの下にひとつだけ出ていたので、
-                「3枚まとめての質問なのか、いま開いている1枚の質問なのか」
-                分からなかった、という報告があった（学生の点検・2026-09-02）
-              */}
-              <Heading icon="question">この写真の型紙は、どちらですか</Heading>
-              <p className="-mt-1.5 text-xs text-ink-300">
-                <T id="ruler.seam.scope" />
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setSeamIncluded(false)}
-                  className={`rounded-lg px-3 py-3 text-left ${
-                    seamIncluded ? 'border border-ink-100' : 'bg-mat-500 text-white'
-                  }`}
-                >
-                  <span className="flex items-center gap-1.5 text-sm font-bold">
-                    <Icon name="seam" className="h-4 w-4 shrink-0" />
-                    縫い代なし
-                  </span>
-                  <span className={`block pt-0.5 text-xs ${seamIncluded ? 'text-ink-500' : 'text-mat-50'}`}>
-                    出来上がり線。次の画面で縫い代を足します
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSeamIncluded(true)}
-                  className={`rounded-lg px-3 py-3 text-left ${
-                    seamIncluded ? 'bg-mat-500 text-white' : 'border border-ink-100'
-                  }`}
-                >
-                  <span className="flex items-center gap-1.5 text-sm font-bold">
-                    <Icon name="scissors" className="h-4 w-4 shrink-0" />
-                    縫い代つき
-                  </span>
-                  <span className={`block pt-0.5 text-xs ${seamIncluded ? 'text-mat-50' : 'text-ink-500'}`}>
-                    このまま裁てる線。足しません
-                  </span>
-                </button>
-              </div>
-            </div>
 
             {/*
               同じ写真から二度目の取り込み（依頼者の指示・2026-09-01）。
